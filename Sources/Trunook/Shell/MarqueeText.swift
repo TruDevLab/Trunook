@@ -1,0 +1,70 @@
+import SwiftUI
+import AppKit
+
+enum TextMeasure {
+    /// Ширина строки до вёрстки. Нужна, чтобы заранее решить, поместится ли
+    /// текст и какой ширины делать плашку.
+    static func width(_ string: String, font: NSFont) -> CGFloat {
+        (string as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+    }
+}
+
+/// Однострочный текст, который едет справа налево, если не помещается.
+///
+/// Когда текст умещается — он просто центрируется, без движения: бегущая
+/// строка там, где она не нужна, только раздражает.
+///
+/// Смещение вычисляется из времени, а не хранится в состоянии представления.
+/// Причина практическая: `@State` в этом SDK реализован макросом, а плагин
+/// `SwiftUIMacros` поставляется только с Xcode, которого на машине нет.
+/// Побочная выгода — прокрутка не сбивается, когда родитель перерисовывается:
+/// точка отсчёта привязана к моменту появления события, а не к жизни вьюхи.
+struct MarqueeText: View {
+    let text: String
+    let font: NSFont
+    let availableWidth: CGFloat
+    /// Момент, от которого отсчитывается прокрутка.
+    let startDate: Date
+
+    /// Промежуток между концом строки и началом её копии.
+    var gap: CGFloat = 36
+    /// Точек в секунду.
+    var speed: CGFloat = 42
+    /// Пауза перед началом движения, чтобы успеть прочитать начало.
+    var startDelay: TimeInterval = 0.5
+
+    private var textWidth: CGFloat { TextMeasure.width(text, font: font) }
+    private var needsScroll: Bool { textWidth > availableWidth + 0.5 }
+
+    var body: some View {
+        if needsScroll {
+            TimelineView(.animation) { context in
+                // Вторая копия строки идёт следом, чтобы прокрутка была бесшовной.
+                HStack(spacing: gap) {
+                    label
+                    label
+                }
+                .offset(x: offset(at: context.date))
+            }
+            .frame(width: availableWidth, alignment: .leading)
+            .clipped()
+        } else {
+            label
+                .frame(width: availableWidth, alignment: .center)
+        }
+    }
+
+    private var label: some View {
+        Text(text)
+            .font(Font(font))
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private func offset(at date: Date) -> CGFloat {
+        let elapsed = max(0, date.timeIntervalSince(startDate) - startDelay)
+        let distance = textWidth + gap
+        guard distance > 0 else { return 0 }
+        return -CGFloat((elapsed * Double(speed)).truncatingRemainder(dividingBy: Double(distance)))
+    }
+}

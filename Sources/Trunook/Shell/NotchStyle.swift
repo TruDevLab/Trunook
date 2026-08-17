@@ -1,0 +1,67 @@
+import CoreGraphics
+
+/// Размеры, общие для всех панелей выреза.
+///
+/// Раньше каждое число подбиралось по месту и по месту же оставалось:
+/// скругления 8, 9, 10 и 22 точки, высоты строк 26, 34, 66 и 78, поля 6, 8,
+/// 11, 12 и 16. Пока панелей было три, это не мешало; на седьмой панели
+/// подбирать числа заново стало дороже, чем договориться один раз.
+///
+/// Смысл не в единообразии ради единообразия: новая панель должна вставать
+/// в общий ритм сама, без сверки со снимками соседних.
+enum NotchStyle {
+    /// Отступ содержимого от краёв панели по горизонтали.
+    static let panelPadding: CGFloat = 16
+    /// Между чёлкой и первой строкой содержимого.
+    static let topGap: CGFloat = 8
+    /// Под последней строкой.
+    static let bottomPadding: CGFloat = 12
+
+    /// Шапка панели: значок, название, действия справа.
+    static let headerHeight: CGFloat = 26
+
+    /// Шаг между плитками и строками.
+    static let gridSpacing: CGFloat = 8
+    /// Между строками списка теснее, чем между плитками: строки читаются
+    /// подряд, а плитки — по отдельности.
+    static let rowSpacing: CGFloat = 3
+
+    /// Скругление плитки внутри панели.
+    static let tileRadius: CGFloat = 9
+    /// Скругление строки списка.
+    static let rowRadius: CGFloat = 8
+    /// Нижние углы самой панели.
+    static let panelRadius: CGFloat = 22
+
+    /// Подложка плитки и строки — та же плотность, что у круглых кнопок:
+    /// они лежат рядом, и разная читалась как небрежность.
+    static let tileFill = NotchButtonStyle.restingFill
+    /// Она же под курсором.
+    static let tileFillHover: Double = 0.15
+
+    // MARK: Прозрачности текста
+    //
+    // Четыре ступени вместо десятка случайных значений: заголовок, основной
+    // текст, подпись, служебное.
+
+    static let titleOpacity: Double = 0.75
+    static let primaryOpacity: Double = 0.92
+    static let secondaryOpacity: Double = 0.45
+    static let tertiaryOpacity: Double = 0.3
+
+    // MARK: Размеры текста
+
+    static let headerFontSize: CGFloat = 11
+    static let rowFontSize: CGFloat = 11.5
+    static let captionFontSize: CGFloat = 9.5
+    static let hintFontSize: CGFloat = 8.5
+
+    /// Высота панели: чёлка, содержимое, нижнее поле.
+    ///
+    /// Шапки в расчёте нет: она живёт в крыльях по бокам от чёлки, в полосе,
+    /// которая всё равно закрашена. Это ровно та строка, на которую панели
+    /// стали ниже.
+    static func height(notchHeight: CGFloat, contentHeight: CGFloat) -> CGFloat {
+        notchHeight + topGap + contentHeight + bottomPadding
+    }
+}
