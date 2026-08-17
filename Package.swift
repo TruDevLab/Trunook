@@ -1,15 +1,38 @@
 // swift-tools-version: 6.0
+import Foundation
 import PackageDescription
 
-// Xcode на этой машине нет, только Command Line Tools, и у них макросы
-// swift-testing лежат на уровень глубже, чем компилятор ищет по умолчанию:
-// в `plugins/testing`, а не в `plugins`. Без этого пути `@Test`
-// не раскрывается — «plugin for module 'TestingMacros' not found».
+// Тесты собираются и без Xcode. У Command Line Tools макросы swift-testing
+// лежат на уровень глубже, чем компилятор ищет по умолчанию: в
+// `plugins/testing`, а не в `plugins`. Без этого пути `@Test` не
+// раскрывается — «plugin for module 'TestingMacros' not found».
+//
+// Пути добавляются, только если эта раскладка на машине действительно есть:
+// у того, кто собирает с Xcode, макросы и фреймворк лежат внутри Xcode.app,
+// и жёстко прописанный путь ломал бы ему сборку тестов.
 let toolsRoot = "/Library/Developer/CommandLineTools"
-let testingFlags: [String] = [
-    "-plugin-path", "\(toolsRoot)/usr/lib/swift/host/plugins/testing",
-    "-F", "\(toolsRoot)/Library/Developer/Frameworks",
-]
+let usesCommandLineTools = FileManager.default.fileExists(
+    atPath: "\(toolsRoot)/usr/lib/swift/host/plugins/testing"
+)
+
+let testingSwiftSettings: [SwiftSetting] = usesCommandLineTools
+    ? [.unsafeFlags([
+        "-plugin-path", "\(toolsRoot)/usr/lib/swift/host/plugins/testing",
+        "-F", "\(toolsRoot)/Library/Developer/Frameworks",
+      ])]
+    : []
+
+let testingLinkerSettings: [LinkerSetting] = usesCommandLineTools
+    ? [.unsafeFlags([
+        "-F", "\(toolsRoot)/Library/Developer/Frameworks",
+        // `-F` — чтобы слинковалось, `-rpath` — чтобы нашлось при запуске.
+        "-Xlinker", "-rpath",
+        "-Xlinker", "\(toolsRoot)/Library/Developer/Frameworks",
+        // Testing.framework тянет ещё одну библиотеку из третьего места.
+        "-Xlinker", "-rpath",
+        "-Xlinker", "\(toolsRoot)/Library/Developer/usr/lib",
+      ])]
+    : []
 
 let package = Package(
     name: "Trunook",
@@ -39,18 +62,8 @@ let package = Package(
         .testTarget(
             name: "TrunookTests",
             dependencies: ["Trunook", "TrunookXPC"],
-            swiftSettings: [.swiftLanguageMode(.v5), .unsafeFlags(testingFlags)],
-            // `-F` — чтобы слинковалось, `-rpath` — чтобы нашлось при запуске:
-            // Testing.framework лежит внутри Command Line Tools, а не в системе.
-            linkerSettings: [.unsafeFlags([
-                "-F", "\(toolsRoot)/Library/Developer/Frameworks",
-                "-Xlinker", "-rpath",
-                "-Xlinker", "\(toolsRoot)/Library/Developer/Frameworks",
-                // Сам Testing.framework тянет ещё одну библиотеку, и лежит
-                // она в третьем месте — путей нужно два.
-                "-Xlinker", "-rpath",
-                "-Xlinker", "\(toolsRoot)/Library/Developer/usr/lib",
-            ])]
+            swiftSettings: [.swiftLanguageMode(.v5)] + testingSwiftSettings,
+            linkerSettings: testingLinkerSettings
         ),
     ]
 )
