@@ -178,24 +178,30 @@ struct WelcomeView: View {
     // MARK: Шаг 2 — управление
 
     private var gesturesStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             stepTitle(t("Как этим пользоваться"), subtitle: t("Вырез не отбирает фокус: активное приложение остаётся активным."))
-            VStack(spacing: 8) {
-                gesture("cursorarrow.rays", t("Наведите курсор на вырез"),
-                        t("Мини-вид: что играет и когда ближайшая встреча"))
-                gesture("hand.tap.fill", t("Нажмите или потяните вниз"),
-                        t("Панель целиком — перемотка, задачи на сегодня, кнопки встречи. Свайп вверх сворачивает её обратно"))
-                gesture("cursorarrow.click.badge.clock", t("Правая кнопка"),
-                        t("Меню всех функций: главный экран, команды, буфер, полка"))
-                gesture("arrow.left.arrow.right", t("Свайп двумя пальцами"),
-                        t("Предыдущий и следующий трек, не убирая курсор с выреза"))
-                menuHotKeyRow
-                clipboardHotKeyRow
-                shelfHotKeyRow
-                gesture("pawprint.fill", t("Погладьте чёлку"),
-                        t("Поводите курсором из стороны в сторону — вырез замурчит"))
-                gesture("arrow.down.left", t("Уведите курсор"),
-                        t("Вырез свернётся сам — закрывать ничего не нужно"))
+            // Прокрутка — страховка, а не задумка: строк девять, и каждая
+            // новая раньше выдавливала содержимое за края окна в обе стороны.
+            // Список должен помещаться и без прокрутки, но если не поместится,
+            // пусть лучше прокручивается, чем обрезает кнопки.
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 6) {
+                    gesture("cursorarrow.rays", t("Наведите курсор на вырез"),
+                            t("Мини-вид: что играет и когда ближайшая встреча"))
+                    gesture("hand.tap.fill", t("Нажмите или потяните вниз"),
+                            t("Панель целиком. Свайп вверх сворачивает её обратно"))
+                    gesture("cursorarrow.click.badge.clock", t("Правая кнопка"),
+                            t("Меню всех функций: главный экран, команды, буфер, полка"))
+                    gesture("arrow.left.arrow.right", t("Свайп двумя пальцами"),
+                            t("Предыдущий и следующий трек, не убирая курсор с выреза"))
+                    menuHotKeyRow
+                    clipboardHotKeyRow
+                    shelfHotKeyRow
+                    gesture("pawprint.fill", t("Погладьте чёлку"),
+                            t("Поводите курсором из стороны в сторону — вырез замурчит"))
+                    gesture("arrow.down.left", t("Уведите курсор"),
+                            t("Вырез свернётся сам — закрывать ничего не нужно"))
+                }
             }
         }
     }
@@ -230,7 +236,7 @@ struct WelcomeView: View {
                 .frame(width: 132, height: 26)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .padding(.vertical, 8)
         }
     }
 
@@ -263,7 +269,7 @@ struct WelcomeView: View {
                 .frame(width: 132, height: 26)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .padding(.vertical, 8)
         }
     }
 
@@ -295,13 +301,13 @@ struct WelcomeView: View {
                 .frame(width: 132, height: 26)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .padding(.vertical, 8)
         }
     }
 
     private var shelfHint: String {
         settings.shelfEnabled
-            ? t("Ведите файлы на чёлку — они лягут на полку. Обратно перетаскиванием: файл переезжает насовсем")
+            ? t("Ведите файлы на чёлку. Обратно — перетаскиванием, насовсем")
             : t("Приём файлов выключен в настройках")
     }
 
@@ -338,7 +344,7 @@ struct WelcomeView: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .padding(.vertical, 8)
         }
     }
 
@@ -444,7 +450,7 @@ struct WelcomeView: View {
                 .tint(WelcomePalette.cyan)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .padding(.vertical, 8)
         }
     }
 
@@ -473,7 +479,7 @@ struct WelcomeView: View {
                 .buttonStyle(WelcomeGhostButton())
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .padding(.vertical, 8)
         }
     }
 

@@ -295,7 +295,6 @@
 "Файлы и папки" = "Files and Folders";
 "Полке — чтобы показать миниатюру и размер файла с рабочего стола или из документов." = "For the shelf: to show a thumbnail and size for files from your Desktop or Documents.";
 "Полка для файлов" = "File shelf";
-"Ведите файлы на чёлку — они лягут на полку. Обратно перетаскиванием: файл переезжает насовсем" = "Drag files onto the notch and they land on the shelf. Drag them back off and the file moves for good";
 "Приём файлов выключен в настройках" = "Accepting files is turned off in settings";
 "Файл на чёлку — он ложится на полку" = "Drag a file to the notch — it lands on the shelf";
 "Плашка помнит, что файлы отложены" = "The chip remembers the files are waiting";
@@ -303,7 +302,6 @@
 "⌥⌘Space — быстрые команды" = "⌥⌘Space — quick commands";
 "Ответ модели пишется прямо в вырезе" = "The model's answer is written right in the notch";
 "Нажмите или потяните вниз" = "Click, or pull down";
-"Панель целиком — перемотка, задачи на сегодня, кнопки встречи. Свайп вверх сворачивает её обратно" = "The full panel — playback, today's tasks, meeting buttons. Swipe up to fold it back";
 "Всё сразу" = "Everything";
 "Главный экран" = "Main panel";
 "Завершить %@" = "Quit %@";
@@ -338,3 +336,5 @@
 "Спросите что угодно" = "Ask anything";
 "Вопрос" = "Question";
 "Меню всех функций: главный экран, команды, буфер, полка" = "The menu of everything: main panel, commands, clipboard, shelf";
+"Панель целиком. Свайп вверх сворачивает её обратно" = "The full panel. Swipe up to fold it back";
+"Ведите файлы на чёлку. Обратно — перетаскиванием, насовсем" = "Drag files onto the notch. Drag them off and they move for good";
