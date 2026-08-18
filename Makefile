@@ -70,19 +70,44 @@ stop:
 probe: bundle
 	@$(HELPER)/Contents/MacOS/TrunookHelper --probe
 
-## Образ для установки: приложение и ярлык на Программы
+## Образ для установки: приложение, ярлык на Программы и обставленное окно
+##
+## Собирается в два захода: сначала изменяемый образ, который монтируется
+## и обставляется через Finder, потом сжатый. Иначе никак — раскладка окна
+## живёт в .DS_Store, а пишет его только Finder.
+VOLUME := $(APP) $(VERSION)
+RWDMG  := $(BUILDDIR)/$(APP)-rw.dmg
+
 dmg: bundle
-	@rm -rf $(BUILDDIR)/dmg "$(DMG)"
-	@mkdir -p $(BUILDDIR)/dmg
+	@# Оставшийся с прошлого неудачного захода том иначе примонтируется
+	@# вторым, под именем с единицей на конце, и обставится не он.
+	@hdiutil detach -quiet "/Volumes/$(VOLUME)" 2>/dev/null || true
+	@rm -rf $(BUILDDIR)/dmg "$(DMG)" "$(RWDMG)"
+	@mkdir -p $(BUILDDIR)/dmg/.background
 	@cp -R $(BUNDLE) $(BUILDDIR)/dmg/
 	@ln -s /Applications $(BUILDDIR)/dmg/Applications
 	@# Приложение подписано самодельным сертификатом, поэтому на чужой машине
 	@# Gatekeeper его отклоняет. Инструкция по снятию карантина едет в образе.
 	@cp Resources/dmg-readme.txt "$(BUILDDIR)/dmg/Как установить.txt"
-	@hdiutil create -quiet -volname "$(APP) $(VERSION)" -srcfolder $(BUILDDIR)/dmg \
-		-ov -format UDZO "$(DMG)"
-	@rm -rf $(BUILDDIR)/dmg
+	@# Пустой .fseventsd с меткой no_log: иначе система заводит его сама
+	@# при монтировании, и он остаётся в образе лишней видимой папкой.
+	@mkdir -p $(BUILDDIR)/dmg/.fseventsd
+	@touch $(BUILDDIR)/dmg/.fseventsd/no_log
+	@# Фон рисуется кодом и сшивается в один tiff: Finder сам берёт из него
+	@# нужное разрешение, и на ретине картинка не мылится.
+	@swift scripts/make-dmg-background.swift $(VERSION)
+	@tiffutil -cathidpicheck build/dmg-background.png build/dmg-background@2x.png \
+		-out $(BUILDDIR)/dmg/.background/background.tiff >/dev/null
+	@hdiutil create -quiet -volname "$(VOLUME)" -srcfolder $(BUILDDIR)/dmg \
+		-fs HFS+ -format UDRW -ov "$(RWDMG)"
+	@hdiutil attach -quiet -noverify -noautoopen "$(RWDMG)"
+	@osascript scripts/dmg-window.applescript "$(VOLUME)"
+	@sync
+	@hdiutil detach -quiet "/Volumes/$(VOLUME)"
+	@hdiutil convert -quiet "$(RWDMG)" -format UDZO -imagekey zlib-level=9 -o "$(DMG)"
+	@rm -rf $(BUILDDIR)/dmg "$(RWDMG)"
 	@echo "образ собран: $(DMG)"
+	@shasum -a 256 "$(DMG)"
 
 ## Перерисовать иконку приложения
 icon:
