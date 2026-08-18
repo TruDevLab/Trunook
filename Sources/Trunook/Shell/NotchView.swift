@@ -170,7 +170,7 @@ struct NotchView: View {
 
     private var shape: NotchShape {
         NotchShape(
-            topRadius: isOpen ? 12 : 8,
+            topRadius: isOpen ? NotchStyle.shoulderInset : 8,
             bottomRadius: {
                 switch presentation {
                 case .expanded, .commands, .clipboard, .assistant, .shelf, .hub: return 22

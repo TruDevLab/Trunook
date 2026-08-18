@@ -3,8 +3,12 @@ import AppKit
 import SwiftUI
 import Combine
 
-/// Держит окно над вырезом, решает когда его раскрывать и связывает
-/// источники событий с представлением.
+/// Связывает источники событий с представлением.
+///
+/// Сам он ни за окном, ни за жестами, ни за накладками уже не следит:
+/// окно держит `NotchWindowHost`, руку слушает `NotchInput`, порядок накладок
+/// хранит `OverlayRouter`. Здесь остаётся то, ради чего эти трое существуют, —
+/// службы и решения о том, что показать.
 final class NotchController {
     let music = MusicClient()
     let activities = ActivityCenter()
@@ -29,58 +33,18 @@ final class NotchController {
     private let settings: Settings
     private let state = NotchState()
 
-    private var window: NotchWindow?
-    private var hostingView: NotchHostingView<NotchView>?
-    private var geometry: NotchGeometry?
-    private var metrics: NotchMetrics?
+    private let host = NotchWindowHost()
+    private let router: OverlayRouter
+    private let input: NotchInput
+    private let purr: PurrEffects
 
-    private let petting = PettingDetector()
-    private let purr = PurrPlayer()
-
-    private var monitors: [Any] = []
-    private var pollTimer: Timer?
     private var swipeResetTimer: Timer?
-    private var purrHapticTimer: Timer?
-    private var trembleTimer: Timer?
     private var calendarObservation: AnyCancellable?
     private var thingsObservation: AnyCancellable?
-
-    /// Гистерезис: раскрываем по узкой зоне выреза, а закрываем только когда
-    /// курсор ушёл за пределы всей раскрытой панели. Иначе панель дёргается.
-    private var openTriggerRect: CGRect = .zero
-    private var closeTriggerRect: CGRect = .zero
-
-    // Накопитель горизонтального смещения для свайпа двумя пальцами.
-    private var swipeOffset: CGFloat = 0
-    /// Накопитель вертикального: им панель вытягивают из мини-вида.
-    private var pullOffset: CGFloat = 0
-    private var swipeReadyAt = Date.distantPast
-    /// Когда последний раз приходило событие прокрутки: по молчанию гасим
-    /// незавершённый жест.
-    private var lastSwipeEventAt = Date.distantPast
-
-    /// Накладка закрывается по уходу курсора, но только после того, как он
-    /// в неё хоть раз зашёл: вызванная клавишей иначе схлопнулась бы сразу,
-    /// ведь курсор в этот момент где угодно.
-    private var overlayCursorEntered = false
-
-    /// До какого момента отладочное раскрытие держится вопреки курсору.
-    private var debugHoldUntil = Date.distantPast
 
     /// Плашку полки убрали крестиком. Держится до следующего файла:
     /// человек уже знает, что на полке лежит.
     private var shelfChipDismissed = false
-
-    /// Порог срабатывания свайпа в точках и пауза между переключениями.
-    private static let swipeThreshold: CGFloat = 45
-    private static let swipeCooldown: TimeInterval = 0.6
-    /// Через сколько молчания незавершённый свайп считается брошенным.
-    private static let swipeIdleTimeout: TimeInterval = 0.25
-
-    /// Порог вытягивания панели вниз. Ниже, чем у переключения трека:
-    /// раскрытие обратимо — достаточно увести курсор, — а промахнуться
-    /// мимо трека дороже.
-    private static let pullThreshold: CGFloat = 28
 
     /// На сколько точек зона приёма спускается ниже чёлки.
     ///
@@ -89,19 +53,25 @@ final class NotchController {
     /// Отменить жест нечем, поэтому файл принимается заметно ниже кромки —
     /// вести к самому краю не нужно вовсе.
     ///
-    /// Платой идут нажатия, съеденные в этой полосе под чёлкой: окно,
-    /// принимающее файлы, не может быть прозрачным для мыши.
+    /// Раньше за эту полосу платили нажатиями: окно, принимающее файлы,
+    /// не может быть прозрачным для мыши, и 185×128 точек под чёлкой
+    /// не нажимались никогда. Теперь окно оживает только на время
+    /// перетаскивания, и платы больше нет.
     private static let dropStripReach: CGFloat = 96
 
     init(settings: Settings = .shared) {
         self.settings = settings
+        router = OverlayRouter(state: state, host: host)
+        input = NotchInput(state: state, settings: settings, host: host)
+        purr = PurrEffects(state: state)
     }
 
     func start() {
         installShelf()
-        rebuild()
-        installMouseTracking()
-        installPetting()
+        installHost()
+        installInput()
+        // Окно строится после того, как хост узнал, из чего собирать вёрстку.
+        host.rebuild()
         connectSources()
 
         NotificationCenter.default.addObserver(
@@ -113,15 +83,10 @@ final class NotchController {
     }
 
     func stop() {
-        pollTimer?.invalidate()
-        pollTimer = nil
+        input.stop()
         swipeResetTimer?.invalidate()
         swipeResetTimer = nil
-        stopPurrHaptics()
-        stopTremble()
         purr.shutdown()
-        monitors.forEach { NSEvent.removeMonitor($0) }
-        monitors.removeAll()
         HotKeyCenter.shared.stop()
         battery.stop()
         music.stop()
@@ -134,12 +99,49 @@ final class NotchController {
         calendarObservation = nil
         thingsObservation = nil
         shelfDrop.hide()
-        window?.orderOut(nil)
-        window = nil
+        host.hide()
     }
 
     @objc private func screensChanged() {
-        rebuild()
+        host.rebuild()
+    }
+
+    // MARK: - Сборка узлов
+
+    private func installHost() {
+        host.makeRoot = { [weak self] metrics in self?.makeRootView(metrics: metrics) }
+        host.contentSize = { [weak self] metrics in self?.notchSnapshot.size(metrics: metrics) ?? .zero }
+        host.onRightClick = { [weak self] in self?.openHub() }
+        host.onRebuild = { [weak self] geometry, metrics in
+            self?.rebuildShelfDrop(geometry: geometry, metrics: metrics)
+        }
+        router.onChange = { [weak self] overlay in self?.applyOverlay(overlay) }
+    }
+
+    private func installInput() {
+        input.onHoverChanged = { [weak self] hovered in self?.setHovered(hovered) }
+        input.onExpand = { [weak self] in self?.expandPanel() }
+        input.onCollapse = { [weak self] in self?.collapsePanel() }
+        input.onSwipe = { [weak self] direction in self?.performSwipe(direction) }
+        input.onOverlayHover = { [weak self] location in self?.router.updateHover(at: location) }
+        input.onDismissOverlay = { [weak self] in self?.router.close() }
+        // Зона приёма файлов оживает только пока что-то тащат: в покое она
+        // прозрачна для мыши и не ест нажатия по тому, что под чёлкой.
+        input.onDragChanged = { [weak self] dragging in self?.shelfDrop.isArmed = dragging }
+        // То, что пересчитывается по времени, а не по событию.
+        input.onTick = { [weak self] in
+            self?.updateCountdown()
+            self?.host.updateInteractiveRect()
+        }
+        input.onPettingStart = { [weak self] in
+            DebugLog.write("вырез гладят — мурчим")
+            self?.purr.start()
+        }
+        input.onPettingStop = { [weak self] in
+            DebugLog.write("гладить перестали")
+            self?.purr.stop()
+        }
+        input.start()
     }
 
     // MARK: - Источники событий
@@ -248,13 +250,13 @@ final class NotchController {
         if let menu = settings.menuHotKey {
             HotKeyCenter.shared.register(menu, name: "меню команд") { [weak self] in
                 guard self?.settings.quickCommandsEnabled == true else { return }
-                self?.toggleCommands()
+                self?.router.toggle(.commands)
             }
         }
 
         if settings.clipboardEnabled, let clipboardKey = settings.clipboardHotKey {
             HotKeyCenter.shared.register(clipboardKey, name: "история буфера") { [weak self] in
-                self?.toggleClipboard()
+                self?.router.toggle(.clipboard)
             }
         }
 
@@ -309,29 +311,34 @@ final class NotchController {
     /// не переключатель: панель уже открыта, и «спрятать» здесь означает
     /// вернуться назад, для чего есть своя кнопка.
     func openCommands() {
-        guard !state.isCommandsOpen else { return }
-        toggleCommands()
+        router.set(.commands)
+    }
+
+    func closeCommands() {
+        guard state.isCommandsOpen else { return }
+        router.close()
     }
 
     /// Отладочные входы: горячую клавишу из скрипта не нажать.
-    func debugToggleCommands() { toggleCommands() }
+    func debugToggleCommands() { router.toggle(.commands) }
 
     func debugRunSlot(_ index: Int) {
         guard let command = settings.quickCommands.first(where: { $0.id == index }) else { return }
         run(command)
     }
 
-    private func toggleCommands() {
-        setOverlay(state.isCommandsOpen ? nil : .commands)
+    private func run(_ command: QuickCommand) {
+        router.close()
+        // Меню закрывается до запуска: команда может читать выделенный текст,
+        // а для этого активным должно остаться прежнее приложение.
+        commands.run(command)
     }
 
-    /// Единая точка смены накладки: меню команд и история буфера занимают
-    /// одно место, и открытие одного обязано закрывать другое.
-    private func setOverlay(_ overlay: NotchState.Overlay?) {
-        guard state.overlay != overlay else { return }
-        state.overlay = overlay
-        overlayCursorEntered = false
-        DebugLog.write("накладка: \(overlay.map(Self.name(of:)) ?? "закрыта")")
+    // MARK: - Накладки
+
+    /// Побочные действия смены накладки. Само решение приняли в `OverlayRouter`,
+    /// здесь — только то, что требует служб.
+    private func applyOverlay(_ overlay: NotchState.Overlay?) {
         if overlay != nil {
             Haptics.tap()
             activities.dismiss()
@@ -344,17 +351,7 @@ final class NotchController {
         // было бы издевательством.
         shelfDrop.isPinnedOpen = overlay == .shelf
         updateWindowInteractivity()
-        updateInteractiveRect()
-    }
-
-    private static func name(of overlay: NotchState.Overlay) -> String {
-        switch overlay {
-        case .commands: return "меню команд"
-        case .clipboard: return "история буфера"
-        case .assistant: return "ответ модели"
-        case .shelf: return "полка"
-        case .hub: return "меню функций"
-        }
+        host.updateInteractiveRect()
     }
 
     /// Окно ловит мышь, только когда на экране есть во что попадать.
@@ -362,31 +359,9 @@ final class NotchController {
     /// Плашка копирования тоже считается: по ней нажимают, чтобы открыть
     /// историю, а прозрачное для нажатий окно этого не позволило бы.
     private func updateWindowInteractivity() {
-        window?.ignoresMouseEvents = state.overlay == nil
+        host.ignoresMouseEvents = state.overlay == nil
             && !state.isHovered
             && activities.current?.isInteractive != true
-    }
-
-    /// Курсор зашёл в накладку и вышел — закрываем.
-    private func updateOverlayHover(at location: CGPoint) {
-        guard let window else { return }
-
-        // Полка живёт по другому правилу, чем остальные накладки: она
-        // закрывается щелчком мимо себя, а не уходом курсора. С ней работают
-        // руками — тащат файлы внутрь и наружу, — и курсор при этом заведомо
-        // выходит за её границы. Закрытие по уходу отнимало бы её ровно
-        // в тот момент, ради которого она открыта.
-        //
-        // Щелчок мимо ловит глобальный монитор нажатий: он срабатывает только
-        // на события, ушедшие в чужое приложение, то есть ровно на «мимо».
-        guard !state.isShelfOpen else { return }
-
-        let inside = overlayRect(in: window).contains(location)
-        if inside {
-            overlayCursorEntered = true
-        } else if overlayCursorEntered {
-            setOverlay(nil)
-        }
     }
 
     /// Состояние выреза глазами контроллера. Тот же расчёт, что и в вёрстке:
@@ -412,22 +387,76 @@ final class NotchController {
         ).resolve()
     }
 
-    /// Прямоугольник накладки в координатах экрана.
-    private func overlayRect(in window: NotchWindow) -> CGRect {
-        guard let metrics, state.overlay != nil else { return .zero }
-        let size = notchSnapshot.size(metrics: metrics)
-        let frame = window.frame
-        return CGRect(
-            x: frame.midX - size.width / 2,
-            y: frame.maxY - size.height,
-            width: size.width,
-            height: size.height
-        )
+    // MARK: - Наведение и раскрытие
+
+    private func setHovered(_ hovered: Bool) {
+        DebugLog.write("вырез \(hovered ? "показан мини-вид" : "свёрнут")")
+        state.isHovered = hovered
+        // Панель ловит мышь только когда видна пользователю. В остальных
+        // состояниях окно прозрачно для нажатий.
+        updateWindowInteractivity()
+
+        if hovered {
+            state.hoverStartedAt = Date()
+            Haptics.tap()
+            music.refresh()
+            // Задачу заводят и тут же открывают вырез посмотреть, появилась ли
+            // она: опроса раз в минуту для такого сценария мало.
+            things.refresh()
+            // Мини-вид важнее досматривания всплывшего события — но плашку,
+            // по которой нажимают, наведение убирать не смеет: до неё тогда
+            // было бы физически не дотянуться курсором.
+            if activities.current?.isInteractive != true {
+                activities.dismiss()
+            }
+        } else {
+            // Курсор ушёл — фиксация раскрытия снимается.
+            state.isPinnedOpen = false
+            state.swipe = nil
+        }
+        host.updateInteractiveRect()
     }
 
-    func closeCommands() {
-        guard state.isCommandsOpen else { return }
-        setOverlay(nil)
+    /// Нажатие только раскрывает — свернуть можно уводом курсора.
+    ///
+    /// Переключение туда-обратно было бы опаснее: в раскрытом виде нажатие
+    /// по кнопке перемотки рискует продублироваться нажатием по панели,
+    /// и трек переключался бы вместе со схлопыванием.
+    private func expandPanel() {
+        guard state.isHovered, !state.isPinnedOpen else { return }
+        state.isPinnedOpen = true
+        DebugLog.write("панель раскрыта полностью")
+        Haptics.tap(.levelChange)
+        host.updateInteractiveRect()
+    }
+
+    /// Свернуть раскрытую панель обратно в мини-вид, не уводя курсор.
+    private func collapsePanel() {
+        guard state.isPinnedOpen else { return }
+        state.isPinnedOpen = false
+        Haptics.tap(.levelChange)
+        host.updateInteractiveRect()
+    }
+
+    /// Свайп довели до порога: переключаем трек и показываем это в вырезе.
+    private func performSwipe(_ direction: SwipeDirection) {
+        DebugLog.write("свайп: \(direction == .next ? "следующий" : "предыдущий") трек")
+        Haptics.tap(.levelChange)
+        music.send(direction == .next ? .nextTrack : .previousTrack)
+
+        state.swipe = direction
+        swipeResetTimer?.invalidate()
+        // Пауза подобрана под задержку MediaRemote: клиент перечитывает трек
+        // через 0.3 с после команды, так что к моменту возврата в мини-вид
+        // название уже новое, а не то, с которого свайпнули.
+        let timer = Timer(timeInterval: 0.55, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.state.swipe = nil
+            // Заново отсчитываем бегущую строку — у нового трека своё название.
+            self.state.hoverStartedAt = Date()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        swipeResetTimer = timer
     }
 
     // MARK: - Ответ модели
@@ -440,7 +469,7 @@ final class NotchController {
             prompt: prompt,
             target: NSWorkspace.shared.frontmostApplication
         )
-        setOverlay(.assistant)
+        router.set(.assistant)
     }
 
     /// Кнопка «спросить» на главной панели. В отличие от команды здесь нет
@@ -448,7 +477,7 @@ final class NotchController {
     func askAssistant() {
         guard settings.ollamaEnabled else { return }
         assistant.ask(target: NSWorkspace.shared.frontmostApplication)
-        setOverlay(.assistant)
+        router.set(.assistant)
         // Поле ввода требует клавиатуры, а панель по умолчанию фокус
         // не забирает: забираем явно, как и для встречного вопроса.
         composeFollowUp()
@@ -468,17 +497,17 @@ final class NotchController {
 
     /// Встречный вопрос требует клавиатуры, а панель по умолчанию фокус
     /// не забирает. Забираем явно — и возвращаем его обратно при закрытии.
-    fileprivate func composeFollowUp() {
+    private func composeFollowUp() {
         assistant.isComposing = true
         NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
+        host.makeKey()
     }
 
     func closeAssistant() {
         let target = assistant.target
         let tookFocus = assistant.isComposing
         assistant.reset()
-        setOverlay(nil)
+        router.close()
         // Фокус возвращаем только если сами его забирали: без этого
         // безобидное закрытие панели дёргало бы чужие окна.
         if tookFocus, let target, !target.isActive {
@@ -489,17 +518,13 @@ final class NotchController {
     // MARK: - Буфер обмена
 
     func openClipboard() {
-        setOverlay(.clipboard)
-    }
-
-    private func toggleClipboard() {
-        setOverlay(state.isClipboardOpen ? nil : .clipboard)
+        router.set(.clipboard)
     }
 
     func useClipboard(_ entry: ClipboardEntry) {
         // Панель закрывается до вставки: она не забирает фокус, но остаётся
         // поверх, а вставлять человек собирается в то, что под ней.
-        setOverlay(nil)
+        router.close()
         clipboard.use(entry)
     }
 
@@ -514,7 +539,7 @@ final class NotchController {
             // куда роняет, и мог доложить к уже лежащему.
             self.shelf.pruneMissing()
             self.state.isShelfDropTarget = true
-            self.setOverlay(.shelf)
+            self.router.set(.shelf)
         }
         shelfDrop.onExit = { [weak self] in
             // Полку не закрываем: человек мог обвести файл мимо панели
@@ -532,7 +557,7 @@ final class NotchController {
                 // напоминание человек убрал крестиком.
                 self.shelfChipDismissed = false
             }
-            self.setOverlay(.shelf)
+            self.router.set(.shelf)
             return added > 0
         }
     }
@@ -571,53 +596,36 @@ final class NotchController {
         )
     }
 
-    // MARK: - Меню всех функций
-
-    /// Правая кнопка по вырезу. Возможностей стало больше, чем человек
-    /// удержит в голове, и до половины из них без сочетания было не добраться.
-    func openHub() {
-        setOverlay(state.isHubOpen ? nil : .hub)
-    }
-
-    /// Возврат из меню в раскрытую панель. Накладка закрывается, а панель
-    /// фиксируется раскрытой — иначе она схлопнулась бы в мини-вид, ведь
-    /// нажатия, которое её удерживало, не было.
-    private func openExpandedFromHub() {
-        setOverlay(nil)
-        state.isPinnedOpen = true
-        updateInteractiveRect()
-    }
-
     func openShelf() {
         shelf.pruneMissing()
-        setOverlay(.shelf)
+        router.set(.shelf)
     }
 
     private func toggleShelf() {
         guard settings.shelfEnabled else { return }
-        state.isShelfOpen ? setOverlay(nil) : openShelf()
+        state.isShelfOpen ? router.close() : openShelf()
     }
 
     func removeFromShelf(_ item: ShelfItem) {
         shelf.remove(item)
         // Опустевшая полка закрывается сама: пустая панель поверх чужого окна
         // висела бы просто так.
-        if shelf.isEmpty { setOverlay(nil) } else { refreshShelfChip() }
+        if shelf.isEmpty { router.close() } else { refreshShelfChip() }
     }
 
     func openShelfItem(_ item: ShelfItem) {
-        setOverlay(nil)
+        router.close()
         NSWorkspace.shared.open(item.url)
     }
 
     func revealShelfItem(_ item: ShelfItem) {
-        setOverlay(nil)
+        router.close()
         NSWorkspace.shared.activateFileViewerSelecting([item.url])
     }
 
     func clearShelf() {
         shelf.clear()
-        setOverlay(nil)
+        router.close()
     }
 
     /// Напоминание о непустой полке.
@@ -655,103 +663,24 @@ final class NotchController {
         shelfDrop.isPinnedOpen = state.isShelfOpen
     }
 
-    /// Отладочный вход: набить полку и показать её. Настоящее перетаскивание
-    /// из отладочной сессии не изобразить — синтетические события мыши
-    /// до системы не доходят, — а вёрстку посмотреть надо.
-    func debugFillShelf() {
-        // Повторный вызов закрывает полку: щёлкнуть мимо неё, а только этим
-        // она теперь и закрывается, из отладочной сессии нечем.
-        if state.isShelfOpen {
-            setOverlay(nil)
-            return
-        }
-        if shelf.isEmpty {
-            let home = FileManager.default.homeDirectoryForCurrentUser
-            let candidates = (try? FileManager.default.contentsOfDirectory(
-                at: home.appendingPathComponent("Desktop"),
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            )) ?? []
-            shelf.add(Array(candidates.prefix(7)))
-        }
-        openShelf()
+    // MARK: - Меню всех функций
+
+    /// Правая кнопка по вырезу. Возможностей стало больше, чем человек
+    /// удержит в голове, и до половины из них без сочетания было не добраться.
+    func openHub() {
+        router.toggle(.hub)
     }
 
-    /// Отладочный вход: раскрыть панель целиком. Нажать по вырезу
-    /// из отладочной сессии нечем.
-    ///
-    /// Раскрытие удерживается несколько секунд: опрос положения курсора идёт
-    /// десять раз в секунду и снял бы наведение на первом же тике — человек
-    /// в это время работает мышью, и вернуть курсор на место программно
-    /// не выходит.
-    func debugExpand(seconds: TimeInterval = 6) {
-        debugHoldUntil = Date().addingTimeInterval(seconds)
-        state.isHovered = true
+    /// Возврат из меню в раскрытую панель. Накладка закрывается, а панель
+    /// фиксируется раскрытой — иначе она схлопнулась бы в мини-вид, ведь
+    /// нажатия, которое её удерживало, не было.
+    private func openExpandedFromHub() {
+        router.close()
         state.isPinnedOpen = true
-        window?.ignoresMouseEvents = false
-        updateInteractiveRect()
+        host.updateInteractiveRect()
     }
 
-    /// Отладочный вход: открыть ближайшую запись в её приложении.
-    func debugOpenFirstItem() {
-        guard let item = calendar.upcoming.first else {
-            DebugLog.write("отладка: впереди нет записей")
-            return
-        }
-        openItem(item)
-    }
-
-    /// Отладочный вход: панель ответа модели без выделенного текста.
-    func debugAssistant() {
-        openAssistant(
-            title: "Проверка потока",
-            prompt: "Что такое HTTP? Ответь кратко, тремя пунктами списка, "
-                + "выделяя главное."
-        )
-    }
-
-    /// Отладочные входы: синтетические нажатия из отладочной сессии
-    /// до Carbon не доходят — Универсальный доступ выдан только самому
-    /// приложению, а не процессу, который их шлёт.
-    func debugToggleClipboard() { toggleClipboard() }
-
-    func debugUseClipboardSlot(_ index: Int) {
-        guard let entry = clipboard.entry(atSlot: index) else {
-            DebugLog.write("отладка: в буфере нет записи \(index + 1)")
-            return
-        }
-        useClipboard(entry)
-    }
-
-    /// Снимок самого острова — единственный способ увидеть его вёрстку
-    /// из отладочной сессии.
-    func snapshot() {
-        WindowSnapshot.write(window, named: "notch")
-    }
-
-    private func run(_ command: QuickCommand) {
-        setOverlay(nil)
-        // Меню закрывается до запуска: команда может читать выделенный текст,
-        // а для этого активным должно остаться прежнее приложение.
-        commands.run(command)
-    }
-
-    /// Отладочный путь: добавляет к списку напоминание со сроком через
-    /// указанное число секунд и скармливает его планировщику.
-    func scheduleTestReminder(in seconds: TimeInterval) {
-        let item = CalendarItem(
-            id: "debug-reminder",
-            title: "Проверка напоминания",
-            start: Date().addingTimeInterval(seconds),
-            end: nil,
-            isAllDay: false,
-            source: .reminder,
-            link: nil,
-            colorComponents: [1.0, 0.6, 0.2]
-        )
-        DebugLog.write("отладка: напоминание через \(Int(seconds)) с")
-        alerts.update(items: calendar.upcoming + [item])
-    }
+    // MARK: - Записи и ссылки
 
     /// Открывает запись в её приложении: встречу — в Календаре, напоминание —
     /// в Напоминаниях, задачу — списком на сегодня в Things.
@@ -779,50 +708,10 @@ final class NotchController {
         NSWorkspace.shared.open(url)
     }
 
-    // MARK: - Окно
+    // MARK: - Вёрстка
 
-    private func rebuild() {
-        guard let geometry = NotchGeometry.current() else {
-            window?.orderOut(nil)
-            window = nil
-            return
-        }
-        self.geometry = geometry
-
-        let metrics = NotchMetrics(
-            notchWidth: geometry.notchRect.width,
-            notchHeight: geometry.notchRect.height
-        )
-        self.metrics = metrics
-
-        let frame = geometry.windowFrame(contentSize: metrics.windowSize)
-        openTriggerRect = geometry.notchRect.insetBy(dx: -4, dy: 0)
-        closeTriggerRect = frame
-
-        let window = self.window ?? makeWindow(frame: frame, metrics: metrics)
-        window.setFrame(frame, display: true)
-        window.orderFrontRegardless()
-        self.window = window
-        updateInteractiveRect()
-        rebuildShelfDrop(geometry: geometry, metrics: metrics)
-
-        DebugLog.write("геометрия: \(geometry.description)")
-        DebugLog.write("окно \(NSStringFromRect(frame)), зона раскрытия \(NSStringFromRect(openTriggerRect))")
-
-        // Плашка события не должна оказаться уже свёрнутой формы —
-        // иначе остров выглядит меньше самого выреза.
-        let shortest = ActivityLayout(text: "Низкий заряд", trailing: "20%", minimumWidth: metrics.closed.width)
-        DebugLog.write(
-            "ширины: свёрнуто \(Int(metrics.closed.width)), "
-            + "плашка минимум \(Int(shortest.panelWidth)), "
-            + "раскрыто \(Int(metrics.expanded(extraHeight: 0).width)), "
-            + "отсчёт \(Int(ChipView.width(metrics: metrics))) при окне \(Int(metrics.windowSize.width))"
-        )
-    }
-
-    private func makeWindow(frame: CGRect, metrics: NotchMetrics) -> NotchWindow {
-        let window = NotchWindow(contentRect: frame)
-        let root = NotchView(
+    private func makeRootView(metrics: NotchMetrics) -> NotchView {
+        NotchView(
             state: state,
             activities: activities,
             music: music,
@@ -835,7 +724,7 @@ final class NotchController {
             shelf: shelf,
             settings: settings,
             metrics: metrics,
-            onTap: { [weak self] in self?.handleTap() },
+            onTap: { [weak self] in self?.expandPanel() },
             onOpenSettings: { [weak self] in
                 self?.closeCommands()
                 self?.onOpenSettings?()
@@ -867,405 +756,102 @@ final class NotchController {
             onOpenExpanded: { [weak self] in self?.openExpandedFromHub() },
             onAskAssistant: { [weak self] in self?.askAssistant() }
         )
-        let hosting = NotchHostingView(rootView: root)
-        hosting.onRightClick = { [weak self] in self?.openHub() }
-        hosting.frame = CGRect(origin: .zero, size: frame.size)
-        hosting.autoresizingMask = [.width, .height]
-        window.contentView = hosting
-        hostingView = hosting
-        return window
     }
 
-    /// Окно всегда максимального размера, а форма занимает лишь его часть.
-    /// Сообщаем подложке, где именно принимать нажатия, чтобы прозрачные
-    /// углы окна не съедали клики по меню-бару.
-    private func updateInteractiveRect() {
-        guard let hostingView, let metrics else { return }
-        let size = notchSnapshot.size(metrics: metrics)
-        // Метод вызывается десять раз в секунду — выходим молча, если ничего
-        // не поменялось, иначе журнал захлебнётся.
-        guard size != hostingView.visibleSize else { return }
-        hostingView.visibleSize = size
-        DebugLog.write("зона нажатий: \(Int(size.width))×\(Int(size.height))")
-    }
+    // MARK: - Отладочные входы
 
-    // MARK: - Наведение и нажатие
-
-    private func installMouseTracking() {
-        // Опрос позиции — основной механизм. Глобальные мониторы событий молчат
-        // в нескольких важных случаях: пока открыто меню другого приложения,
-        // при перетаскивании файлов и при программном перемещении курсора.
-        // Для оверлея, живущего под самой кромкой экрана, это заметные дыры.
-        // Десять опросов в секунду сводятся к сравнению точки с двумя
-        // прямоугольниками — на энергопотреблении не сказывается.
-        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.handleMouse(at: NSEvent.mouseLocation)
-            self.expirePendingSwipe()
-            self.updateCountdown()
-            self.updateInteractiveRect()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        pollTimer = timer
-
-        // Мониторы оставляем ради мгновенной реакции между тиками опроса.
-        let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
-
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: events, handler: { [weak self] _ in
-            self?.handleMouse(at: NSEvent.mouseLocation)
-        }) {
-            monitors.append(global)
-        }
-
-        if let local = NSEvent.addLocalMonitorForEvents(matching: events, handler: { [weak self] event in
-            self?.handleMouse(at: NSEvent.mouseLocation)
-            return event
-        }) {
-            monitors.append(local)
-        }
-
-        // Свайп двумя пальцами приходит обычными событиями прокрутки:
-        // отдельный тип .swipe система шлёт только когда включён системный
-        // жест «Смахивание между страницами», а он есть не у всех.
-        // Меню команд закрывается по Esc. Монитор локальный: панель к этому
-        // моменту уже приняла фокус, чтобы принимать нажатия.
-        // Нажатие мимо меню закрывает его — как поступает любое меню системы.
-        if let outside = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown],
-            handler: { [weak self] _ in self?.setOverlay(nil) }
-        ) {
-            monitors.append(outside)
-        }
-
-        if let keys = NSEvent.addLocalMonitorForEvents(matching: [.keyDown], handler: { [weak self] event in
-            guard event.keyCode == 53, self?.state.overlay != nil else { return event }
-            self?.setOverlay(nil)
-            return nil
-        }) {
-            monitors.append(keys)
-        }
-
-        if let scroll = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel], handler: { [weak self] event in
-            self?.handleScroll(event)
-            return event
-        }) {
-            monitors.append(scroll)
-        }
-    }
-
-    private func handleMouse(at location: CGPoint) {
-        guard Date() >= debugHoldUntil else { return }
-        if state.overlay != nil {
-            updateOverlayHover(at: location)
-            petting.reset()
+    /// Отладочный вход: набить полку и показать её. Настоящее перетаскивание
+    /// из отладочной сессии не изобразить — синтетические события мыши
+    /// до системы не доходят, — а вёрстку посмотреть надо.
+    func debugFillShelf() {
+        // Повторный вызов закрывает полку: щёлкнуть мимо неё, а только этим
+        // она теперь и закрывается, из отладочной сессии нечем.
+        if state.isShelfOpen {
+            router.close()
             return
         }
-        guard settings.expandOnHover else {
-            if state.isHovered { setHovered(false) }
-            petting.reset()
-            return
+        if shelf.isEmpty {
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let candidates = (try? FileManager.default.contentsOfDirectory(
+                at: home.appendingPathComponent("Desktop"),
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )) ?? []
+            shelf.add(Array(candidates.prefix(7)))
         }
-        let inside = state.isHovered
-            ? closeTriggerRect.contains(location)
-            : openTriggerRect.contains(location)
-        if inside != state.isHovered { setHovered(inside) }
-        // Поглаживание проверяется на каждом движении, а не только на смене
-        // состояния: пока курсор ходит внутри выреза, наведение не меняется.
-        updatePetting(at: location)
+        openShelf()
     }
 
-    private func setHovered(_ hovered: Bool) {
-        DebugLog.write("вырез \(hovered ? "показан мини-вид" : "свёрнут")")
-        state.isHovered = hovered
-        // Панель ловит мышь только когда видна пользователю. В остальных
-        // состояниях окно прозрачно для нажатий.
-        updateWindowInteractivity()
-
-        if hovered {
-            state.hoverStartedAt = Date()
-            Haptics.tap()
-            music.refresh()
-            // Задачу заводят и тут же открывают вырез посмотреть, появилась ли
-            // она: опроса раз в минуту для такого сценария мало.
-            things.refresh()
-            // Мини-вид важнее досматривания всплывшего события — но плашку,
-            // по которой нажимают, наведение убирать не смеет: до неё тогда
-            // было бы физически не дотянуться курсором.
-            if activities.current?.isInteractive != true {
-                activities.dismiss()
-            }
-        } else {
-            // Курсор ушёл — фиксация раскрытия снимается.
-            state.isPinnedOpen = false
-            state.swipe = nil
-            swipeOffset = 0
-        }
-        updateInteractiveRect()
-    }
-
-    /// Нажатие только раскрывает — свернуть можно уводом курсора.
+    /// Отладочный вход: раскрыть панель целиком. Нажать по вырезу
+    /// из отладочной сессии нечем.
     ///
-    /// Переключение туда-обратно было бы опаснее: в раскрытом виде нажатие
-    /// по кнопке перемотки рискует продублироваться нажатием по панели,
-    /// и трек переключался бы вместе со схлопыванием.
-    private func handleTap() {
-        guard state.isHovered, !state.isPinnedOpen else { return }
+    /// Раскрытие удерживается несколько секунд: опрос положения курсора идёт
+    /// десять раз в секунду и снял бы наведение на первом же тике — человек
+    /// в это время работает мышью, и вернуть курсор на место программно
+    /// не выходит.
+    func debugExpand(seconds: TimeInterval = 6) {
+        input.hold(seconds: seconds)
+        state.isHovered = true
         state.isPinnedOpen = true
-        DebugLog.write("панель раскрыта полностью")
-        Haptics.tap(.levelChange)
-        updateInteractiveRect()
+        host.ignoresMouseEvents = false
+        host.updateInteractiveRect()
     }
 
-    // MARK: - Поглаживание
-
-    private func installPetting() {
-        petting.onStart = { [weak self] in
-            guard let self else { return }
-            DebugLog.write("вырез гладят — мурчим")
-            self.state.isPurring = true
-            self.purr.start()
-            self.startPurrHaptics()
-            self.startTremble()
-        }
-        petting.onStop = { [weak self] in
-            guard let self else { return }
-            DebugLog.write("гладить перестали")
-            self.state.isPurring = false
-            self.purr.stop()
-            self.stopPurrHaptics()
-            self.stopTremble()
-        }
-    }
-
-    /// Поглаживание считается только в мини-виде. В раскрытой панели курсор
-    /// ходит между кнопками перемотки, и такие движения не должны будить кота;
-    /// в меню команд — тем более.
-    private func updatePetting(at location: CGPoint) {
-        guard settings.purrEnabled,
-              state.isHovered,
-              !state.isPinnedOpen,
-              !state.isCommandsOpen,
-              let geometry
-        else {
-            petting.reset()
+    /// Отладочный вход: открыть ближайшую запись в её приложении.
+    func debugOpenFirstItem() {
+        guard let item = calendar.upcoming.first else {
+            DebugLog.write("отладка: впереди нет записей")
             return
         }
-
-        // Начать поглаживание можно только на самой чёлке, а продолжать —
-        // в любом месте раскрытого мини-вида. Строгая зона высотой в саму
-        // чёлку рвала мурчание почти сразу: рука на развороте выходит
-        // и вбок, и вниз, а каждый выход требовал набирать четыре хода
-        // заново — со стороны выглядело как «сработало один раз».
-        let region = petting.isPurring ? closeTriggerRect : startPettingRect(geometry)
-        guard region.contains(location) else {
-            petting.reset()
-            return
-        }
-        petting.update(x: location.x)
+        openItem(item)
     }
 
-    /// Зона, в которой поглаживание начинается: чёлка с запасом по бокам
-    /// и вниз на высоту мини-вида.
-    private func startPettingRect(_ geometry: NotchGeometry) -> CGRect {
-        let notch = geometry.notchRect
-        let depth = notch.height + 28
-        return CGRect(
-            x: notch.minX - 34,
-            y: notch.maxY - depth,
-            width: notch.width + 68,
-            height: depth
+    /// Отладочный вход: панель ответа модели без выделенного текста.
+    func debugAssistant() {
+        openAssistant(
+            title: "Проверка потока",
+            prompt: "Что такое HTTP? Ответь кратко, тремя пунктами списка, "
+                + "выделяя главное."
         )
     }
 
-    /// Настоящее мурчание — это частые толчки, а не ровный гул. Виброотклик
-    /// системы такой частоты не даёт, поэтому берём самый мягкий рисунок
-    /// и повторяем его так часто, как он успевает отрабатывать.
-    private func startPurrHaptics() {
-        guard purrHapticTimer == nil else { return }
-        Haptics.tap()
-        let timer = Timer(timeInterval: 0.16, repeats: true) { _ in
-            Haptics.tap()
+    /// Отладочные входы: синтетические нажатия из отладочной сессии
+    /// до Carbon не доходят — Универсальный доступ выдан только самому
+    /// приложению, а не процессу, который их шлёт.
+    func debugToggleClipboard() { router.toggle(.clipboard) }
+
+    func debugUseClipboardSlot(_ index: Int) {
+        guard let entry = clipboard.entry(atSlot: index) else {
+            DebugLog.write("отладка: в буфере нет записи \(index + 1)")
+            return
         }
-        RunLoop.main.add(timer, forMode: .common)
-        purrHapticTimer = timer
+        useClipboard(entry)
     }
 
-    private func stopPurrHaptics() {
-        purrHapticTimer?.invalidate()
-        purrHapticTimer = nil
-    }
-
-    /// Дрожь острова. Частоты по осям намеренно разные и не кратные:
-    /// одинаковые дали бы ровное качание по диагонали, а нужно живое
-    /// подрагивание.
-    private func startTremble() {
-        guard trembleTimer == nil else { return }
-        let started = Date()
-        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let time = Date().timeIntervalSince(started)
-            // Вниз остров не уходит никогда: окно приклеено к верхней кромке
-            // экрана, и смещение вниз открывает под чёлкой незакрашенную
-            // полосу рабочего стола. Вверх уезжать безопасно — там экран
-            // просто обрезает.
-            self.state.tremble = CGSize(
-                width: 0.7 * sin(time * 2 * .pi * 9),
-                height: -0.45 + 0.45 * sin(time * 2 * .pi * 11.3 + 0.9)
-            )
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        trembleTimer = timer
-    }
-
-    private func stopTremble() {
-        trembleTimer?.invalidate()
-        trembleTimer = nil
-        state.tremble = .zero
-    }
-
-    /// Отладочный вход: поглаживание курсором из скрипта не изобразить,
-    /// а слушать звук и щупать вибрацию нужно.
     func debugPurr(seconds: TimeInterval = 4) {
-        DebugLog.write("отладка: мурчим \(Int(seconds)) с")
-        state.isPurring = true
-        purr.start()
-        startPurrHaptics()
-        startTremble()
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-            self?.state.isPurring = false
-            self?.purr.stop()
-            self?.stopPurrHaptics()
-            self?.stopTremble()
-        }
+        purr.run(seconds: seconds)
     }
 
-    // MARK: - Свайп двумя пальцами
-
-    private func handleScroll(_ event: NSEvent) {
-        guard state.isHovered, state.overlay == nil else { return }
-
-        // Начало нового жеста обнуляет накопители, иначе остаток от прошлого
-        // свайпа сработал бы раньше времени.
-        if event.phase == .began || event.phase == .mayBegin {
-            resetPendingSwipe()
-            pullOffset = 0
-        }
-
-        // Поперёк — переключение трека, вниз — раскрытие панели. Решает
-        // преобладающая ось: диагональные движения иначе делали бы и то,
-        // и другое разом.
-        if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
-            handleTrackSwipe(event)
-        } else {
-            handlePull(event)
-        }
+    /// Снимок самого острова — единственный способ увидеть его вёрстку
+    /// из отладочной сессии.
+    func snapshot() {
+        host.snapshot()
     }
 
-    private func handleTrackSwipe(_ event: NSEvent) {
-        guard settings.musicEnabled else { return }
-
-        // Инерцию после отрыва пальцев не считаем вовсе. Трекпад досылает
-        // events ещё полсекунды, и накопитель успевал перевалить порог
-        // второй раз: значок появлялся, гас и появлялся снова.
-        guard event.momentumPhase.isEmpty else { return }
-
-        lastSwipeEventAt = Date()
-        swipeOffset += event.scrollingDeltaX
-
-        // Доля пройденного пути: по ней вёрстка проявляет значок.
-        let progress = min(abs(swipeOffset) / Self.swipeThreshold, 1)
-        state.pendingSwipe = swipeOffset < 0 ? .next : .previous
-        state.swipeProgress = progress
-
-        // Палец убрали, не доведя до порога — значок уезжает обратно.
-        if event.phase == .ended || event.phase == .cancelled {
-            if progress < 1 { resetPendingSwipe() }
-            return
-        }
-
-        guard progress >= 1, Date() >= swipeReadyAt else { return }
-        performSwipe(swipeOffset < 0 ? .next : .previous)
-    }
-
-    private func resetPendingSwipe() {
-        swipeOffset = 0
-        state.swipeProgress = 0
-        state.pendingSwipe = nil
-    }
-
-    /// Сторож незавершённого жеста.
-    ///
-    /// Фазу «конец» шлёт трекпад, но не колесо мыши, а после срабатывания
-    /// её может не быть вовсе: значок оставался висеть, пока не тронешь
-    /// что-нибудь ещё. Поэтому доля жеста гаснет и просто по молчанию.
-    private func expirePendingSwipe() {
-        guard state.swipeProgress > 0 else { return }
-        guard Date().timeIntervalSince(lastSwipeEventAt) >= Self.swipeIdleTimeout else { return }
-        resetPendingSwipe()
-    }
-
-    /// Свайп двумя пальцами по мини-виду тянет панель: вниз — раскрывает,
-    /// вверх — сворачивает обратно. То же, что нажатие и уход курсора,
-    /// но не отрывая руки от трекпада.
-    ///
-    /// Направление считается по пальцам, а не по знаку смещения: при
-    /// «естественной» прокрутке система его переворачивает, и жёстко
-    /// зашитый знак работал бы правильно ровно у половины людей.
-    private func handlePull(_ event: NSEvent) {
-        let fingersDown = event.isDirectionInvertedFromDevice
-            ? event.scrollingDeltaY > 0
-            : event.scrollingDeltaY < 0
-
-        // Какое направление сейчас имеет смысл, зависит от состояния:
-        // свёрнутую панель тянут вниз, раскрытую — вверх. Обратное движение
-        // обнуляет накопленное: вытягивание — это одно непрерывное движение,
-        // а не сумма разнонаправленных рывков.
-        let wantsDown = !state.isPinnedOpen
-        guard fingersDown == wantsDown else {
-            pullOffset = 0
-            return
-        }
-
-        pullOffset += abs(event.scrollingDeltaY)
-        guard pullOffset >= Self.pullThreshold else { return }
-
-        pullOffset = 0
-        DebugLog.write(
-            "свайп \(wantsDown ? "вниз" : "вверх"): \(wantsDown ? "раскрываем" : "сворачиваем") панель"
-            + " (смещение \(Int(event.scrollingDeltaY)),"
-            + " направление перевёрнуто: \(event.isDirectionInvertedFromDevice))"
+    /// Отладочный путь: добавляет к списку напоминание со сроком через
+    /// указанное число секунд и скармливает его планировщику.
+    func scheduleTestReminder(in seconds: TimeInterval) {
+        let item = CalendarItem(
+            id: "debug-reminder",
+            title: "Проверка напоминания",
+            start: Date().addingTimeInterval(seconds),
+            end: nil,
+            isAllDay: false,
+            source: .reminder,
+            link: nil,
+            colorComponents: [1.0, 0.6, 0.2]
         )
-        wantsDown ? handleTap() : collapsePanel()
-    }
-
-    /// Свернуть раскрытую панель обратно в мини-вид, не уводя курсор.
-    private func collapsePanel() {
-        guard state.isPinnedOpen else { return }
-        state.isPinnedOpen = false
-        Haptics.tap(.levelChange)
-        updateInteractiveRect()
-    }
-
-    private func performSwipe(_ direction: SwipeDirection) {
-        resetPendingSwipe()
-        swipeReadyAt = Date().addingTimeInterval(Self.swipeCooldown)
-
-        DebugLog.write("свайп: \(direction == .next ? "следующий" : "предыдущий") трек")
-        Haptics.tap(.levelChange)
-        music.send(direction == .next ? .nextTrack : .previousTrack)
-
-        state.swipe = direction
-        swipeResetTimer?.invalidate()
-        // Пауза подобрана под задержку MediaRemote: клиент перечитывает трек
-        // через 0.3 с после команды, так что к моменту возврата в мини-вид
-        // название уже новое, а не то, с которого свайпнули.
-        let timer = Timer(timeInterval: 0.55, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            self.state.swipe = nil
-            // Заново отсчитываем бегущую строку — у нового трека своё название.
-            self.state.hoverStartedAt = Date()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        swipeResetTimer = timer
+        DebugLog.write("отладка: напоминание через \(Int(seconds)) с")
+        alerts.update(items: calendar.upcoming + [item])
     }
 }

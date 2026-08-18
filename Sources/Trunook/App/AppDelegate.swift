@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.openEvent", #selector(openFirstItem)),
             ("com.trunook.debug.expand", #selector(expandNotch)),
             ("com.trunook.debug.assistant", #selector(testAssistant)),
+            ("com.trunook.debug.ask", #selector(testAsk)),
             ("com.trunook.debug.shot", #selector(shotWelcome)),
             ("com.trunook.debug.shotSettings", #selector(shotSettings)),
             ("com.trunook.debug.shotNotch", #selector(shotNotch)),
@@ -176,6 +177,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func testAssistant() {
         controller.debugAssistant()
+    }
+
+    /// Панель ответа с полем ввода: без неё вёрстку встречного вопроса
+    /// из отладочной сессии не снять — «Ответить» нажимают мышью.
+    @objc private func testAsk() {
+        controller.askAssistant()
     }
 
     /// Снимок открытого окна знакомства в ~/Library/Logs/Trunook-welcome.png.

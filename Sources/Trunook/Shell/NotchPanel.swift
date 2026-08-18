@@ -18,9 +18,25 @@ struct NotchPanel<Leading: View, Trailing: View, Content: View>: View {
     let metrics: NotchMetrics
     /// Ширина самой панели: из неё считается ширина крыльев.
     let width: CGFloat
+    /// Поле содержимого, отмеренное от чёрного тела, а не от рамки панели.
+    ///
+    /// Обычной панели хватает общего поля: её содержимое до краёв не доходит,
+    /// и вогнутое плечо формы съедает пустое место. Панель, у которой строка
+    /// или поле ввода тянется во всю ширину, задаёт поле этим параметром
+    /// и получает ровно его — слева, справа и снизу поровну.
+    ///
+    /// Включено не для всех сразу: сетки полки и меню функций подогнаны
+    /// под нынешнюю ширину содержимого впритык, и сужение их сломает.
+    var bodyPadding: CGFloat?
     @ViewBuilder var leading: () -> Leading
     @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var content: () -> Content
+
+    /// Поле содержимого от краёв рамки.
+    private var contentInset: CGFloat {
+        guard let bodyPadding else { return NotchStyle.panelPadding }
+        return bodyPadding + NotchStyle.shoulderInset
+    }
 
     /// Отступ крыла от внешнего края панели.
     ///
@@ -28,25 +44,31 @@ struct NotchPanel<Leading: View, Trailing: View, Content: View>: View {
     /// задевает скругление, но и читается как выпавшее из панели. Ровняется
     /// на поля содержимого ниже, чтобы левый и правый край панели шли
     /// по одной вертикали.
-    private static var outerInset: CGFloat { NotchStyle.panelPadding + 4 }
+    private var outerInset: CGFloat {
+        bodyPadding == nil ? NotchStyle.panelPadding + 4 : contentInset
+    }
+
+    /// Поле под последней строкой.
+    private var bottomInset: CGFloat { bodyPadding ?? NotchStyle.bottomPadding }
+
     /// Отступ от самой чёлки: вплотную к ней подпись читается как часть
     /// аппаратного выреза, а не как заголовок панели.
     private static var notchInset: CGFloat { 10 }
 
     private var wingWidth: CGFloat {
-        max(0, (width - metrics.notchWidth) / 2 - Self.outerInset - Self.notchInset)
+        max(0, (width - metrics.notchWidth) / 2 - outerInset - Self.notchInset)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             wings
             content()
-                .padding(.horizontal, NotchStyle.panelPadding)
+                .padding(.horizontal, contentInset)
                 // Зазор под чёлкой рисуется здесь и только здесь. Раньше он
                 // был лишь в расчёте высоты — панель получалась выше того,
                 // что в ней нарисовано, и снизу оставалась чёрная полоса.
                 .padding(.top, NotchStyle.topGap)
-                .padding(.bottom, NotchStyle.bottomPadding)
+                .padding(.bottom, bottomInset)
         }
     }
 
@@ -54,7 +76,7 @@ struct NotchPanel<Leading: View, Trailing: View, Content: View>: View {
         HStack(spacing: 0) {
             leading()
                 .frame(width: wingWidth, alignment: .leading)
-                .padding(.leading, Self.outerInset)
+                .padding(.leading, outerInset)
 
             // Место самой чёлки: здесь панель не рисует ничего, потому что
             // здесь её просто не видно.
@@ -62,7 +84,7 @@ struct NotchPanel<Leading: View, Trailing: View, Content: View>: View {
 
             trailing()
                 .frame(width: wingWidth, alignment: .trailing)
-                .padding(.trailing, Self.outerInset)
+                .padding(.trailing, outerInset)
         }
         .frame(height: metrics.notchHeight)
     }

@@ -14,11 +14,25 @@ struct AssistantPanel: View {
 
     static let width: CGFloat = 480
     static let headerHeight: CGFloat = 24
-    static let footerHeight: CGFloat = 30
+    /// Высота нижней строки. Ровно по самому высокому в ней — полю ввода:
+    /// лишний люфт уходил в нижнее поле панели, и снизу оказывалось
+    /// на две точки больше, чем по бокам.
+    static let footerHeight: CGFloat = 26
     /// Потолок области ответа: дальше она прокручивается.
     static let maxBodyHeight: CGFloat = 168
     static let lineHeight: CGFloat = 15
-    static let horizontalPadding: CGFloat = 18
+
+    /// Поле от чёрного тела панели — одинаковое слева, справа и снизу.
+    /// Содержимое здесь тянется во всю ширину, поэтому вогнутое плечо формы
+    /// приходится считать явно: см. `NotchStyle.shoulderInset`.
+    static let bodyPadding: CGFloat = NotchStyle.bottomPadding
+    /// Сколько всего занято полями по горизонтали: по этому числу меряется
+    /// текст ответа, когда панель садится по содержимому.
+    static var horizontalPadding: CGFloat { bodyPadding + NotchStyle.shoulderInset }
+
+    /// Высота строки ввода — во всю высоту нижней строки, чтобы поле
+    /// от неё не отставало.
+    static var fieldHeight: CGFloat { footerHeight }
 
     static let answerFont = NSFont.systemFont(ofSize: 12)
 
@@ -54,7 +68,7 @@ struct AssistantPanel: View {
     }
 
     var body: some View {
-        NotchPanel(metrics: metrics, width: Self.width) {
+        NotchPanel(metrics: metrics, width: Self.width, bodyPadding: Self.bodyPadding) {
             HStack(spacing: 6) {
                 NotchPanelTitle(
                     symbol: "sparkles",
@@ -203,15 +217,26 @@ struct AssistantPanel: View {
                         : t("Спросите ещё"),
                     onSubmit: { onSend(session.draft) }
                 )
-                .frame(height: 24)
-                .padding(.horizontal, 8)
+                .frame(height: Self.fieldHeight)
+                .padding(.horizontal, 12)
                 // Подложка: без неё поле ввода на чёрном не отличалось
                 // от области ответа, и было непонятно, куда писать.
+                // Заливка светлая, как у плиток и круглых кнопок: прежняя
+                // чёрная с прозрачностью на чёрном фоне не давала ничего,
+                // и поле держалось на одной обводке.
+                //
+                // Скругление во всю высоту, а не углы в семь точек: вырез
+                // и всё, что в нём, скруглено щедро, и почти прямой угол
+                // рядом с круглой кнопкой «Отправить» читался как чужой.
+                //
+                // Капсула обычная, не `.continuous`: у сглаженной обводка
+                // торца рвётся — дуга не доходит до края, и слева от неё
+                // остаётся отдельный вертикальный огрызок.
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(.black.opacity(0.35))
+                    Capsule()
+                        .fill(.white.opacity(NotchStyle.tileFill))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            Capsule()
                                 .strokeBorder(.white.opacity(0.12), lineWidth: 1)
                         )
                 )
@@ -260,17 +285,26 @@ struct FocusedTextField: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    /// Подсказка своим цветом: системный на тёмном фоне почти чёрный
+    /// и не читается — поле выглядело пустым и без объяснений.
+    private static func hint(_ text: String) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            .foregroundColor: NSColor.white.withAlphaComponent(0.4),
+            .font: NSFont.systemFont(ofSize: 12),
+        ])
+    }
+
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
         field.delegate = context.coordinator
-        field.placeholderString = placeholder
+        field.placeholderAttributedString = Self.hint(placeholder)
         field.font = .systemFont(ofSize: 12)
         field.textColor = .white
-        field.drawsBackground = true
-        field.backgroundColor = NSColor.white.withAlphaComponent(0.12)
+        // Фон и рамку рисует подложка SwiftUI. Своя заливка здесь была
+        // прямоугольной и торчала бы углами из скруглённой подложки.
+        field.drawsBackground = false
         field.isBordered = false
         field.focusRingType = .none
-        field.bezelStyle = .roundedBezel
         field.cell?.usesSingleLineMode = true
         field.cell?.wraps = false
         DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
@@ -280,7 +314,7 @@ struct FocusedTextField: NSViewRepresentable {
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
         if field.stringValue != text { field.stringValue = text }
-        field.placeholderString = placeholder
+        field.placeholderAttributedString = Self.hint(placeholder)
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
