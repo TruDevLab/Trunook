@@ -8,7 +8,7 @@ import EventKit
 /// он реализован макросом, а плагин SwiftUI-макросов поставляется с Xcode.
 final class WelcomeModel: ObservableObject {
     enum Step: Int, CaseIterable, Identifiable {
-        case intro, gestures, permissions, done
+        case intro, gestures, shortcuts, permissions, done
 
         var id: Int { rawValue }
 
@@ -17,6 +17,7 @@ final class WelcomeModel: ObservableObject {
             switch self {
             case .intro: return t("ЗНАКОМСТВО")
             case .gestures: return t("УПРАВЛЕНИЕ")
+            case .shortcuts: return t("СОЧЕТАНИЯ")
             case .permissions: return t("ДОСТУПЫ")
             case .done: return t("ГОТОВО")
             }

@@ -396,7 +396,7 @@ struct WelcomeNotchDemo: View {
                     .font(.system(size: 8.5, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.65))
                 Spacer(minLength: 0)
-                Text("⌥⌘Space")
+                Text("⌃⌥C")
                     .font(.system(size: 7, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.3))
             }
@@ -633,7 +633,7 @@ struct WelcomeNotchDemo: View {
         } else if time < Beat.commands {
             text = t("Нажатие — панель целиком")
         } else if time < Beat.assistant {
-            text = t("⌥⌘Space — быстрые команды")
+            text = t("⌃⌥C — быстрые команды")
         } else if time < Beat.clipboard {
             text = t("Ответ модели пишется прямо в вырезе")
         } else if time < Beat.shelf {

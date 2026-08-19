@@ -119,6 +119,7 @@ struct WelcomeView: View {
         switch model.step {
         case .intro: introStep
         case .gestures: gesturesStep
+        case .shortcuts: shortcutsStep
         case .permissions: permissionsStep
         case .done: doneStep
         }
@@ -141,9 +142,13 @@ struct WelcomeView: View {
         }
     }
 
-    /// Два ряда по четыре, а не один длинный: восемь плиток в строку шире
-    /// окна, и содержимое, которое шире окна, раздвигает его — по краям
-    /// обрезались и заголовок, и кнопки.
+    /// Два ряда, шесть и пять.
+    ///
+    /// Ряд длиннее шести брать нельзя: содержимое, которое шире окна,
+    /// раздвигает его, и обрезаются **оба** края разом — заголовок слева,
+    /// кнопки справа. На восьми плитках по 96 точек это уже ловили.
+    /// Шесть по 88 с зазорами дают 578 точек при окне 780 — запас есть.
+    /// Третий ряд не заводить: под ним ещё демонстрация выреза и заголовок.
     private var featureRow: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
@@ -151,10 +156,13 @@ struct WelcomeView: View {
                 feature("calendar", t("Календарь"), WelcomePalette.cyan)
                 feature("square.grid.2x2.fill", t("Команды"), WelcomePalette.mint)
                 feature("video.fill", t("Встречи"), WelcomePalette.violet)
+                feature("sparkles", t("Модель"), WelcomePalette.violet)
+                feature("doc.on.clipboard.fill", t("Буфер"), WelcomePalette.cyan)
             }
             HStack(spacing: 10) {
-                feature("doc.on.clipboard.fill", t("Буфер"), WelcomePalette.cyan)
                 feature("tray.full.fill", t("Полка"), WelcomePalette.violet)
+                feature("timer", t("Таймер"), WelcomePalette.mint)
+                feature("gauge.with.dots.needle.67percent", t("Нагрузка"), WelcomePalette.cyan)
                 feature("cloud.sun.fill", t("Погода"), WelcomePalette.cyan)
                 feature("bolt.fill", t("Питание"), WelcomePalette.mint)
             }
@@ -171,19 +179,21 @@ struct WelcomeView: View {
                     .font(.system(size: 11.5, weight: .medium, design: .rounded))
                     .foregroundStyle(Color.white.opacity(0.72))
             }
-            .frame(width: 96, height: 62)
+            .frame(width: 88, height: 62)
         }
     }
 
     // MARK: Шаг 2 — управление
 
+    /// Шаг жестов и шаг сочетаний разделены, и это не украшательство.
+    ///
+    /// Одиннадцать строк в окно 780×700 не помещаются: последние две уходили
+    /// под обрез, и о поглаживании с уводом курсора человек узнавал, только
+    /// если догадывался прокрутить. Прокрутка тут страховка, а не способ
+    /// показать содержимое.
     private var gesturesStep: some View {
         VStack(alignment: .leading, spacing: 12) {
             stepTitle(t("Как этим пользоваться"), subtitle: t("Вырез не отбирает фокус: активное приложение остаётся активным."))
-            // Прокрутка — страховка, а не задумка: строк девять, и каждая
-            // новая раньше выдавливала содержимое за края окна в обе стороны.
-            // Список должен помещаться и без прокрутки, но если не поместится,
-            // пусть лучше прокручивается, чем обрезает кнопки.
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 6) {
                     gesture("cursorarrow.rays", t("Наведите курсор на вырез"),
@@ -191,16 +201,31 @@ struct WelcomeView: View {
                     gesture("hand.tap.fill", t("Нажмите или потяните вниз"),
                             t("Панель целиком. Свайп вверх сворачивает её обратно"))
                     gesture("cursorarrow.click.badge.clock", t("Правая кнопка"),
-                            t("Меню всех функций: главный экран, команды, буфер, полка"))
+                            t("Меню всех функций: главный экран, команды, буфер, полка, таймер, нагрузка"))
                     gesture("arrow.left.arrow.right", t("Свайп двумя пальцами"),
                             t("Предыдущий и следующий трек, не убирая курсор с выреза"))
-                    menuHotKeyRow
-                    clipboardHotKeyRow
-                    shelfHotKeyRow
                     gesture("pawprint.fill", t("Погладьте чёлку"),
                             t("Поводите курсором из стороны в сторону — вырез замурчит"))
                     gesture("arrow.down.left", t("Уведите курсор"),
                             t("Вырез свернётся сам — закрывать ничего не нужно"))
+                }
+            }
+        }
+    }
+
+    /// Сочетания — своим шагом. Каждое правится прямо здесь: набирать его
+    /// заново в настройках после того, как оно уже названо, — лишний шаг.
+    private var shortcutsStep: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            stepTitle(t("Сочетания клавиш"),
+                      subtitle: t("Все на ⌃⌥: эту пару macOS не занимает ни под что. Любое можно сменить прямо здесь."))
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 6) {
+                    menuHotKeyRow
+                    clipboardHotKeyRow
+                    shelfHotKeyRow
+                    timerHotKeyRow
+                    monitorHotKeyRow
                 }
             }
         }
@@ -293,6 +318,71 @@ struct WelcomeView: View {
                         get: { settings.shelfHotKey },
                         set: { spec in
                             settings.shelfHotKey = spec
+                            onHotKeysChanged()
+                        }
+                    ),
+                    placeholder: t("Не назначено")
+                )
+                .frame(width: 132, height: 26)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+    }
+
+    /// Таймер: своё сочетание и подсказка про полоску в чёлке — иначе о ней
+    /// узнают случайно.
+    private var timerHotKeyRow: some View {
+        WelcomeCard {
+            HStack(spacing: 13) {
+                WelcomeGlyph(symbol: "timer", size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Таймер и секундомер"))
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(t("Пока идёт, чёлка раздвигается счётом — нажмите по нему"))
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                HotKeyRecorder(
+                    spec: Binding(
+                        get: { settings.timerHotKey },
+                        set: { spec in
+                            settings.timerHotKey = spec
+                            onHotKeysChanged()
+                        }
+                    ),
+                    placeholder: t("Не назначено")
+                )
+                .frame(width: 132, height: 26)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+    }
+
+    /// Нагрузка: сочетание и куда ведёт нажатие по показателю.
+    private var monitorHotKeyRow: some View {
+        WelcomeCard {
+            HStack(spacing: 13) {
+                WelcomeGlyph(symbol: "gauge.with.dots.needle.67percent", size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Нагрузка на систему"))
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(t("Процессор, память и диск. Нажмите — откроется Мониторинг системы"))
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                HotKeyRecorder(
+                    spec: Binding(
+                        get: { settings.monitorHotKey },
+                        set: { spec in
+                            settings.monitorHotKey = spec
                             onHotKeysChanged()
                         }
                     ),

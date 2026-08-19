@@ -79,6 +79,13 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         WindowSnapshot.write(window, named: "welcome")
     }
 
+    /// Кадры демонстрации выреза для `docs/demo.gif`. Число и шаг подобраны
+    /// под петлю в двадцать две секунды: семьдесят кадров — тот же счёт,
+    /// что и у прежней картинки.
+    func snapshotDemo() {
+        WindowSnapshot.writeSequence(window, named: "demo", frames: 70, interval: 0.315)
+    }
+
     /// Закрытие любым путём — кнопкой, «Пропустить» или «Начать» — считается
     /// знакомством: второй раз само окно уже не появится.
     private func finish() {

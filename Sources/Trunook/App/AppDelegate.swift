@@ -50,12 +50,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.clipboard", #selector(toggleClipboardPanel)),
             ("com.trunook.debug.clipboardUse", #selector(useClipboardSlot3)),
             ("com.trunook.debug.shelf", #selector(showShelf)),
+            ("com.trunook.debug.timer", #selector(showTimer)),
+            ("com.trunook.debug.monitor", #selector(showMonitor)),
+            ("com.trunook.debug.timerRun", #selector(runTimer)),
             ("com.trunook.debug.hub", #selector(showHub)),
             ("com.trunook.debug.openEvent", #selector(openFirstItem)),
             ("com.trunook.debug.expand", #selector(expandNotch)),
             ("com.trunook.debug.assistant", #selector(testAssistant)),
             ("com.trunook.debug.ask", #selector(testAsk)),
             ("com.trunook.debug.shot", #selector(shotWelcome)),
+            ("com.trunook.debug.shotDemo", #selector(shotDemo)),
             ("com.trunook.debug.shotSettings", #selector(shotSettings)),
             ("com.trunook.debug.shotNotch", #selector(shotNotch)),
             ("com.trunook.debug.meeting", #selector(testMeeting)),
@@ -171,6 +175,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.debugExpand()
     }
 
+    @objc private func showMonitor() {
+        controller.debugToggleMonitor()
+    }
+
+    @objc private func showTimer() {
+        controller.debugToggleTimer()
+    }
+
+    @objc private func runTimer() {
+        controller.debugRunTimer()
+    }
+
     @objc private func openFirstItem() {
         controller.debugOpenFirstItem()
     }
@@ -188,6 +204,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Снимок открытого окна знакомства в ~/Library/Logs/Trunook-welcome.png.
     @objc private func shotWelcome() {
         welcomeWindow.snapshot()
+    }
+
+    /// Кадры демонстрации выреза: из них собирается docs/demo.gif.
+    @objc private func shotDemo() {
+        welcomeWindow.snapshotDemo()
     }
 
     /// Снимок открытого окна настроек.
@@ -335,7 +356,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             calendar: controller.calendar,
             clipboard: controller.clipboard,
             weather: controller.weather,
-            onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() }
+            onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() },
+            onOpenWelcome: { [weak self] in self?.openWelcome() }
         )
     }
 

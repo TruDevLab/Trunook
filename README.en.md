@@ -12,7 +12,20 @@ Hover and the notch shows what is playing and when the next meeting is. Click
 or swipe down and the full panel opens. Right click opens the menu of
 everything.
 
-![Gestures and shortcuts](docs/gestures.png)
+![Gestures](docs/gestures.png)
+
+Every shortcut uses ⌃⌥ — a pair macOS reserves for nothing. Any of them can be
+changed in settings or right in the welcome window.
+
+| Shortcut | What it opens |
+|---|---|
+| ⌃⌥C | Quick commands menu |
+| ⌃⌥V | Clipboard history |
+| ⌃⌥S | File shelf |
+| ⌃⌥T | Timer and stopwatch |
+| ⌃⌥M | System load |
+| ⌃⌥1 … ⌃⌥6 | Command slots directly |
+| ⌃⇧1 … ⌃⇧9 | Paste a clipboard entry by number |
 
 ## What it does
 
@@ -32,6 +45,12 @@ everything.
   in the notch, and can be copied or pasted into the active window.
 - **Quick commands.** Six slots with hotkeys: an app, a folder, a link, an
   AppleScript, a model prompt, or a macOS Shortcut.
+- **Timer and stopwatch.** Preset lengths and a twenty-five minute pomodoro
+  with a break queued after it. While it runs the notch widens into a strip
+  with the count — click it to open the panel. Time is measured from the moment
+  you start it, so it stays accurate even if the lid was closed.
+- **System load.** CPU, memory and disk with fill bars. Click any reading
+  to open Activity Monitor.
 - **Weather and power.** An icon with the temperature in the panel's corner,
   chips when the weather changes or the charger is plugged in.
 
