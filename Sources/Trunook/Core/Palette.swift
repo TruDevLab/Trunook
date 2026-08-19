@@ -33,6 +33,10 @@ enum Palette {
     /// Знакомство и ответ модели — всё, что «показывает и объясняет».
     static let welcome = violet
     static let assistant = violet
+    /// Нагрузка на систему.
+    static let monitor = cyan
+    /// Таймер и секундомер.
+    static let timer = rose
     /// Погода и календарь.
     static let weather = cyan
     static let calendar = rose

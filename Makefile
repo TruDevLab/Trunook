@@ -13,7 +13,7 @@ DMG      := $(CURDIR)/$(APP)-$(VERSION).dmg
 HELPER   := $(BUNDLE)/Contents/XPCServices/TrunookHelper.xpc
 BIN       = $(shell swift build -c $(CONF) --show-bin-path 2>/dev/null)
 
-.PHONY: all build bundle install run probe stop clean cert identity dmg icon purr
+.PHONY: all build bundle install run probe stop clean cert identity dmg icon purr chime demo
 
 all: bundle
 
@@ -31,6 +31,7 @@ bundle: build
 	@cp Resources/Info.plist $(BUNDLE)/Contents/Info.plist
 	@cp Resources/Trunook.icns $(BUNDLE)/Contents/Resources/Trunook.icns
 	@cp Resources/purr.wav $(BUNDLE)/Contents/Resources/purr.wav
+	@cp Resources/chime.wav $(BUNDLE)/Contents/Resources/chime.wav
 	@cp -R Resources/en.lproj Resources/zh-Hans.lproj $(BUNDLE)/Contents/Resources/
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" \
 		$(BUNDLE)/Contents/Info.plist
@@ -120,6 +121,15 @@ icon:
 ## Пересобрать звук мурчания
 purr:
 	@swift scripts/make-purr.swift
+
+## Пересобрать сигнал окончания таймера
+chime:
+	@swift scripts/make-chime.swift
+
+## Собрать docs/demo.gif из снятых кадров.
+## Кадры снимает само приложение — см. заголовок скрипта.
+demo:
+	@swift scripts/make-demo-gif.swift
 
 ## Разовое создание самоподписанного сертификата
 cert:

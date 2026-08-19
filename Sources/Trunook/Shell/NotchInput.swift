@@ -264,7 +264,7 @@ final class NotchInput {
 
         // Доля пройденного пути: по ней вёрстка проявляет значок.
         let progress = min(abs(swipeOffset) / Self.swipeThreshold, 1)
-        state.pendingSwipe = swipeOffset < 0 ? .next : .previous
+        state.pendingSwipe = swipeDirection
         state.swipeProgress = progress
 
         // Палец убрали, не доведя до порога — значок уезжает обратно.
@@ -276,10 +276,22 @@ final class NotchInput {
         guard progress >= 1, Date() >= swipeReadyAt else { return }
         // Сторону считаем до сброса: он обнуляет накопитель, по знаку
         // которого она и определяется.
-        let direction: SwipeDirection = swipeOffset < 0 ? .next : .previous
+        let direction = swipeDirection
         resetPendingSwipe()
         swipeReadyAt = Date().addingTimeInterval(Self.swipeCooldown)
         onSwipe?(direction)
+    }
+
+    /// Куда ведёт нынешний свайп.
+    ///
+    /// Знак накопителя уже учитывает системную «естественную прокрутку» —
+    /// она приходит в самих событиях. Настройка поверх этого про вкус:
+    /// одним «вперёд» кажется движение влево, как листают ленту, другим
+    /// вправо, как переворачивают страницу.
+    private var swipeDirection: SwipeDirection {
+        let natural: SwipeDirection = swipeOffset < 0 ? .next : .previous
+        guard settings.swipeInverted else { return natural }
+        return natural == .next ? .previous : .next
     }
 
     private func resetPendingSwipe() {

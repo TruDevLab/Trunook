@@ -175,7 +175,7 @@ struct ActivityView: View {
         case let .command(_, state):
             switch state {
             case .running:
-                RoundedRectangle(cornerRadius: 5)
+                RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous)
                     .fill(.white.opacity(0.12))
                     .overlay(ProgressView().controlSize(.small).scaleEffect(0.7))
             case .done:
@@ -187,6 +187,8 @@ struct ActivityView: View {
             iconTile(kind.symbol)
         case .shelf:
             iconTile("tray.full")
+        case .timer:
+            iconTile("timer")
         case let .weather(_, symbol):
             iconTile(symbol)
         case let .meeting(item, _):
@@ -196,7 +198,7 @@ struct ActivityView: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .clipShape(RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous))
             } else {
                 iconTile("music.note")
             }
@@ -219,6 +221,8 @@ struct ActivityView: View {
         case let .shelf(count):
             return tf("На полке файлов: %d", count)
         case let .weather(text, _):
+            return text
+        case let .timer(text):
             return text
         case let .meeting(item, minutes):
             return minutes <= 0 ? tf("Сейчас: %@", item.title) : tf("Через %d мин: %@", minutes, item.title)
@@ -245,6 +249,8 @@ struct ActivityView: View {
             return nil
         case .weather:
             return nil
+        case .timer:
+            return nil
         case let .meeting(item, _):
             return item.link == nil ? nil : t("Подключиться")
         case .trackChanged:
@@ -267,6 +273,7 @@ struct ActivityView: View {
         case .clipboard: return .cyan
         case .shelf: return .cyan
         case .weather: return .cyan
+        case .timer: return Palette.timer
         case let .meeting(item, _): return item.color
         case .powerConnected: return .green
         case .lowBattery: return .orange
@@ -275,7 +282,7 @@ struct ActivityView: View {
     }
 
     private func iconTile(_ symbol: String) -> some View {
-        RoundedRectangle(cornerRadius: 5)
+        RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous)
             .fill(.white.opacity(0.12))
             .overlay(
                 Image(systemName: symbol)

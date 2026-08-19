@@ -112,9 +112,48 @@ enum QuickCommands {
         else { return defaults0 }
 
         // Число слотов могло измениться между версиями — приводим к текущему.
-        return (0..<slotCount).map { index in
+        var commands = (0..<slotCount).map { index in
             stored.first { $0.id == index } ?? .empty(id: index)
         }
+        if migrateLegacyHotKeys(&commands, in: defaults) {
+            save(commands, to: defaults)
+        }
+        return commands
+    }
+
+    /// Ключ, которым помечен состоявшийся перенос сочетаний.
+    private static let migrationKey = "quickCommandHotKeysMigrated"
+
+    /// Переносит нетронутые сочетания слотов с ⌥⌘ на ⌃⌥.
+    ///
+    /// До 0.6.0 слоты сидели на ⌥⌘ с цифрами, остальное приложение — на ⌃⌥.
+    /// Сменить умолчание оказалось мало: у всех, кто уже запускал приложение,
+    /// набор лежит в настройках со старыми сочетаниями, и меню функций честно
+    /// показывало ⌥⌘1, пока рядом стояли ⌃⌥C и ⌃⌥V. Выглядело это как
+    /// недоделка, а не как чужой выбор.
+    ///
+    /// Переносится только то, чего человек не касался: сочетание, совпадающее
+    /// со старым умолчанием **своего** слота. Заданное вручную остаётся как
+    /// есть. Отметка в настройках нужна, чтобы перенос случился однажды —
+    /// иначе он молча переписывал бы выбор того, кто нарочно вернул ⌥⌘1.
+    private static func migrateLegacyHotKeys(
+        _ commands: inout [QuickCommand],
+        in defaults: UserDefaults
+    ) -> Bool {
+        guard !defaults.bool(forKey: migrationKey) else { return false }
+        defaults.set(true, forKey: migrationKey)
+
+        var changed = false
+        for index in commands.indices {
+            let command = commands[index]
+            guard let hotKey = command.hotKey,
+                  hotKey == HotKeySpec.legacySlot(command.id),
+                  let fresh = HotKeySpec.slot(command.id)
+            else { continue }
+            commands[index].hotKey = fresh
+            changed = true
+        }
+        return changed
     }
 
     static func save(_ commands: [QuickCommand], to defaults: UserDefaults) {

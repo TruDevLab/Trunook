@@ -27,7 +27,7 @@ struct HotKeySpec: Codable, Equatable {
         self.init(keyCode: UInt32(event.keyCode), modifiers: mask)
     }
 
-    /// Человекочитаемая запись: ⌥⌘1.
+    /// Человекочитаемая запись: ⌃⌥1.
     var display: String {
         var result = ""
         if modifiers & UInt32(controlKey) != 0 { result += "⌃" }
@@ -39,32 +39,54 @@ struct HotKeySpec: Codable, Equatable {
 
     // MARK: - Значения по умолчанию
 
-    static let menu = HotKeySpec(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey | cmdKey))
+    /// Пара модификаторов, на которой сидит всё приложение.
+    ///
+    /// Выбрана не по вкусу, а по остаточному принципу: ⌘ и ⌥⌘ система
+    /// разобрала под своё, ⇧⌘ традиционно занимают приложения, а ⌃⌥ macOS
+    /// не использует ни под что. Одна пара на все вызовы Trunook — чтобы
+    /// сочетание вспоминалось по первой букве, а не перебором модификаторов.
+    private static let own = UInt32(controlKey | optionKey)
 
-    /// ⌥⌘1 … ⌥⌘6
+    /// ⌃⌥C — меню быстрых команд.
+    ///
+    /// Было ⌥⌘Space, и это оказалось системным сочетанием: им macOS открывает
+    /// окно поиска Finder. Приложение регистрировало его поверх, и что
+    /// сработает — зависело от того, кто успел первым.
+    static let menu = HotKeySpec(keyCode: UInt32(kVK_ANSI_C), modifiers: own)
+
+    /// ⌃⌥1 … ⌃⌥6 — слоты быстрых команд. Цифра совпадает с номером плитки
+    /// в меню, так что подсматривать сочетание негде и не нужно.
     static func slot(_ index: Int) -> HotKeySpec? {
         guard index < QuickCommands.slotCount, digits.indices.contains(index) else { return nil }
-        return HotKeySpec(keyCode: UInt32(digits[index]), modifiers: UInt32(optionKey | cmdKey))
+        return HotKeySpec(keyCode: UInt32(digits[index]), modifiers: own)
     }
 
-    /// ⌃⌥V. Не ⇧⌘C и не ⇧⌘V: их занимают менеджеры буфера обмена,
-    /// их занимают привычные менеджеры буфера обмена.
-    static let clipboard = HotKeySpec(
-        keyCode: UInt32(kVK_ANSI_V),
-        modifiers: UInt32(controlKey | optionKey)
-    )
+    /// ⌃⌥V — история буфера. Не ⇧⌘C и не ⇧⌘V: их занимают привычные
+    /// менеджеры буфера обмена.
+    static let clipboard = HotKeySpec(keyCode: UInt32(kVK_ANSI_V), modifiers: own)
 
-    /// ⌃⌥S — полка. Та же пара модификаторов, что у истории буфера:
-    /// вызывают их за одним и тем же — достать отложенное.
-    static let shelf = HotKeySpec(
-        keyCode: UInt32(kVK_ANSI_S),
-        modifiers: UInt32(controlKey | optionKey)
-    )
+    /// ⌃⌥S — полка.
+    static let shelf = HotKeySpec(keyCode: UInt32(kVK_ANSI_S), modifiers: own)
+
+    /// ⌃⌥T — таймер и секундомер.
+    static let timer = HotKeySpec(keyCode: UInt32(kVK_ANSI_T), modifiers: own)
+
+    /// ⌃⌥M — нагрузка на систему.
+    static let monitor = HotKeySpec(keyCode: UInt32(kVK_ANSI_M), modifiers: own)
 
     /// Цифра для номерной строки истории буфера.
     static func clipboardSlot(_ index: Int, modifiers: UInt32) -> HotKeySpec? {
         guard digits.indices.contains(index) else { return nil }
         return HotKeySpec(keyCode: UInt32(digits[index]), modifiers: modifiers)
+    }
+
+    /// Умолчание слотов до 0.6.0: ⌥⌘ и цифра по номеру слота.
+    ///
+    /// Нужно ровно для одного — узнать нетронутое сочетание и перенести его
+    /// на новую пару модификаторов. Своё, заданное человеком, остаётся.
+    static func legacySlot(_ index: Int) -> HotKeySpec? {
+        guard digits.indices.contains(index) else { return nil }
+        return HotKeySpec(keyCode: UInt32(digits[index]), modifiers: UInt32(optionKey | cmdKey))
     }
 
     private static let digits = [

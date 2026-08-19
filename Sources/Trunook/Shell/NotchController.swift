@@ -21,6 +21,8 @@ final class NotchController {
     let assistant = AssistantSession()
     let weather = WeatherService()
     let shelf = ShelfStore()
+    let timer = TimerService()
+    let monitor = MonitorService()
 
     private let alerts = EventAlertScheduler()
     /// Отдельное окно приёма файлов: сам вырез принимать их не может,
@@ -37,6 +39,7 @@ final class NotchController {
     private let router: OverlayRouter
     private let input: NotchInput
     private let purr: PurrEffects
+    private let chime = ChimePlayer()
 
     private var swipeResetTimer: Timer?
     private var calendarObservation: AnyCancellable?
@@ -87,6 +90,7 @@ final class NotchController {
         swipeResetTimer?.invalidate()
         swipeResetTimer = nil
         purr.shutdown()
+        chime.shutdown()
         HotKeyCenter.shared.stop()
         battery.stop()
         music.stop()
@@ -95,6 +99,8 @@ final class NotchController {
         meeting.stop()
         clipboard.stop()
         weather.stop()
+        timer.stop()
+        monitor.stop()
         alerts.stop()
         calendarObservation = nil
         thingsObservation = nil
@@ -132,6 +138,10 @@ final class NotchController {
         input.onTick = { [weak self] in
             self?.updateCountdown()
             self?.host.updateInteractiveRect()
+            // Проверка нажатий тоже пересчитывается по времени: таймер
+            // запускают из панели, а гаснет он сам, и ловить оба края
+            // отдельными вызовами — верный способ однажды забыть.
+            self?.updateWindowInteractivity()
         }
         input.onPettingStart = { [weak self] in
             DebugLog.write("вырез гладят — мурчим")
@@ -202,6 +212,19 @@ final class NotchController {
             self.updateWindowInteractivity()
         }
 
+        timer.onFinished = { [weak self] phase in
+            guard let self else { return }
+            // Виброотклик тут не украшение: вырез мог быть свёрнут, а звука
+            // у приложения нет — толчок единственное, что заметно, если
+            // человек смотрит в другое окно.
+            Haptics.tap(.levelChange)
+            if self.settings.timerSoundEnabled { self.chime.play() }
+            self.activities.present(.timer(
+                text: phase == .rest ? t("Перерыв окончен") : t("Время вышло")
+            ))
+            self.updateWindowInteractivity()
+        }
+
         weather.onAlert = { [weak self] text, symbol in
             self?.activities.present(.weather(text: text, symbol: symbol))
         }
@@ -257,6 +280,18 @@ final class NotchController {
         if settings.clipboardEnabled, let clipboardKey = settings.clipboardHotKey {
             HotKeyCenter.shared.register(clipboardKey, name: "история буфера") { [weak self] in
                 self?.router.toggle(.clipboard)
+            }
+        }
+
+        if settings.monitorEnabled, let monitorKey = settings.monitorHotKey {
+            HotKeyCenter.shared.register(monitorKey, name: "нагрузка") { [weak self] in
+                self?.toggleMonitor()
+            }
+        }
+
+        if settings.timerEnabled, let timerKey = settings.timerHotKey {
+            HotKeyCenter.shared.register(timerKey, name: "таймер") { [weak self] in
+                self?.toggleTimer()
             }
         }
 
@@ -346,6 +381,9 @@ final class NotchController {
             // Панель ушла — напоминание о полке возвращается на её место.
             refreshShelfChip()
         }
+        // Мониторинг опрашивает систему только пока он на экране: иначе
+        // он сам стал бы той нагрузкой, которую показывает.
+        overlay == .monitor ? monitor.start() : monitor.stop()
         // Пока полка на экране, зона приёма держится раскрытой: на открытую
         // полку докладывают файлы, и целиться в полоску по чёлке при этом
         // было бы издевательством.
@@ -362,6 +400,15 @@ final class NotchController {
         host.ignoresMouseEvents = state.overlay == nil
             && !state.isHovered
             && activities.current?.isInteractive != true
+            // По полоске идущего таймера нажимают, чтобы открыть его панель.
+            // Прозрачное для нажатий окно этого не позволило бы.
+            && timerChip == nil
+    }
+
+    /// Полоска идущего таймера — или её отсутствие. Спрашивают и расчёт
+    /// состояния, и проверка нажатий, и разойтись им нельзя.
+    private var timerChip: TimerChip? {
+        settings.timerEnabled ? timer.chip : nil
     }
 
     /// Состояние выреза глазами контроллера. Тот же расчёт, что и в вёрстке:
@@ -374,9 +421,10 @@ final class NotchController {
             isHovered: state.isHovered,
             isPinnedOpen: state.isPinnedOpen,
             chip: state.chipItem,
+            timerChip: timerChip,
             activity: activities.current,
             track: music.nowPlaying,
-            event: calendar.upcoming.first,
+            events: calendar.upcoming.startingTogether(limit: NotchMetrics.maxVisibleEvents),
             taskCount: things.todayTitles.count,
             meetingActions: meeting.availableActions.count,
             clipboardRows: clipboard.entries.count,
@@ -596,6 +644,57 @@ final class NotchController {
         )
     }
 
+    // MARK: - Таймер
+
+    func openTimer() {
+        guard settings.timerEnabled else { return }
+        router.set(.timer)
+    }
+
+    private func toggleTimer() {
+        guard settings.timerEnabled else { return }
+        router.toggle(.timer)
+    }
+
+    /// Отладочные входы: сочетание из скрипта не нажать, а кнопку «Пуск»
+    /// в панели — тем более.
+    func debugToggleTimer() { toggleTimer() }
+
+    /// Завести таймер на минуту и запустить: полоску в чёлке иначе не увидеть.
+    func debugRunTimer() {
+        router.close()
+        timer.select(minutes: 1)
+        timer.start()
+    }
+
+    // MARK: - Нагрузка на систему
+
+    func openMonitor() {
+        guard settings.monitorEnabled else { return }
+        router.set(.monitor)
+    }
+
+    private func toggleMonitor() {
+        guard settings.monitorEnabled else { return }
+        router.toggle(.monitor)
+    }
+
+    /// Отладочный вход: сочетание из скрипта не нажать.
+    func debugToggleMonitor() { toggleMonitor() }
+
+    /// Разбираться, кто именно ест ресурсы, идут в Мониторинг системы:
+    /// панель показывает только сколько, а не кто.
+    private func openActivityMonitor() {
+        router.close()
+        let url = URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+            guard let error else { return }
+            DebugLog.write("мониторинг: не открыть Мониторинг системы — \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Полка
+
     func openShelf() {
         shelf.pruneMissing()
         router.set(.shelf)
@@ -722,6 +821,8 @@ final class NotchController {
             assistant: assistant,
             weather: weather,
             shelf: shelf,
+            timer: timer,
+            monitor: monitor,
             settings: settings,
             metrics: metrics,
             onTap: { [weak self] in self?.expandPanel() },
@@ -735,6 +836,7 @@ final class NotchController {
             onOpenItem: { [weak self] item in self?.openItem(item) },
             onOpenCommands: { [weak self] in self?.openCommands() },
             onCloseCommands: { [weak self] in self?.closeCommands() },
+            onCloseOverlay: { [weak self] in self?.router.close() },
             onOpenClipboard: { [weak self] in self?.openClipboard() },
             onUseClipboard: { [weak self] entry in self?.useClipboard(entry) },
             onDeleteClipboard: { [weak self] entry in self?.clipboard.delete(entry) },
@@ -751,6 +853,9 @@ final class NotchController {
             onBeginShelfDragOut: { [weak self] in self?.beginShelfDragOut() },
             onEndShelfDragOut: { [weak self] in self?.endShelfDragOut() },
             onOpenShelf: { [weak self] in self?.openShelf() },
+            onOpenTimer: { [weak self] in self?.openTimer() },
+            onOpenMonitor: { [weak self] in self?.openMonitor() },
+            onOpenActivityMonitor: { [weak self] in self?.openActivityMonitor() },
             onDismissActivity: { [weak self] in self?.dismissShelfChip() },
             onOpenHub: { [weak self] in self?.openHub() },
             onOpenExpanded: { [weak self] in self?.openExpandedFromHub() },

@@ -186,7 +186,7 @@ struct AssistantPanel: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.07)))
+                .background(RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous).fill(.white.opacity(0.07)))
 
         case .paragraph where line.plain.isEmpty:
             // Пустая строка разделяет абзацы. Пустой `Text` занял бы целую

@@ -67,6 +67,17 @@ final class Settings: ObservableObject {
     }
 
     /// Показывать всплывающую подсказку при смене трека.
+    /// Свайп поперёк переключает трек в другую сторону.
+    ///
+    /// Отдельно от системной «естественной прокрутки»: ту уже учитывает сам
+    /// расчёт направления, а это — про вкус. Одним «вперёд» кажется движение
+    /// пальцев влево, как листают ленту, другим вправо, как переворачивают
+    /// страницу, и спорить тут не о чем.
+    var swipeInverted: Bool {
+        get { flag("swipeInverted", default: false) }
+        set { store(newValue, "swipeInverted") }
+    }
+
     var showTrackChanges: Bool {
         get { flag("showTrackChanges", default: true) }
         set { store(newValue, "showTrackChanges") }
@@ -163,7 +174,7 @@ final class Settings: ObservableObject {
     var clipboardSlotModifiers: ClipboardSlotModifiers {
         get {
             let raw = defaults.string(forKey: "clipboardSlotModifiers") ?? ""
-            return ClipboardSlotModifiers(rawValue: raw) ?? .controlOption
+            return ClipboardSlotModifiers(rawValue: raw) ?? .controlShift
         }
         set { store(newValue.rawValue, "clipboardSlotModifiers") }
     }
@@ -220,6 +231,50 @@ final class Settings: ObservableObject {
     }
 
     // MARK: - Погода
+
+    var monitorEnabled: Bool {
+        get { flag("monitorEnabled", default: true) }
+        set { store(newValue, "monitorEnabled") }
+    }
+
+    var monitorHotKey: HotKeySpec? {
+        get {
+            guard let data = defaults.data(forKey: "monitorHotKey") else { return .monitor }
+            return try? JSONDecoder().decode(HotKeySpec.self, from: data)
+        }
+        set {
+            defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "monitorHotKey")
+        }
+    }
+
+    var timerEnabled: Bool {
+        get { flag("timerEnabled", default: true) }
+        set { store(newValue, "timerEnabled") }
+    }
+
+    var timerSoundEnabled: Bool {
+        get { flag("timerSoundEnabled", default: true) }
+        set { store(newValue, "timerSoundEnabled") }
+    }
+
+    /// После работы сам заводится перерыв, после перерыва — снова работа.
+    /// Помидор без перерыва — просто таймер, поэтому по умолчанию включено.
+    /// Запускать перерыв служба всё равно не станет: решать, отдыхать ли
+    /// сейчас, человеку.
+    var pomodoroChainsRest: Bool {
+        get { flag("pomodoroChainsRest", default: true) }
+        set { store(newValue, "pomodoroChainsRest") }
+    }
+
+    var timerHotKey: HotKeySpec? {
+        get {
+            guard let data = defaults.data(forKey: "timerHotKey") else { return .timer }
+            return try? JSONDecoder().decode(HotKeySpec.self, from: data)
+        }
+        set {
+            defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "timerHotKey")
+        }
+    }
 
     var weatherEnabled: Bool {
         get { flag("weatherEnabled", default: false) }

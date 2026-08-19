@@ -11,7 +11,7 @@ struct CommandsPanel: View {
     let onRun: (QuickCommand) -> Void
     let onOpenSettings: () -> Void
     /// nil — возвращаться некуда, меню вызвано клавишей.
-    var onBack: (() -> Void)?
+    let onClose: () -> Void
 
     static let columns = 3
     static let slotWidth: CGFloat = 118
@@ -43,12 +43,11 @@ struct CommandsPanel: View {
             )
         } trailing: {
             HStack(spacing: 2) {
-                // Возврат в раскрытую панель — стрелкой в крыле, а не строкой
-                // над плитками: строка отнимала высоту у самого меню.
-                if let onBack {
-                    NotchPanelButton(symbol: "chevron.left", action: onBack)
-                }
                 NotchPanelButton(symbol: "gearshape", action: onOpenSettings)
+                // Крестик — общий для всех накладок и всегда последний
+                // в крыле: где бы человек ни находился, закрывается панель
+                // одинаково и в одном и том же месте.
+                NotchPanelButton(symbol: "xmark", action: onClose)
             }
         } content: {
             VStack(spacing: Self.spacing) {
@@ -93,7 +92,7 @@ struct CommandsPanel: View {
                     .foregroundStyle(.white)
                     .frame(width: Self.slotWidth, height: Self.slotHeight)
                     .overlay(alignment: .topTrailing) {
-                        // Номер слота: он же цифра в сочетании ⌥⌘N.
+                        // Номер слота: он же цифра в сочетании ⌃⌥N.
                         Text("\(command.id + 1)")
                             .font(.system(size: 9, weight: .bold, design: .rounded))
                             .foregroundStyle(.white.opacity(0.35))
@@ -121,7 +120,7 @@ struct CommandsPanel: View {
                     RoundedRectangle(cornerRadius: NotchStyle.tileRadius, style: .continuous)
                         .strokeBorder(.white.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 )
-                .contentShape(RoundedRectangle(cornerRadius: NotchStyle.tileRadius))
+                .contentShape(RoundedRectangle(cornerRadius: NotchStyle.tileRadius, style: .continuous))
             }
             .buttonStyle(PressableStyle())
         }

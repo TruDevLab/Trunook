@@ -22,7 +22,7 @@ struct HubEntryTests {
     @Test("Подсказка клавиш есть только там, где сочетание вообще бывает")
     func подсказкиТолькоГдеЕсть() {
         let settings = Settings.shared
-        let withHotKey: Set<HubEntry> = [.commands, .clipboard, .shelf]
+        let withHotKey: Set<HubEntry> = [.commands, .clipboard, .shelf, .timer, .monitor]
         for entry in HubEntry.allCases where !withHotKey.contains(entry) {
             #expect(entry.hint(settings) == nil, "у \(entry.rawValue) взялась подсказка")
         }

@@ -20,6 +20,7 @@ struct ShelfPanel: View {
     /// панель по уходу курсора: уводить курсор — и есть способ вытащить файл.
     let onBeginDragOut: () -> Void
     let onEndDragOut: () -> Void
+    let onClose: () -> Void
 
     static let width: CGFloat = 440
     static let tileWidth: CGFloat = 96
@@ -58,6 +59,10 @@ struct ShelfPanel: View {
                     NotchPanelCount(value: items.count)
                     NotchPanelButton(symbol: "trash", action: onClear)
                 }
+                // Крестик — общий для всех накладок и всегда последний
+                // в крыле: где бы человек ни находился, закрывается панель
+                // одинаково и в одном и том же месте.
+                NotchPanelButton(symbol: "xmark", action: onClose)
             }
         } content: {
             if items.isEmpty { empty } else { grid }
@@ -91,7 +96,7 @@ struct ShelfPanel: View {
     /// Пунктир под сеткой, пока файл ведут над полкой.
     @ViewBuilder
     private var dropHint: some View {
-        RoundedRectangle(cornerRadius: 10)
+        RoundedRectangle(cornerRadius: NotchStyle.tileRadius, style: .continuous)
             .strokeBorder(
                 Palette.shelf.opacity(isDropTarget ? 0.5 : 0),
                 style: StrokeStyle(lineWidth: 1, dash: [4, 3])

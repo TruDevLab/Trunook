@@ -36,7 +36,13 @@ final class NotchWindowHost {
     /// Окно ловит мышь, только когда на экране есть во что попадать.
     var ignoresMouseEvents: Bool {
         get { window?.ignoresMouseEvents ?? true }
-        set { window?.ignoresMouseEvents = newValue }
+        // Свойство спрашивают десять раз в секунду. Присваивать окну то же
+        // самое каждый раз незачем: сравнение дешевле обращения к AppKit.
+        set {
+            guard let window, window.ignoresMouseEvents != newValue else { return }
+            window.ignoresMouseEvents = newValue
+            DebugLog.write("окно \(newValue ? "прозрачно для мыши" : "ловит мышь")")
+        }
     }
 
     /// Нынешний размер видимой формы. Нужен не только зоне нажатий:

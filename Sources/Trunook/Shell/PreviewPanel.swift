@@ -75,7 +75,7 @@ struct PreviewPanel: View {
         if showsTrack {
             artworkButton
         } else {
-            RoundedRectangle(cornerRadius: 5)
+            RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous)
                 .fill(.white.opacity(0.12))
                 .overlay(
                     Image(systemName: event?.symbol ?? "calendar")
@@ -102,8 +102,8 @@ struct PreviewPanel: View {
                             .foregroundStyle(.white)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-                .contentShape(RoundedRectangle(cornerRadius: 5))
+                .clipShape(RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous))
         }
         .buttonStyle(PressableStyle())
     }
@@ -114,9 +114,9 @@ struct PreviewPanel: View {
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .clipShape(RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous))
         } else {
-            RoundedRectangle(cornerRadius: 5)
+            RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous)
                 .fill(.white.opacity(0.12))
                 .overlay(
                     Image(systemName: "music.note")

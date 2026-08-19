@@ -19,6 +19,9 @@ struct Activity: Identifiable, Equatable {
         case clipboard(text: String, kind: ClipboardEntry.Kind)
         /// На полке лежат файлы. Держится, пока полка не опустеет.
         case shelf(count: Int)
+        /// Вышло время таймера. Текст готовит контроллер: плашке незачем
+        /// знать про помидоры.
+        case timer(text: String)
         /// Погода: текст и значок готовит служба, плашка их только рисует.
         case weather(text: String, symbol: String)
         /// Данных не несёт намеренно: сведения о треке доезжают порциями,
@@ -39,6 +42,9 @@ struct Activity: Identifiable, Equatable {
         // Отклик на нажатие клавиши важнее всего: пользователь ждёт его
         // прямо сейчас и связывает со своим действием.
         case .command: return 5
+        // Вровень со встречей: вышедшее время — то, ради чего таймер
+        // и заводили, и пропустить его значит обессмыслить всю затею.
+        case .timer: return 4
         // Встреча следом: её пропуск нельзя отменить, в отличие
         // от незамеченной смены трека или уровня заряда.
         case .meeting: return 4
@@ -69,6 +75,8 @@ struct Activity: Identifiable, Equatable {
             }
         // Дольше прочих: нужно время прочитать название и нажать «подключиться».
         case .meeting: return 9
+        // Столько же: об окончании надо успеть узнать, даже отвернувшись.
+        case .timer: return 9
         // Дольше прочих мелких: по плашке нужно успеть попасть курсором,
         // чтобы открыть историю.
         case .clipboard: return 4
@@ -110,6 +118,7 @@ extension Activity.Kind {
         case .command: return "команда"
         case .clipboard: return "копирование"
         case .shelf: return "полка"
+        case .timer: return "таймер"
         case .weather: return "погода"
         case .meeting: return "встреча"
         case .trackChanged: return "смена трека"

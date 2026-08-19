@@ -10,6 +10,7 @@ struct HubPanel: View {
     let metrics: NotchMetrics
     let items: [Item]
     let onOpenSettings: () -> Void
+    let onClose: () -> Void
 
     /// Плитка меню. Выключенная в настройках функция остаётся видимой,
     /// но недоступной: иначе меню меняло бы состав, и человек решил бы,
@@ -25,11 +26,20 @@ struct HubPanel: View {
     }
 
     static let width: CGFloat = 440
-    /// Две колонки, а не три: плиток четыре, и в три они ложатся как 3 + 1 —
-    /// последний ряд выглядит недоделанным.
-    static let columns = 2
-    static let tileWidth: CGFloat = 196
+    /// Три колонки.
+    ///
+    /// Были две: при четырёх плитках в три они ложились как 3 + 1, и второй
+    /// ряд выглядел недоделанным. С пятой плиткой две колонки дали третий ряд,
+    /// и меню выросло на семьдесят четыре точки — панель, вызываемая правой
+    /// кнопкой, полезла закрывать чужие окна. Три колонки возвращают прежнюю
+    /// высоту: пять плиток ложатся как 3 + 2, и ряд читается рядом.
+    static let columns = 3
+    /// Уже прежней ровно настолько, чтобы три плитки с зазорами уложились
+    /// в ту же ширину панели.
+    static let tileWidth: CGFloat = 130
     static let tileHeight: CGFloat = 66
+    /// Общая высота значка — см. плитку.
+    private static let symbolHeight: CGFloat = 20
     static let tileSpacing = NotchStyle.gridSpacing
 
     static func height(notchHeight: CGFloat, count: Int) -> CGFloat {
@@ -52,7 +62,13 @@ struct HubPanel: View {
         NotchPanel(metrics: metrics, width: Self.width) {
             NotchPanelTitle(symbol: "square.grid.2x2", title: t("Всё сразу"))
         } trailing: {
-            NotchPanelButton(symbol: "gearshape", action: onOpenSettings)
+            HStack(spacing: 2) {
+                NotchPanelButton(symbol: "gearshape", action: onOpenSettings)
+                // Крестик — общий для всех накладок и всегда последний
+                // в крыле: где бы человек ни находился, закрывается панель
+                // одинаково и в одном и том же месте.
+                NotchPanelButton(symbol: "xmark", action: onClose)
+            }
         } content: {
             LazyVGrid(columns: columnLayout, spacing: Self.tileSpacing) {
                 ForEach(items) { tile($0) }
@@ -65,10 +81,15 @@ struct HubPanel: View {
             Button(action: item.action) {
             VStack(spacing: 5) {
                 Image(systemName: item.symbol)
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(item.isEnabled ? item.tint : .white.opacity(0.25))
+                    // Высота задана жёстко: значки системного набора разного
+                    // роста — «доска с листом» и циферблат выше подноса, —
+                    // и без общей высоты они толкали подпись вниз, а ряд
+                    // читался кривым.
+                    .frame(height: Self.symbolHeight)
                 Text(item.title)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.white.opacity(item.isEnabled ? 0.9 : 0.35))
                     .lineLimit(1)
                 // Строка подсказки есть у всех, даже когда сочетания нет:

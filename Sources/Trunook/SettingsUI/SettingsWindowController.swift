@@ -20,7 +20,8 @@ final class SettingsWindowController {
         calendar: CalendarService,
         clipboard: ClipboardService,
         weather: WeatherService,
-        onHotKeysChanged: @escaping () -> Void
+        onHotKeysChanged: @escaping () -> Void,
+        onOpenWelcome: @escaping () -> Void
     ) {
         // Всё, что приходит извне, перечитывается при каждом открытии, а не
         // только при первом: пользователь мог поменять автозапуск в Системных
@@ -56,7 +57,8 @@ final class SettingsWindowController {
             browsers: browsers,
             clipboard: clipboard,
             weather: weather,
-            onHotKeysChanged: onHotKeysChanged
+            onHotKeysChanged: onHotKeysChanged,
+            onOpenWelcome: onOpenWelcome
         )
         let window = NSWindow(
             contentRect: CGRect(origin: .zero, size: SettingsView.size),

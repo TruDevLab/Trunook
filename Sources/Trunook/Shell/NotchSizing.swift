@@ -26,6 +26,10 @@ enum NotchPresentation: Equatable {
     case shelf
     /// Меню всех функций.
     case hub
+    /// Таймер и секундомер.
+    case timer
+    /// Нагрузка на систему.
+    case monitor
 }
 
 enum SwipeDirection: Equatable {
@@ -42,7 +46,11 @@ struct NotchContent: Equatable {
     var activity: Activity?
     var track: NowPlaying?
     var chip: CalendarItem?
-    var event: CalendarItem?
+    /// Полоска идущего таймера.
+    var timerChip: TimerChip?
+    /// Встречи, начинающиеся в одно время. Обычно одна, но на один слот
+    /// в календаре нередко стоят две.
+    var events: [CalendarItem] = []
     var taskCount: Int = 0
     /// Меню открыто из раскрытой панели — значит есть строка возврата.
     var commandsHasBackRow = false
@@ -60,22 +68,31 @@ struct NotchContent: Equatable {
 
     /// Сколько задач реально попадёт в панель.
     var visibleTasks: Int { min(taskCount, NotchMetrics.maxVisibleTasks) }
+    /// Сколько встреч реально попадёт в панель.
+    var visibleEvents: Int { min(events.count, NotchMetrics.maxVisibleEvents) }
 
     /// Высота всего, что показано под строкой музыки.
     ///
     /// Встреча и задачи — две отдельные подложки, у каждой свои поля.
     var extraHeight: CGFloat {
-        guard event != nil || taskCount > 0 else { return 0 }
+        guard visibleEvents > 0 || taskCount > 0 else { return 0 }
         /// Поля подложки сверху и снизу.
         let cardPadding: CGFloat = 12
         // Отступ от строки музыки.
         var height = NotchStyle.gridSpacing
-        if event != nil { height += NotchMetrics.eventRowHeight + cardPadding }
+        if visibleEvents > 0 {
+            // Все одновременные встречи лежат в одной подложке: они про одно
+            // и то же время, и разводить их по отдельным карточкам значило бы
+            // показать их как несвязанные.
+            height += CGFloat(visibleEvents) * NotchMetrics.eventRowHeight
+                + CGFloat(visibleEvents - 1) * NotchStyle.rowSpacing
+                + cardPadding
+        }
         if taskCount > 0 {
             height += CGFloat(visibleTasks) * NotchMetrics.taskRowHeight + cardPadding
         }
         // Зазор между подложками — только когда их две.
-        if event != nil, taskCount > 0 { height += 6 }
+        if visibleEvents > 0, taskCount > 0 { height += 6 }
         return height
     }
 }
@@ -93,6 +110,12 @@ enum NotchSizing {
         case .collapsed:
             return metrics.closed
         case .chip:
+            // Таймер важнее отсчёта до встречи: его завели руками.
+            if let timer = content.timerChip {
+                return metrics.chip(
+                    width: TimerChipView.width(metrics: metrics, showsHours: timer.showsHours)
+                )
+            }
             guard content.chip != nil else { return metrics.closed }
             return metrics.chip(width: ChipView.width(metrics: metrics))
         case .activity:
@@ -108,7 +131,7 @@ enum NotchSizing {
                     height: MeetingControlsView.height(notchHeight: metrics.notchHeight)
                 )
             }
-            let layout = PreviewPanel.layout(track: content.track, event: content.event, metrics: metrics)
+            let layout = PreviewPanel.layout(track: content.track, event: content.events.first, metrics: metrics)
             return metrics.activity(width: layout.panelWidth)
         case .swiping:
             // Нижняя панель убрана, остаётся высота самой чёлки: остров
@@ -151,6 +174,16 @@ enum NotchSizing {
                     notchHeight: metrics.notchHeight,
                     count: content.shelfCount
                 )
+            )
+        case .monitor:
+            return CGSize(
+                width: MonitorPanel.width,
+                height: MonitorPanel.height(notchHeight: metrics.notchHeight)
+            )
+        case .timer:
+            return CGSize(
+                width: TimerPanel.width,
+                height: TimerPanel.height(notchHeight: metrics.notchHeight)
             )
         case .hub:
             return CGSize(

@@ -26,6 +26,22 @@ final class NotchState: ObservableObject {
         case assistant
         case shelf
         case hub
+        case timer
+        case monitor
+
+        /// Закрывается ли накладка тем, что курсор ушёл за её границы.
+        ///
+        /// Полка и ответ модели — нет, и по одной причине: с ними работают
+        /// руками. С полки тащат файлы наружу, у модели читают длинный ответ
+        /// и печатают встречный вопрос, — курсор при этом заведомо уходит,
+        /// и закрытие по уходу отнимало бы панель ровно в тот момент, ради
+        /// которого она открыта. Эти две закрываются щелчком мимо.
+        var closesOnCursorExit: Bool {
+            switch self {
+            case .commands, .clipboard, .hub, .timer, .monitor: return true
+            case .shelf, .assistant: return false
+            }
+        }
     }
 
     var isCommandsOpen: Bool { overlay == .commands }
@@ -33,6 +49,8 @@ final class NotchState: ObservableObject {
     var isAssistantOpen: Bool { overlay == .assistant }
     var isShelfOpen: Bool { overlay == .shelf }
     var isHubOpen: Bool { overlay == .hub }
+    var isTimerOpen: Bool { overlay == .timer }
+    var isMonitorOpen: Bool { overlay == .monitor }
 
     /// Файлы ведут над зоной приёма прямо сейчас. Держится отдельно
     /// от `overlay`: полка бывает открыта и без перетаскивания, а подсветка
@@ -68,6 +86,8 @@ struct NotchView: View {
     @ObservedObject var assistant: AssistantSession
     @ObservedObject var weather: WeatherService
     @ObservedObject var shelf: ShelfStore
+    @ObservedObject var timer: TimerService
+    @ObservedObject var monitor: MonitorService
     /// Настройки наблюдаются, а не передаются снимком: слоты команд правятся
     /// в окне настроек, и без наблюдения вырез показывал бы набор, каким тот
     /// был на момент запуска.
@@ -82,6 +102,8 @@ struct NotchView: View {
     let onOpenItem: (CalendarItem) -> Void
     let onOpenCommands: () -> Void
     let onCloseCommands: () -> Void
+    /// Закрыть любую накладку — крестиком в её шапке.
+    let onCloseOverlay: () -> Void
     let onOpenClipboard: () -> Void
     let onUseClipboard: (ClipboardEntry) -> Void
     let onDeleteClipboard: (ClipboardEntry) -> Void
@@ -98,6 +120,9 @@ struct NotchView: View {
     let onBeginShelfDragOut: () -> Void
     let onEndShelfDragOut: () -> Void
     let onOpenShelf: () -> Void
+    let onOpenTimer: () -> Void
+    let onOpenMonitor: () -> Void
+    let onOpenActivityMonitor: () -> Void
     let onDismissActivity: () -> Void
     let onOpenHub: () -> Void
     let onOpenExpanded: () -> Void
@@ -105,7 +130,11 @@ struct NotchView: View {
 
     private var commands: [QuickCommand] { settings.quickCommands }
 
-    private var nextEvent: CalendarItem? { calendar.upcoming.first }
+    /// Ближайшие встречи, начинающиеся в одно время: обычно одна, но
+    /// на один слот в календаре нередко стоят две.
+    private var nextEvents: [CalendarItem] {
+        calendar.upcoming.startingTogether(limit: NotchMetrics.maxVisibleEvents)
+    }
 
     /// Плитки меню всех функций: состав задаёт `HubEntry`, здесь к нему
     /// добавляются только действия. Раньше состав жил здесь, а его длина —
@@ -131,6 +160,8 @@ struct NotchView: View {
         case .commands: onOpenCommands()
         case .clipboard: onOpenClipboard()
         case .shelf: onOpenShelf()
+        case .timer: onOpenTimer()
+        case .monitor: onOpenMonitor()
         }
     }
 
@@ -143,9 +174,10 @@ struct NotchView: View {
             isHovered: state.isHovered,
             isPinnedOpen: state.isPinnedOpen,
             chip: state.chipItem,
+            timerChip: timer.chip,
             activity: activities.current,
             track: music.nowPlaying,
-            event: nextEvent,
+            events: nextEvents,
             taskCount: things.todayTitles.count,
             meetingActions: meeting.availableActions.count,
             clipboardRows: clipboard.entries.count,
@@ -173,7 +205,8 @@ struct NotchView: View {
             topRadius: isOpen ? NotchStyle.shoulderInset : 8,
             bottomRadius: {
                 switch presentation {
-                case .expanded, .commands, .clipboard, .assistant, .shelf, .hub: return 22
+                case .expanded, .commands, .clipboard, .assistant, .shelf, .hub, .timer, .monitor:
+                    return NotchStyle.panelRadius
                 case .preview, .activity: return 20
                 case .swiping: return 14
                 case .chip, .collapsed: return 12
@@ -277,9 +310,7 @@ struct NotchView: View {
                 metrics: metrics,
                 onRun: onRunCommand,
                 onOpenSettings: onOpenSettings,
-                // Кнопка возврата нужна только когда панель была раскрыта
-                // до перехода: вызванное клавишей меню закрывать некуда.
-                onBack: state.isPinnedOpen ? onCloseCommands : nil
+                onClose: onCloseCommands
             )
         case .assistant:
             AssistantPanel(
@@ -299,13 +330,24 @@ struct NotchView: View {
                 onUse: onUseClipboard,
                 onDelete: onDeleteClipboard,
                 onClear: onClearClipboard,
-                onOpenSettings: onOpenSettings
+                onOpenSettings: onOpenSettings,
+                onClose: onCloseOverlay
             )
         case .hub:
             HubPanel(
                 metrics: metrics,
                 items: hubItems,
-                onOpenSettings: onOpenSettings
+                onOpenSettings: onOpenSettings,
+                onClose: onCloseOverlay
+            )
+        case .timer:
+            TimerPanel(timer: timer, metrics: metrics, onClose: onCloseOverlay)
+        case .monitor:
+            MonitorPanel(
+                monitor: monitor,
+                metrics: metrics,
+                onOpenActivityMonitor: onOpenActivityMonitor,
+                onClose: onCloseOverlay
             )
         case .shelf:
             ShelfPanel(
@@ -318,10 +360,14 @@ struct NotchView: View {
                 onRevealInFinder: onRevealShelfItem,
                 onClear: onClearShelf,
                 onBeginDragOut: onBeginShelfDragOut,
-                onEndDragOut: onEndShelfDragOut
+                onEndDragOut: onEndShelfDragOut,
+                onClose: onCloseOverlay
             )
         case .chip:
-            if let chip = state.chipItem {
+            // Таймер важнее отсчёта до встречи: его завели руками.
+            if timer.isRunning {
+                TimerChipView(timer: timer, metrics: metrics, onOpen: onOpenTimer)
+            } else if let chip = state.chipItem {
                 ChipView(item: chip, metrics: metrics)
             }
         case .activity:
@@ -349,16 +395,16 @@ struct NotchView: View {
         case .preview:
             PreviewPanel(
                 track: music.nowPlaying,
-                event: nextEvent,
+                event: nextEvents.first,
                 metrics: metrics,
                 startDate: state.hoverStartedAt,
                 onTogglePlayback: { music.send(.togglePlayPause) }
             )
-            .frame(width: PreviewPanel.layout(track: music.nowPlaying, event: nextEvent, metrics: metrics).panelWidth)
+            .frame(width: PreviewPanel.layout(track: music.nowPlaying, event: nextEvents.first, metrics: metrics).panelWidth)
         case .expanded:
             ExpandedPanel(
                 music: music,
-                event: nextEvent,
+                events: nextEvents,
                 tasks: things.todayTitles,
                 metrics: metrics,
                 onOpenSettings: onOpenSettings,
@@ -378,7 +424,7 @@ struct NotchView: View {
 /// Содержимое раскрытой панели: музыка и ближайшая встреча.
 private struct ExpandedPanel: View {
     @ObservedObject var music: MusicClient
-    let event: CalendarItem?
+    let events: [CalendarItem]
     let tasks: [String]
     let metrics: NotchMetrics
     let onOpenSettings: () -> Void
@@ -427,8 +473,17 @@ private struct ExpandedPanel: View {
     @ViewBuilder
     private var schedule: some View {
         VStack(spacing: Self.cardGap) {
-            if let event {
-                card { eventRow(event) }
+            if !events.isEmpty {
+                // Одна подложка на все встречи этого времени: они про один
+                // и тот же слот, и по отдельным карточкам читались бы как
+                // несвязанные события в разные часы.
+                card {
+                    VStack(spacing: NotchStyle.rowSpacing) {
+                        ForEach(events) { event in
+                            eventRow(event)
+                        }
+                    }
+                }
             }
             if !tasks.isEmpty {
                 card { tasksList }
@@ -450,7 +505,7 @@ private struct ExpandedPanel: View {
             // Та же заливка, что у круглых кнопок панели: подложки и кнопки
             // лежат рядом, и разная плотность читалась как небрежность.
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: NotchStyle.cardRadius, style: .continuous)
                     .fill(.white.opacity(NotchButtonStyle.restingFill))
             )
     }
@@ -631,7 +686,7 @@ private struct ExpandedPanel: View {
             if let data = music.nowPlaying?.artwork, let image = NSImage(data: data) {
                 Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
             } else {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
                     .fill(.white.opacity(0.12))
                     .overlay(
                         Image(systemName: "music.note")
@@ -640,7 +695,7 @@ private struct ExpandedPanel: View {
             }
         }
         .frame(width: 44, height: 44)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
     }
 
     /// Только «играть»: перематывают свайпом двумя пальцами.

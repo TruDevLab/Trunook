@@ -17,6 +17,10 @@ struct NotchMetrics: Equatable {
     static let taskRowHeight: CGFloat = 26
     /// Сколько задач помещаем в панель, прежде чем свернуть остаток в «+N».
     static let maxVisibleTasks = 3
+    /// Сколько одновременных встреч показываем. Больше трёх на один слот —
+    /// уже не расписание, а сбой синхронизации, и панель под это растить
+    /// незачем.
+    static let maxVisibleEvents = 3
 
     init(notchWidth: CGFloat, notchHeight: CGFloat) {
         self.notchWidth = notchWidth
@@ -59,9 +63,10 @@ struct NotchMetrics: Equatable {
     /// Полоска отсчёта бывает шире раскрытой панели — на технике с широким
     /// вырезом она вылезла бы за границу окна и обрезалась.
     var windowSize: CGSize {
-        // Потолок: встреча плюс полный список задач.
+        // Потолок: все одновременные встречи плюс полный список задач.
         let panel = expanded(
-            extraHeight: Self.eventRowHeight + 6
+            extraHeight: CGFloat(Self.maxVisibleEvents) * Self.eventRowHeight
+                + CGFloat(Self.maxVisibleEvents - 1) * NotchStyle.rowSpacing + 6
                 + 6 + CGFloat(Self.maxVisibleTasks) * Self.taskRowHeight
         )
         let commands = CommandsPanel.height(notchHeight: notchHeight, hasBackRow: true)
@@ -70,7 +75,9 @@ struct NotchMetrics: Equatable {
             notchHeight: notchHeight,
             rows: ClipboardPanel.visibleRows
         )
-        let hub = HubPanel.height(notchHeight: notchHeight, count: HubPanel.columns * 2)
+        // Потолок считается по настоящему составу меню: раньше здесь стояли
+        // «две строки», и пятая плитка вылезла бы за окно, а окно обрезает.
+        let hub = HubPanel.height(notchHeight: notchHeight, count: HubEntry.count)
         let shelf = ShelfPanel.height(
             notchHeight: notchHeight,
             count: ShelfPanel.columns * ShelfPanel.visibleRows
@@ -79,6 +86,7 @@ struct NotchMetrics: Equatable {
             width: max(
                 panel.width,
                 ChipView.width(metrics: self),
+                TimerChipView.width(metrics: self, showsHours: true),
                 CommandsPanel.width,
                 ClipboardPanel.width,
                 AssistantPanel.width,

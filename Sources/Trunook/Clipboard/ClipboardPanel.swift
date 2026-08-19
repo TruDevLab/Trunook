@@ -15,6 +15,7 @@ struct ClipboardPanel: View {
     let onDelete: (ClipboardEntry) -> Void
     let onClear: () -> Void
     let onOpenSettings: () -> Void
+    let onClose: () -> Void
 
     static let width: CGFloat = 440
     static let rowHeight: CGFloat = 34
@@ -55,6 +56,10 @@ struct ClipboardPanel: View {
                     NotchPanelButton(symbol: "trash", action: onClear)
                 }
                 NotchPanelButton(symbol: "gearshape", action: onOpenSettings)
+                // Крестик — общий для всех накладок и всегда последний
+                // в крыле: где бы человек ни находился, закрывается панель
+                // одинаково и в одном и том же месте.
+                NotchPanelButton(symbol: "xmark", action: onClose)
             }
         } content: {
             if entries.isEmpty { empty } else { list }
@@ -108,8 +113,8 @@ struct ClipboardPanel: View {
             }
             .padding(.horizontal, 8)
             .frame(height: Self.rowHeight)
-            .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.06)))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .background(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous).fill(.white.opacity(0.06)))
+            .contentShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
         }
         .buttonStyle(PressableStyle())
         .contextMenu {
@@ -136,7 +141,7 @@ struct ClipboardPanel: View {
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .clipShape(RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous))
         } else {
             Image(systemName: entry.kind.symbol)
                 .font(.system(size: 11, weight: .medium))

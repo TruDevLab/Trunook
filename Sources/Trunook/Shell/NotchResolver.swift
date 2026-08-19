@@ -36,9 +36,12 @@ struct NotchInputs: Equatable {
     var isHovered = false
     var isPinnedOpen = false
     var chip: CalendarItem?
+    /// Полоска идущего таймера. Важнее отсчёта до встречи: таймер заводят
+    /// руками и смотрят на него нарочно, а отсчёт всплывает сам.
+    var timerChip: TimerChip?
     var activity: Activity?
     var track: NowPlaying?
-    var event: CalendarItem?
+    var events: [CalendarItem] = []
     var taskCount = 0
     var meetingActions = 0
     var clipboardRows = 0
@@ -66,6 +69,8 @@ struct NotchInputs: Equatable {
         case .assistant: return .assistant
         case .shelf: return .shelf
         case .hub: return .hub
+        case .timer: return .timer
+        case .monitor: return .monitor
         case nil: break
         }
         // Остров расходится в бока не после срабатывания, а по ходу жеста:
@@ -78,7 +83,7 @@ struct NotchInputs: Equatable {
         if isPinnedOpen { return .expanded }
         if isHovered { return .preview }
         if activity != nil { return .activity }
-        return chip == nil ? .collapsed : .chip
+        return chip == nil && timerChip == nil ? .collapsed : .chip
     }
 
     private var content: NotchContent {
@@ -86,7 +91,8 @@ struct NotchInputs: Equatable {
             activity: activity,
             track: track,
             chip: chip,
-            event: event,
+            timerChip: timerChip,
+            events: events,
             taskCount: taskCount,
             commandsHasBackRow: isPinnedOpen,
             meetingActions: meetingActions,

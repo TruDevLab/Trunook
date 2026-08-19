@@ -10,6 +10,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
     case commands
     case clipboard
     case shelf
+    case timer
+    case monitor
 
     var id: String { rawValue }
 
@@ -21,6 +23,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .commands: return t("Команды")
         case .clipboard: return t("Буфер обмена")
         case .shelf: return t("Полка")
+        case .timer: return t("Таймер")
+        case .monitor: return t("Нагрузка")
         }
     }
 
@@ -30,6 +34,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .commands: return "square.grid.2x2.fill"
         case .clipboard: return "doc.on.clipboard.fill"
         case .shelf: return "tray.full.fill"
+        case .timer: return "timer"
+        case .monitor: return "gauge.with.dots.needle.67percent"
         }
     }
 
@@ -39,6 +45,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .commands: return Palette.commands
         case .clipboard: return Palette.clipboard
         case .shelf: return Palette.shelf
+        case .timer: return Palette.timer
+        case .monitor: return Palette.monitor
         }
     }
 
@@ -51,6 +59,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .commands: return settings.quickCommandsEnabled
         case .clipboard: return settings.clipboardEnabled
         case .shelf: return settings.shelfEnabled
+        case .timer: return settings.timerEnabled
+        case .monitor: return settings.monitorEnabled
         }
     }
 
@@ -60,6 +70,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .commands: return settings.menuHotKey?.display
         case .clipboard: return settings.clipboardHotKey?.display
         case .shelf: return settings.shelfHotKey?.display
+        case .timer: return settings.timerHotKey?.display
+        case .monitor: return settings.monitorHotKey?.display
         case .expanded: return nil
         }
     }

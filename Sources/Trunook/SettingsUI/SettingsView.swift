@@ -6,7 +6,7 @@ import SwiftUI
 /// он реализован макросом, а плагин SwiftUI-макросов поставляется с Xcode.
 final class SettingsSelection: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case general, commands, clipboard, shelf, calendar, weather, battery, info
+        case general, commands, clipboard, shelf, timer, monitor, calendar, weather, battery, info
         var id: String { rawValue }
 
         var title: String {
@@ -15,6 +15,8 @@ final class SettingsSelection: ObservableObject {
             case .commands: return t("Команды")
             case .clipboard: return t("Буфер")
             case .shelf: return t("Полка")
+            case .timer: return t("Таймер")
+            case .monitor: return t("Нагрузка")
             case .calendar: return t("Календарь")
             case .weather: return t("Погода")
             case .battery: return t("Батарея")
@@ -28,6 +30,8 @@ final class SettingsSelection: ObservableObject {
             case .commands: return "square.grid.2x2.fill"
             case .clipboard: return "doc.on.clipboard.fill"
             case .shelf: return "tray.full.fill"
+            case .timer: return "timer"
+            case .monitor: return "gauge.with.dots.needle.67percent"
             case .calendar: return "calendar"
             case .weather: return "cloud.sun.fill"
             case .battery: return "battery.100"
@@ -43,6 +47,8 @@ final class SettingsSelection: ObservableObject {
             case .commands: return Palette.commands
             case .clipboard: return Palette.clipboard
             case .shelf: return Palette.shelf
+            case .timer: return Palette.timer
+            case .monitor: return Palette.monitor
             case .calendar: return Palette.calendar
             case .weather: return Palette.weather
             case .battery: return Palette.positive
@@ -67,6 +73,10 @@ struct SettingsView: View {
     /// Сочетания заданы пользователем, поэтому после правки их надо
     /// перерегистрировать в системе.
     let onHotKeysChanged: () -> Void
+    /// Окно знакомства открывается заново из настроек: оно показывается само
+    /// только при первом запуске, а вернуться к нему хотят и позже —
+    /// перечитать про жесты или переспросить доступы.
+    let onOpenWelcome: () -> Void
 
     static let sidebarWidth: CGFloat = 210
     static let size = CGSize(width: sidebarWidth + 460, height: 640)
@@ -138,6 +148,8 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 switch selection.tab {
+                case .timer: timerSection
+                case .monitor: monitorSection
                 case .general: generalSection
                 case .commands: commandsSection
                 case .clipboard: clipboardSection
@@ -176,6 +188,15 @@ struct SettingsView: View {
                     Toggle(t("Виброотклик на трекпаде"), isOn: settings.binding(\.hapticsEnabled))
                     Toggle(t("Мурчание"), isOn: settings.binding(\.purrEnabled))
                     hint(t("Поводите курсором по чёлке из стороны в сторону — вырез замурчит."))
+
+                    Divider()
+
+                    HStack {
+                        Text(t("Знакомство с вырезом"))
+                        Spacer()
+                        Button(t("Открыть")) { onOpenWelcome() }
+                    }
+                    hint(t("Окно с жестами, сочетаниями клавиш и доступами. Само оно показывается только при первом запуске."))
                 }
 
                 section(t("Музыка"), icon: "music.note") {
@@ -184,8 +205,79 @@ struct SettingsView: View {
                         .disabled(!settings.musicEnabled)
                     hint(t("Сведения о треке читаются из системы, поэтому работают с любым плеером: Яндекс Музыка, Spotify, Apple Music, веб-плееры в браузере."))
                     hint(t("Свайп двумя пальцами по острову переключает трек."))
+
+                    Toggle(t("Поменять стороны свайпа"), isOn: settings.binding(\.swipeInverted))
+                        .disabled(!settings.musicEnabled)
+                    hint(t("Кому-то «следующий» — это движение пальцев влево, как листают ленту, кому-то вправо, как переворачивают страницу."))
                 }
 
+        }
+    }
+
+    private var monitorSection: some View {
+        Group {
+            section(t("Нагрузка на систему"), icon: "gauge.with.dots.needle.67percent") {
+                Toggle(t("Показывать нагрузку"), isOn: Binding(
+                    get: { settings.monitorEnabled },
+                    set: { settings.monitorEnabled = $0; onHotKeysChanged() }
+                ))
+
+                HStack {
+                    Text(t("Открыть нагрузку"))
+                    Spacer()
+                    HotKeyRecorder(spec: Binding(
+                        get: { settings.monitorHotKey },
+                        set: { settings.monitorHotKey = $0; onHotKeysChanged() }
+                    ))
+                    .frame(width: 140, height: 24)
+                }
+                .disabled(!settings.monitorEnabled)
+
+                hint(t("Три показателя: процессор, память и диск. Нажмите по любому — откроется Мониторинг системы."))
+            }
+
+            section(t("Что показано и чего нет"), icon: "questionmark.circle") {
+                hint(t("Память считается так же, как в Мониторинге системы: память приложений, зарезервированная ядром и сжатая. Иначе числа расходились бы с тем приложением, которое открывается по нажатию."))
+                hint(t("Диск — том с данными, а не системный: системный доступен только для чтения и занят целиком всегда."))
+                hint(t("Видеокарты здесь нет: публичного способа узнать её загрузку в macOS не существует, а обходной отдаёт ноль даже под нагрузкой. Пустая шкала хуже, чем никакой."))
+                hint(t("Система опрашивается, только пока панель открыта. Иначе мониторинг сам стал бы той нагрузкой, которую показывает."))
+            }
+        }
+    }
+
+    private var timerSection: some View {
+        Group {
+            section(t("Таймер и секундомер"), icon: "timer") {
+                Toggle(t("Показывать таймер"), isOn: Binding(
+                    get: { settings.timerEnabled },
+                    set: { settings.timerEnabled = $0; onHotKeysChanged() }
+                ))
+
+                HStack {
+                    Text(t("Открыть таймер"))
+                    Spacer()
+                    HotKeyRecorder(spec: Binding(
+                        get: { settings.timerHotKey },
+                        set: { settings.timerHotKey = $0; onHotKeysChanged() }
+                    ))
+                    .frame(width: 140, height: 24)
+                }
+                .disabled(!settings.timerEnabled)
+
+                Toggle(t("Сигнал по окончании"), isOn: settings.binding(\.timerSoundEnabled))
+                    .disabled(!settings.timerEnabled)
+                hint(t("Один короткий колокольчик. Не будильник: таймер сообщает о факте, а не требует внимания."))
+
+                Toggle(t("После работы заводить перерыв"),
+                       isOn: settings.binding(\.pomodoroChainsRest))
+                    .disabled(!settings.timerEnabled)
+                hint(t("Двадцать пять минут работы, пять перерыва — как в помидоре. Перерыв заводится сам, но запускать его вам: решать, отдыхать ли сейчас, приложение не должно."))
+            }
+
+            section(t("Как это устроено"), icon: "clock.arrow.circlepath") {
+                hint(t("Время считается от момента запуска, а не тиком. Поэтому таймер не отстаёт, даже если ноутбук закрывали: после пробуждения он покажет верное время."))
+                hint(t("Пока таймер идёт, свёрнутая чёлка раздвигается полоской: значок слева, счёт справа. Нажмите по ней — откроется панель."))
+            }
         }
     }
 
@@ -848,7 +940,7 @@ struct SettingsView: View {
                         .foregroundStyle(SettingsStyle.secondary)
                         .textSelection(.enabled)
                 }
-                hint(t("Вырез MacBook как центр управления: музыка, встречи, команды, буфер обмена и полка для файлов."))
+                hint(t("Вырез MacBook как центр управления: музыка, встречи, команды, ответ модели, буфер обмена, полка для файлов, таймер и нагрузка на систему."))
             }
 
             section(t("Жесты"), icon: "hand.draw") {
@@ -857,6 +949,7 @@ struct SettingsView: View {
                 info(t("Свайп вбок"), t("Предыдущий и следующий трек."))
                 info(t("Правая кнопка"), t("Меню всех функций."))
                 info(t("Поглаживание"), t("Поводите курсором из стороны в сторону — вырез замурчит."))
+                info(t("Нажатие по счёту таймера"), t("Пока таймер или секундомер идёт, чёлка раздвигается счётом. Нажмите по нему — откроется панель."))
             }
 
             section(t("Что уходит наружу"), icon: "lock") {
@@ -869,6 +962,7 @@ struct SettingsView: View {
                 info(t("Только встроенный экран"), t("На внешних мониторах выреза нет."))
                 info(t("Встреча — только в открытой вкладке"), t("Браузер не отдаёт содержимое фоновых вкладок. Вытащите встречу в отдельное окно, чтобы кнопки были всегда."))
                 info("Things 3", t("Задачи видны списком, но напоминания по ним не работают: Things не отдаёт время напоминания наружу."))
+                info(t("Нагрузка без видеокарты"), t("Публичного способа узнать загрузку GPU в macOS нет, а обходной отдаёт ноль даже под нагрузкой. Пустая шкала хуже, чем никакой."))
             }
         }
     }
