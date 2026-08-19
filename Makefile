@@ -1,5 +1,5 @@
 APP      := Trunook
-VERSION := 0.5.1
+VERSION := 0.6.0
 # Номер сборки растёт со временем: так две сборки одной версии различимы.
 BUILDNO  := $(shell date +%y%m%d%H%M)
 CONF     ?= debug
