@@ -9,6 +9,12 @@ struct WelcomeView: View {
     /// Сочетание меню правится прямо здесь, поэтому настройки наблюдаются,
     /// а не берутся снимком.
     @ObservedObject var settings: Settings
+    /// Погода — единственное, чему нужна геопозиция, и здесь же выбирается
+    /// город, если отдавать её не хочется.
+    @ObservedObject var weather: WeatherService
+    /// Набранное и найденное при поиске города: `@State` в этом SDK
+    /// недоступен, держать негде.
+    @ObservedObject var placeSearch: WeatherPlaceSearch
     /// Сочетания заданы пользователем — после правки их надо
     /// перерегистрировать в системе.
     let onHotKeysChanged: () -> Void
@@ -163,6 +169,7 @@ struct WelcomeView: View {
                 feature("tray.full.fill", t("Полка"), WelcomePalette.violet)
                 feature("timer", t("Таймер"), WelcomePalette.mint)
                 feature("gauge.with.dots.needle.67percent", t("Нагрузка"), WelcomePalette.cyan)
+                feature("text.alignleft", t("Суфлер"), WelcomePalette.violet)
                 feature("cloud.sun.fill", t("Погода"), WelcomePalette.cyan)
                 feature("bolt.fill", t("Питание"), WelcomePalette.mint)
             }
@@ -226,6 +233,7 @@ struct WelcomeView: View {
                     shelfHotKeyRow
                     timerHotKeyRow
                     monitorHotKeyRow
+                    teleprompterHotKeyRow
                 }
             }
         }
@@ -364,6 +372,40 @@ struct WelcomeView: View {
     }
 
     /// Нагрузка: сочетание и куда ведёт нажатие по показателю.
+    /// Телесуфлер — единственное, чего в списке возможностей не угадать
+    /// по названию: «текст под чёлкой» звучит странно, пока не сказано, что
+    /// под чёлкой стоит камера.
+    private var teleprompterHotKeyRow: some View {
+        WelcomeCard {
+            HStack(spacing: 13) {
+                WelcomeGlyph(symbol: "text.alignleft", tint: WelcomePalette.violet, size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Телесуфлер"))
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(t("Текст под чёлкой — там, где камера. С оформлением и автопрокруткой: читая с середины экрана, смотришь мимо объектива"))
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                HotKeyRecorder(
+                    spec: Binding(
+                        get: { settings.teleprompterHotKey },
+                        set: { spec in
+                            settings.teleprompterHotKey = spec
+                            onHotKeysChanged()
+                        }
+                    ),
+                    placeholder: t("Не назначено")
+                )
+                .frame(width: 132, height: 26)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+    }
+
     private var monitorHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
@@ -440,21 +482,127 @@ struct WelcomeView: View {
 
     // MARK: Шаг 3 — доступы
 
+    /// Строк здесь больше, чем помещается: у погоды разворачивается поиск
+    /// города, и без прокрутки нижние карточки ушли бы под обрез — окно
+    /// обрезает содержимое молча, с обеих сторон сразу.
     private var permissionsStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             stepTitle(t("Что разрешить"),
                       subtitle: t("Без доступа приложение работает, но соответствующая часть молчит."))
-            VStack(spacing: 8) {
-                ForEach(WelcomeModel.Permission.allCases) { permission in
-                    permissionRow(permission)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 8) {
+                    ForEach(WelcomeModel.Permission.allCases) { permission in
+                        permissionRow(permission)
+                    }
+                    weatherRow
+                    launchRow
+                    ollamaRow
+                    Text(t("Доступ выдаётся один раз и переживает обновления приложения. Отказ система запоминает — вернуть его можно только в Системных настройках."))
+                        .font(.system(size: 11.5, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.4))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            launchRow
-            ollamaRow
-            Text(t("Доступ выдаётся один раз и переживает обновления приложения. Отказ система запоминает — вернуть его можно только в Системных настройках."))
-                .font(.system(size: 11.5, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.4))
-                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Погода — единственная часть, которой нужна геопозиция.
+    ///
+    /// Здесь же и выход для тех, кто её не отдаёт: названный город работает
+    /// не хуже, а системного диалога о положении тогда не будет вовсе.
+    /// Сказать об этом надо именно на шаге доступов — иначе человек откажет
+    /// системе и решит, что погода просто сломана.
+    private var weatherRow: some View {
+        let byPlace = settings.weatherSource == .place
+
+        return WelcomeCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 13) {
+                    WelcomeGlyph(symbol: "cloud.sun.fill", tint: WelcomePalette.cyan, size: 32)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(t("Погода"))
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text(byPlace
+                             ? t("По названному городу — доступ к геопозиции не нужен вовсе")
+                             : t("По геопозиции. Не хотите её отдавать — назовите город"))
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.55))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    Button(byPlace ? t("По геопозиции") : t("Указать город")) {
+                        settings.weatherSource = byPlace ? .location : .place
+                        placeSearch.reset()
+                        weather.placeChanged()
+                    }
+                    .buttonStyle(WelcomeGhostButton())
+                }
+                if byPlace { placeField }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+        }
+        .animation(.easeOut(duration: 0.25), value: byPlace)
+    }
+
+    @ViewBuilder
+    private var placeField: some View {
+        if let place = settings.weatherPlace {
+            HStack(spacing: 8) {
+                Image(systemName: "mappin.circle.fill")
+                    .foregroundStyle(WelcomePalette.mint)
+                Text(place.title)
+                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 8)
+                Button(t("Сменить")) {
+                    settings.weatherPlace = nil
+                    placeSearch.reset()
+                }
+                .buttonStyle(WelcomeGhostButton())
+            }
+        } else {
+            HStack(spacing: 8) {
+                TextField(t("Название города"), text: $placeSearch.query)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12.5, design: .rounded))
+                    // По нажатию Enter, а не по каждой букве: иначе запрос
+                    // уходил бы на каждое нажатие клавиши.
+                    .onSubmit { placeSearch.search() }
+                Button(t("Найти")) { placeSearch.search() }
+                    .buttonStyle(WelcomeGhostButton())
+                    .disabled(placeSearch.query.trimmingCharacters(in: .whitespaces).count < 2)
+            }
+
+            if let message = placeSearch.message {
+                Text(message)
+                    .font(.system(size: 11.5, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.5))
+            }
+
+            // Четыре строки, а не весь список: карточка на шаге доступов
+            // не должна вырастать во весь экран, а тёзки идут первыми.
+            ForEach(placeSearch.results.prefix(4)) { found in
+                Button {
+                    settings.weatherPlace = found
+                    placeSearch.reset()
+                    weather.placeChanged()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "mappin")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.white.opacity(0.45))
+                        Text(found.title)
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.8))
+                        Spacer(minLength: 8)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 

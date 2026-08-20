@@ -12,6 +12,10 @@ import AppKit
 struct ChipView: View {
     let item: CalendarItem
     let metrics: NotchMetrics
+    /// Нажатие по полоске раскрывает главную панель. Отсчёт отвечает только
+    /// «сколько осталось», а следом сразу хочется знать «что за встреча» —
+    /// и до сих пор нажатие по нему не делало ничего.
+    let onOpen: () -> Void
 
     static let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
     private static let dotSize: CGFloat = 7
@@ -62,6 +66,10 @@ struct ChipView: View {
                 }
             }
             .frame(width: Self.width(metrics: metrics), height: metrics.notchHeight)
+            // Нажимается вся полоса, а не только текст: в середине её
+            // закрывает сама чёлка, и мимо точки с цифрами попасть некуда.
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onOpen)
         }
     }
 

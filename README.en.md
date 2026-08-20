@@ -53,6 +53,8 @@ changed in settings or right in the welcome window.
   to open Activity Monitor.
 - **Weather and power.** An icon with the temperature in the panel's corner,
   chips when the weather changes or the charger is plugged in.
+- **Teleprompter.** Text right under the notch — where the camera is — with
+  formatting and auto-scrolling. Read from mid-screen and you look past the lens.
 
 The interface is in Russian, English and Chinese — by default it follows the
 system.
@@ -106,7 +108,9 @@ separate service.
 
 - **Weather** — coordinates rounded to a hundredth of a degree (about a
   kilometre) go to open-meteo.com. That is the only request to the internet in
-  the whole app.
+  the whole app. You need not share your location at all: name a city in
+  Settings or on the permissions step of the welcome screen, and location
+  access is never requested — only the name you typed leaves the machine.
 - **Model prompts** go to Ollama on your own machine.
 - **Clipboard history and the shelf** stay local: history in the app's own
   file, the shelf as links to your own files.

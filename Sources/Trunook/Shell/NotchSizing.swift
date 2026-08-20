@@ -30,6 +30,8 @@ enum NotchPresentation: Equatable {
     case timer
     /// Нагрузка на систему.
     case monitor
+    /// Телесуфлер под самой чёлкой — там, где камера.
+    case teleprompter
 }
 
 enum SwipeDirection: Equatable {
@@ -48,8 +50,8 @@ struct NotchContent: Equatable {
     var chip: CalendarItem?
     /// Полоска идущего таймера.
     var timerChip: TimerChip?
-    /// Встречи, начинающиеся в одно время. Обычно одна, но на один слот
-    /// в календаре нередко стоят две.
+    /// Ближайшие встречи: то, что начинается сейчас, и то, что идёт следом.
+    /// На один слот в календаре нередко стоят две — они попадают сюда обе.
     var events: [CalendarItem] = []
     var taskCount: Int = 0
     /// Меню открыто из раскрытой панели — значит есть строка возврата.
@@ -68,32 +70,59 @@ struct NotchContent: Equatable {
 
     /// Сколько задач реально попадёт в панель.
     var visibleTasks: Int { min(taskCount, NotchMetrics.maxVisibleTasks) }
-    /// Сколько встреч реально попадёт в панель.
-    var visibleEvents: Int { min(events.count, NotchMetrics.maxVisibleEvents) }
+
+    /// Встречи, разложенные по подложкам: одна подложка на одно время начала.
+    ///
+    /// Все одновременные встречи лежат в общей подложке — они про один и тот
+    /// же слот, и по отдельным карточкам читались бы как несвязанные. А вот
+    /// следующее время — уже другой слот, и общая подложка слепила бы
+    /// «сейчас» и «потом» в один блок расписания.
+    var eventGroups: [[CalendarItem]] {
+        Array(events.prefix(NotchMetrics.maxVisibleEvents)).groupedByStart()
+    }
 
     /// Высота всего, что показано под строкой музыки.
-    ///
-    /// Встреча и задачи — две отдельные подложки, у каждой свои поля.
     var extraHeight: CGFloat {
-        guard visibleEvents > 0 || taskCount > 0 else { return 0 }
+        let groups = eventGroups
+        return Self.extraHeight(
+            eventRows: groups.reduce(0) { $0 + $1.count },
+            eventCards: groups.count,
+            taskRows: visibleTasks
+        )
+    }
+
+    /// Высота подложек по их составу: строки, поля подложек и зазоры.
+    ///
+    /// Считается по числам, а не по самим записям, потому что тот же расчёт
+    /// нужен потолку размера окна — а у потолка записей нет и быть не может.
+    /// Раньше потолок был выписан отдельной формулой и разошёлся с этой
+    /// на поле подложки и отступ от строки музыки.
+    static func extraHeight(eventRows: Int, eventCards: Int, taskRows: Int) -> CGFloat {
+        let cards = eventCards + (taskRows > 0 ? 1 : 0)
+        guard cards > 0 else { return 0 }
         /// Поля подложки сверху и снизу.
         let cardPadding: CGFloat = 12
         // Отступ от строки музыки.
         var height = NotchStyle.gridSpacing
-        if visibleEvents > 0 {
-            // Все одновременные встречи лежат в одной подложке: они про одно
-            // и то же время, и разводить их по отдельным карточкам значило бы
-            // показать их как несвязанные.
-            height += CGFloat(visibleEvents) * NotchMetrics.eventRowHeight
-                + CGFloat(visibleEvents - 1) * NotchStyle.rowSpacing
-                + cardPadding
-        }
-        if taskCount > 0 {
-            height += CGFloat(visibleTasks) * NotchMetrics.taskRowHeight + cardPadding
-        }
-        // Зазор между подложками — только когда их две.
-        if visibleEvents > 0, taskCount > 0 { height += 6 }
+        height += CGFloat(eventRows) * NotchMetrics.eventRowHeight
+        // Зазоров между строками на каждой подложке на один меньше, чем строк.
+        height += CGFloat(max(0, eventRows - eventCards)) * NotchStyle.rowSpacing
+        // Задачи идут вплотную друг к другу: они читаются одним списком.
+        height += CGFloat(taskRows) * NotchMetrics.taskRowHeight
+        height += CGFloat(cards) * cardPadding
+        // Зазор между подложками — он же единственный разделитель.
+        height += CGFloat(cards - 1) * NotchStyle.cardGap
         return height
+    }
+
+    /// Потолок высоты содержимого: полный запас строк встреч, разложенный
+    /// по двум подложкам — так выше, чем одной, — и полный список задач.
+    static var maxExtraHeight: CGFloat {
+        extraHeight(
+            eventRows: NotchMetrics.maxVisibleEvents,
+            eventCards: min(2, NotchMetrics.maxVisibleEvents),
+            taskRows: NotchMetrics.maxVisibleTasks
+        )
     }
 }
 
@@ -184,6 +213,11 @@ enum NotchSizing {
             return CGSize(
                 width: TimerPanel.width,
                 height: TimerPanel.height(notchHeight: metrics.notchHeight)
+            )
+        case .teleprompter:
+            return CGSize(
+                width: TeleprompterPanel.width,
+                height: TeleprompterPanel.height(notchHeight: metrics.notchHeight)
             )
         case .hub:
             return CGSize(

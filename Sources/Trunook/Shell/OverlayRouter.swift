@@ -45,6 +45,16 @@ final class OverlayRouter {
         set(nil)
     }
 
+    /// Нажатие мимо накладки или Esc.
+    ///
+    /// Не всякая накладка этому поддаётся: телесуфлер держат открытым, пока
+    /// работают в чужом окне, и нажатие мимо для него — обычная работа,
+    /// а не «я закончил». Правило живёт в самой накладке.
+    func dismiss() {
+        guard state.overlay?.closesOnClickOutside == true else { return }
+        set(nil)
+    }
+
     /// Курсор зашёл в накладку и вышел — закрываем.
     func updateHover(at location: CGPoint) {
         // Не всякая накладка закрывается уходом курсора: с полкой и ответом
@@ -78,6 +88,7 @@ final class OverlayRouter {
         case .hub: return "меню функций"
         case .timer: return "таймер"
         case .monitor: return "нагрузка"
+        case .teleprompter: return "телесуфлер"
         }
     }
 }

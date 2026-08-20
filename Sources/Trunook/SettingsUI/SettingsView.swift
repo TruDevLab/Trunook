@@ -6,7 +6,7 @@ import SwiftUI
 /// он реализован макросом, а плагин SwiftUI-макросов поставляется с Xcode.
 final class SettingsSelection: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case general, commands, clipboard, shelf, timer, monitor, calendar, weather, battery, info
+        case general, commands, clipboard, shelf, timer, monitor, teleprompter, calendar, weather, battery, info
         var id: String { rawValue }
 
         var title: String {
@@ -17,6 +17,7 @@ final class SettingsSelection: ObservableObject {
             case .shelf: return t("Полка")
             case .timer: return t("Таймер")
             case .monitor: return t("Нагрузка")
+            case .teleprompter: return t("Телесуфлер")
             case .calendar: return t("Календарь")
             case .weather: return t("Погода")
             case .battery: return t("Батарея")
@@ -32,6 +33,7 @@ final class SettingsSelection: ObservableObject {
             case .shelf: return "tray.full.fill"
             case .timer: return "timer"
             case .monitor: return "gauge.with.dots.needle.67percent"
+            case .teleprompter: return "text.alignleft"
             case .calendar: return "calendar"
             case .weather: return "cloud.sun.fill"
             case .battery: return "battery.100"
@@ -49,6 +51,7 @@ final class SettingsSelection: ObservableObject {
             case .shelf: return Palette.shelf
             case .timer: return Palette.timer
             case .monitor: return Palette.monitor
+            case .teleprompter: return Palette.teleprompter
             case .calendar: return Palette.calendar
             case .weather: return Palette.weather
             case .battery: return Palette.positive
@@ -70,6 +73,9 @@ struct SettingsView: View {
     @ObservedObject var browsers: BrowserList
     @ObservedObject var clipboard: ClipboardService
     @ObservedObject var weather: WeatherService
+    /// Поиск города. Живёт снаружи, а не в теле вида: `@State` в этом SDK
+    /// недоступен, а полю ввода и списку найденного где-то держаться надо.
+    @ObservedObject var placeSearch: WeatherPlaceSearch
     /// Сочетания заданы пользователем, поэтому после правки их надо
     /// перерегистрировать в системе.
     let onHotKeysChanged: () -> Void
@@ -150,6 +156,7 @@ struct SettingsView: View {
                 switch selection.tab {
                 case .timer: timerSection
                 case .monitor: monitorSection
+                case .teleprompter: teleprompterSection
                 case .general: generalSection
                 case .commands: commandsSection
                 case .clipboard: clipboardSection
@@ -211,6 +218,40 @@ struct SettingsView: View {
                     hint(t("Кому-то «следующий» — это движение пальцев влево, как листают ленту, кому-то вправо, как переворачивают страницу."))
                 }
 
+        }
+    }
+
+    private var teleprompterSection: some View {
+        Group {
+            section(t("Телесуфлер"), icon: "text.alignleft") {
+                HStack {
+                    Text(t("Открыть телесуфлер"))
+                    Spacer()
+                    HotKeyRecorder(spec: Binding(
+                        get: { settings.teleprompterHotKey },
+                        set: { settings.teleprompterHotKey = $0; onHotKeysChanged() }
+                    ))
+                    .frame(width: 140, height: 24)
+                }
+                hint(t("Клавиша работает переключателем: нажали при открытой панели — панель убралась."))
+
+                Picker(t("Скорость прокрутки"), selection: settings.binding(\.teleprompterSpeed)) {
+                    ForEach([10, 20, 40, 60, 90, 120], id: \.self) { value in
+                        Text(tf("%d т/с", value)).tag(value)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 300, alignment: .leading)
+                hint(t("Точек в секунду, а не строк: строки в телесуфлере разной высоты — заголовок вдвое выше обычной, — и счёт по строкам дёргал бы текст на каждом заголовке. То же значение правится ползунком в самой панели."))
+            }
+
+            section(t("Как он устроен"), icon: "questionmark.circle") {
+                hint(t("Панель открывается под самой чёлкой — там, где камера. Читая с середины экрана, человек смотрит мимо объектива, и на записи это видно сразу."))
+                hint(t("Панель не закрывается ни по уходу курсора, ни по нажатию мимо: пока читают вслух, в чужом окне продолжают работать. Убрать её можно крестиком или той же клавишей."))
+                hint(t("Текст не пропадает сам — ни при закрытии панели, ни при перезапуске. Убрать его можно только кнопкой «Очистить», и она переспрашивает."))
+                hint(t("Оформление: заголовок, полужирный, курсив, подчёркивание, ссылки и эмодзи. Набранный в тексте адрес становится ссылкой сам."))
+                hint(tf("Хранится в %@ — в формате RTF, вместе с оформлением.", TeleprompterStore.fileURL.path))
+            }
         }
     }
 
@@ -430,6 +471,25 @@ struct SettingsView: View {
                 }
             }
 
+            section(t("Место"), icon: "mappin.and.ellipse") {
+                Picker(t("Где смотреть погоду"), selection: Binding(
+                    get: { settings.weatherSource },
+                    set: { settings.weatherSource = $0; weather.placeChanged() }
+                )) {
+                    ForEach(WeatherSource.allCases) { source in
+                        Text(source.title).tag(source)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .disabled(!settings.weatherEnabled)
+
+                if settings.weatherSource == .place {
+                    placePicker
+                } else {
+                    hint(t("Приложение запросит доступ к геопозиции. Одна засечка на обновление — постоянно следить за положением незачем."))
+                }
+            }
+
             section(t("Состояние"), icon: "location") {
                 weatherStatus
             }
@@ -442,8 +502,83 @@ struct SettingsView: View {
         }
     }
 
+    /// Выбор города: поле поиска и список найденного.
+    ///
+    /// Название сохраняется вместе с координатами, а не ищется заново перед
+    /// каждым запросом: Ростовов два, Владимиров тоже, и повторный поиск
+    /// однажды выбрал бы другой.
+    @ViewBuilder
+    private var placePicker: some View {
+        if let place = settings.weatherPlace {
+            HStack(spacing: 10) {
+                Image(systemName: "mappin.circle.fill").foregroundStyle(Palette.weather)
+                Text(place.title)
+                Spacer()
+                // Поле поиска при выбранном городе не показывается вовсе:
+                // город уже назван, и второе поле рядом с ним читается
+                // как «а этот тогда что».
+                Button(t("Сменить")) {
+                    settings.weatherPlace = nil
+                    placeSearch.reset()
+                }
+            }
+        } else {
+            placeField
+        }
+
+        hint(t("Город ищется у того же open-meteo.com. Наружу уходит только набранное название — доступ к геопозиции при этом не нужен вовсе."))
+    }
+
+    @ViewBuilder
+    private var placeField: some View {
+        HStack(spacing: 8) {
+            TextField(t("Название города"), text: $placeSearch.query)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 260)
+                // Ввод с клавиатуры: искать по каждой букве значило бы слать
+                // запрос на каждое нажатие.
+                .onSubmit { placeSearch.search() }
+            Button(t("Найти")) { placeSearch.search() }
+                .disabled(placeSearch.query.trimmingCharacters(in: .whitespaces).count < 2)
+            if placeSearch.isSearching { ProgressView().controlSize(.small) }
+        }
+        .disabled(!settings.weatherEnabled)
+
+        if let message = placeSearch.message {
+            hint(message)
+        }
+
+        ForEach(placeSearch.results) { found in
+            Button {
+                settings.weatherPlace = found
+                settings.weatherSource = .place
+                placeSearch.reset()
+                weather.placeChanged()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "mappin").foregroundStyle(.secondary)
+                    Text(found.title)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     @ViewBuilder
     private var weatherStatus: some View {
+        // При выбранном городе разрешение ни при чём: показывать «доступ
+        // не запрошен» там, где он и не нужен, — значит пугать без причины.
+        if settings.weatherSource == .place {
+            weatherReading
+        } else {
+            locationStatus
+        }
+    }
+
+    @ViewBuilder
+    private var locationStatus: some View {
         switch weather.authorization {
         case .denied, .restricted:
             HStack(spacing: 10) {
@@ -461,25 +596,33 @@ struct SettingsView: View {
             }
             .disabled(!settings.weatherEnabled)
         default:
-            if let snapshot = weather.current {
-                HStack(spacing: 10) {
-                    Image(systemName: snapshot.condition.symbol)
-                        .foregroundStyle(snapshot.condition.tint)
-                    Text("\(snapshot.condition.title), \(snapshot.temperature)°")
-                    Spacer()
-                    Button(t("Обновить")) { weather.refresh() }
-                }
-                if let outlook = snapshot.outlook {
-                    hint(tf("Через %d ч %@, вероятность %d%%",
-                            outlook.inHours, outlook.condition.title.lowercased(), outlook.probability))
-                }
-            } else {
-                HStack(spacing: 10) {
-                    Text(weather.error ?? t("Прогноз ещё не загружен"))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button(t("Обновить")) { weather.refresh() }
-                }
+            weatherReading
+        }
+    }
+
+    /// Сам прогноз — он одинаков, откуда бы ни взялись координаты.
+    @ViewBuilder
+    private var weatherReading: some View {
+        if let snapshot = weather.current {
+            HStack(spacing: 10) {
+                Image(systemName: snapshot.condition.symbol)
+                    .foregroundStyle(snapshot.condition.tint)
+                Text("\(snapshot.condition.title), \(snapshot.temperature)°")
+                Spacer()
+                Button(t("Обновить")) { weather.refresh() }
+            }
+            if let outlook = snapshot.outlook {
+                hint(tf("Через %d ч %@, вероятность %d%%",
+                        outlook.inHours, outlook.condition.title.lowercased(), outlook.probability))
+            }
+        } else if settings.weatherSource == .place, settings.weatherPlace == nil {
+            hint(t("Город не выбран — прогноз запрашивать не для чего."))
+        } else {
+            HStack(spacing: 10) {
+                Text(weather.error ?? t("Прогноз ещё не загружен"))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(t("Обновить")) { weather.refresh() }
             }
         }
     }
@@ -940,7 +1083,7 @@ struct SettingsView: View {
                         .foregroundStyle(SettingsStyle.secondary)
                         .textSelection(.enabled)
                 }
-                hint(t("Вырез MacBook как центр управления: музыка, встречи, команды, ответ модели, буфер обмена, полка для файлов, таймер и нагрузка на систему."))
+                hint(t("Вырез MacBook как центр управления: музыка, встречи, команды, ответ модели, буфер обмена, полка для файлов, таймер, нагрузка на систему и телесуфлер."))
             }
 
             section(t("Жесты"), icon: "hand.draw") {
@@ -950,12 +1093,14 @@ struct SettingsView: View {
                 info(t("Правая кнопка"), t("Меню всех функций."))
                 info(t("Поглаживание"), t("Поводите курсором из стороны в сторону — вырез замурчит."))
                 info(t("Нажатие по счёту таймера"), t("Пока таймер или секундомер идёт, чёлка раздвигается счётом. Нажмите по нему — откроется панель."))
+                info(t("Нажатие по отсчёту до встречи"), t("Пока встреча близко, чёлка раздвигается обратным отсчётом. Нажмите по нему — раскроется главная панель."))
             }
 
             section(t("Что уходит наружу"), icon: "lock") {
                 info(t("Погода"), t("Координаты, округлённые до километра, уходят на open-meteo.com. Это единственное обращение в интернет."))
                 info(t("Модель"), t("Запросы идут в Ollama на вашем же компьютере. Наружу не уходит ничего."))
                 info(t("Буфер и полка"), t("Хранятся только у вас: история — в файле приложения, полка — ссылками на ваши же файлы."))
+                info(t("Телесуфлер"), t("Текст лежит в файле приложения, в формате RTF. Наружу не уходит ничего."))
             }
 
             section(t("Ограничения"), icon: "exclamationmark.triangle") {

@@ -36,7 +36,7 @@ struct ClipboardPanel: View {
     }
 
     var body: some View {
-        NotchPanel(metrics: metrics, width: Self.width) {
+        NotchPanel(metrics: metrics, width: Self.width, bodyPadding: NotchStyle.bottomPadding) {
             NotchPanelTitle(
                 symbol: "doc.on.clipboard",
                 title: t("Буфер"),

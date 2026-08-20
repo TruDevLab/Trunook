@@ -19,27 +19,33 @@ struct HubEntryTests {
         }
     }
 
-    @Test("Подсказка клавиш есть только там, где сочетание вообще бывает")
-    func подсказкиТолькоГдеЕсть() {
+    /// Меню заодно учит клавишам, и плитка без подсказки — это плитка,
+    /// до которой без меню не добраться вовсе.
+    @Test("У каждой плитки есть своё сочетание")
+    func подсказкиУВсех() {
         let settings = Settings.shared
-        let withHotKey: Set<HubEntry> = [.commands, .clipboard, .shelf, .timer, .monitor]
-        for entry in HubEntry.allCases where !withHotKey.contains(entry) {
-            #expect(entry.hint(settings) == nil, "у \(entry.rawValue) взялась подсказка")
+        for entry in HubEntry.allCases {
+            #expect(entry.hint(settings) != nil, "у \(entry.rawValue) нет подсказки клавиш")
         }
     }
 
-    @Test("Главный экран доступен всегда")
-    func всегдаДоступные() {
-        #expect(HubEntry.expanded.isEnabled(Settings.shared))
+    /// Телесуфлер ничего не делает, пока окно закрыто: ни опросов, ни клавиш
+    /// сверх своей, ни полосы под чёлкой. Выключателя у него поэтому нет,
+    /// и плитка доступна всегда.
+    @Test("Телесуфлер доступен всегда")
+    func телесуфлерДоступен() {
+        #expect(HubEntry.teleprompter.isEnabled(Settings.shared))
     }
 
-    @Test("Настроек и знакомства среди плиток нет")
+    @Test("Настроек, знакомства и главного экрана среди плиток нет")
     func лишнихПлитокНет() {
-        // Настройки открываются значком в правом крыле, а знакомство —
-        // из меню строки состояния. Дублировать их плиткой значило бы
-        // показывать две кнопки одного действия на одном экране.
+        // Настройки открываются значком в правом крыле, знакомство — из меню
+        // строки состояния, а главный экран лежит **под** самим меню, и возврат
+        // к нему — крестик в правом крыле. Дублировать любое из них плиткой
+        // значило бы показывать две кнопки одного действия на одном экране.
         let titles = HubEntry.allCases.map(\.rawValue)
         #expect(!titles.contains("settings"))
         #expect(!titles.contains("welcome"))
+        #expect(!titles.contains("expanded"))
     }
 }

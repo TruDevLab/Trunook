@@ -11,8 +11,53 @@ import ApplicationServices
 enum AXTree {
     static var isTrusted: Bool { AXIsProcessTrusted() }
 
+    // MARK: - Приведение значений из чужого дерева
+    //
+    // Атрибут отвечает `CFTypeRef` — «что-нибудь из CoreFoundation», — и что
+    // именно, решает чужое приложение. Проверять тип приходится сравнением
+    // `CFTypeID` руками: `as?` для типов CoreFoundation Swift компилировать
+    // отказывается — считает такое приведение всегда успешным и прямо советует
+    // сверить идентификатор, — а `as!` не проверка вовсе, а переименование.
+    // Раньше здесь стояло именно оно: неожиданный тип уходил бы в функцию
+    // Универсального доступа как элемент, которым не является.
+
+    /// Значение как элемент дерева — если это действительно элемент.
+    static func element(_ value: CFTypeRef?) -> AXUIElement? {
+        guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        // swiftlint:disable:next force_cast
+        return (value as! AXUIElement)
+    }
+
+    /// Значение как упакованная величина — точка, размер, диапазон.
+    static func packed(_ value: CFTypeRef?) -> AXValue? {
+        guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        // swiftlint:disable:next force_cast
+        return (value as! AXValue)
+    }
+
+    /// Потолок числа узлов на один обход.
+    ///
+    /// Одной глубины мало: у веб-страницы на каждом уровне бывают тысячи
+    /// узлов, и обход, ограниченный только глубиной, не ограничен ничем.
+    /// А каждый шаг здесь — обращение к чужому процессу через Mach,
+    /// миллисекунда с лишним, так что «долго» означает минуты.
+    ///
+    /// Ловилось живьём: с тяжёлой страницей в браузере приложение вставало
+    /// на запуске насмерть — обход шёл из `MeetingService.start()`, и до
+    /// значка в строке состояния дело не доходило вовсе.
+    static let nodeBudget = 3000
+
+    /// Сколько ждать ответа от чужого приложения.
+    ///
+    /// По умолчанию Универсальный доступ ждёт секундами, а обращений
+    /// за обход тысячи. Ставится на элемент приложения — система
+    /// распространяет срок на все сообщения этому приложению.
+    private static let messagingTimeout: Float = 0.5
+
     static func application(pid: pid_t) -> AXUIElement {
-        AXUIElementCreateApplication(pid)
+        let element = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(element, messagingTimeout)
+        return element
     }
 
     static func windows(of element: AXUIElement) -> [AXUIElement] {
@@ -71,8 +116,9 @@ enum AXTree {
 
         var origin = CGPoint.zero
         var size = CGSize.zero
-        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin),
-              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        guard let position = packed(positionValue), let extent = packed(sizeValue),
+              AXValueGetValue(position, .cgPoint, &origin),
+              AXValueGetValue(extent, .cgSize, &size)
         else { return nil }
         return CGRect(origin: origin, size: size)
     }
@@ -128,10 +174,24 @@ enum AXTree {
         maxDepth: Int = 24,
         where predicate: (AXUIElement) -> Bool
     ) -> AXUIElement? {
+        var budget = nodeBudget
+        return firstDescendant(of: element, maxDepth: maxDepth, budget: &budget, where: predicate)
+    }
+
+    private static func firstDescendant(
+        of element: AXUIElement,
+        maxDepth: Int,
+        budget: inout Int,
+        where predicate: (AXUIElement) -> Bool
+    ) -> AXUIElement? {
+        guard budget > 0 else { return nil }
+        budget -= 1
         if predicate(element) { return element }
         guard maxDepth > 0 else { return nil }
         for child in children(of: element) {
-            if let found = firstDescendant(of: child, maxDepth: maxDepth - 1, where: predicate) {
+            if let found = firstDescendant(
+                of: child, maxDepth: maxDepth - 1, budget: &budget, where: predicate
+            ) {
                 return found
             }
         }
@@ -141,9 +201,11 @@ enum AXTree {
     /// Собирает все кнопки поддерева — для разведки и для поиска по подписи.
     static func buttons(of element: AXUIElement, maxDepth: Int = 24) -> [(element: AXUIElement, labels: [String])] {
         var result: [(AXUIElement, [String])] = []
+        var budget = nodeBudget
 
         func walk(_ node: AXUIElement, depth: Int) {
-            guard depth <= maxDepth else { return }
+            guard depth <= maxDepth, budget > 0 else { return }
+            budget -= 1
             let role = role(of: node)
             if role == kAXButtonRole || role == kAXCheckBoxRole || role == "AXToggleButton" {
                 let labels = labels(of: node)
@@ -162,9 +224,11 @@ enum AXTree {
     /// если движок держит в дереве и фоновые.
     static func webAreas(in window: AXUIElement, maxDepth: Int = 14) -> [AXUIElement] {
         var result: [AXUIElement] = []
+        var budget = nodeBudget
 
         func walk(_ node: AXUIElement, depth: Int) {
-            guard depth <= maxDepth else { return }
+            guard depth <= maxDepth, budget > 0 else { return }
+            budget -= 1
             if role(of: node) == "AXWebArea" {
                 result.append(node)
                 return

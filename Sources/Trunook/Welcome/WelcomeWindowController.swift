@@ -11,6 +11,9 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
     private var model: WelcomeModel?
 
     private let settings: Settings
+    /// Поиск города для погоды: `@State` недоступен, набранному и найденному
+    /// надо где-то жить, и живут они столько же, сколько окно.
+    private let placeSearch = WeatherPlaceSearch()
 
     init(settings: Settings = .shared) {
         self.settings = settings
@@ -19,6 +22,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
     func show(
         calendar: CalendarService,
         launchAtLogin: LaunchAtLogin,
+        weather: WeatherService,
         onHotKeysChanged: @escaping () -> Void
     ) {
         launchAtLogin.refresh()
@@ -35,6 +39,8 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
             calendar: calendar,
             launchAtLogin: launchAtLogin,
             settings: settings,
+            weather: weather,
+            placeSearch: placeSearch,
             onHotKeysChanged: onHotKeysChanged,
             onFinish: { [weak self] in self?.finish() }
         )

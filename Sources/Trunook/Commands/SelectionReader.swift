@@ -27,14 +27,15 @@ enum SelectionReader {
         let element = AXUIElementCreateApplication(app.processIdentifier)
 
         var focused: CFTypeRef?
+        // Проверяется не только «не пусто», но и тип: значение приходит
+        // из дерева чужого приложения. Почему не `as?` — в `AXTree.element`.
         guard AXUIElementCopyAttributeValue(
             element, kAXFocusedUIElementAttribute as CFString, &focused
-        ) == .success, let focused else { return nil }
+        ) == .success, let focusedElement = AXTree.element(focused) else { return nil }
 
         var value: CFTypeRef?
-        // swiftlint:disable:next force_cast
         guard AXUIElementCopyAttributeValue(
-            focused as! AXUIElement, kAXSelectedTextAttribute as CFString, &value
+            focusedElement, kAXSelectedTextAttribute as CFString, &value
         ) == .success else { return nil }
 
         return value as? String
@@ -42,11 +43,23 @@ enum SelectionReader {
 
     // MARK: - Через буфер обмена
 
+    /// Сколько времени буфер считается «нашим».
+    ///
+    /// С запасом на всё, что здесь происходит: опрос идёт до полусекунды,
+    /// а следом буфер меняется второй раз — возвратом прежнего содержимого.
+    /// Монитор истории опрашивает `changeCount` четырежды в секунду, и отметка
+    /// обязана пережить его тик после последней нашей записи.
+    private static let quietWindow: TimeInterval = 1.0
+
     private static func readViaCopy(completion: @escaping (String?) -> Void) {
         let pasteboard = NSPasteboard.general
         let previous = pasteboard.string(forType: .string)
         let changeCountBefore = pasteboard.changeCount
 
+        // Отметка ставится до нажатия, а не после: обе записи в буфер здесь —
+        // следы самого приложения, а не человека. Без неё каждый запрос
+        // к модели с выделением оставлял в истории лишнюю запись, а то и две.
+        PasteboardActivity.beQuiet(for: quietWindow)
         sendCopyKeystroke()
 
         // Приложению нужно время положить текст в буфер. Проверяем несколько
@@ -74,6 +87,9 @@ enum SelectionReader {
     /// а команда могла быть вызвана поверх чего-то скопированного раньше.
     private static func restore(_ text: String?, in pasteboard: NSPasteboard) {
         guard let text else { return }
+        // Отметка продлевается: опрос мог занять почти всю полсекунды,
+        // и запас, отмеренный от нажатия, к этому моменту почти истёк.
+        PasteboardActivity.beQuiet(for: quietWindow)
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
     }

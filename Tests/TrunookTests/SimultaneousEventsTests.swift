@@ -58,6 +58,49 @@ struct SimultaneousEventsTests {
     @Test("Пустой список не падает")
     func пустой() {
         #expect([CalendarItem]().startingTogether(limit: 3).isEmpty)
+        #expect([CalendarItem]().upcomingSlots(limit: 3).isEmpty)
+        #expect([CalendarItem]().groupedByStart().isEmpty)
+    }
+
+    // MARK: - Ближайшее время и следующее
+
+    @Test("К ближайшей встрече добавляется следующая")
+    func следующаяДобавляется() {
+        let items = [
+            item("созвон", at: noon),
+            item("обед", at: noon.addingTimeInterval(3600)),
+        ]
+        #expect(items.upcomingSlots(limit: 3).map(\.title) == ["созвон", "обед"])
+    }
+
+    @Test("Дальше второго времени не заглядываем")
+    func третьеВремяНеПоказываем() {
+        let items = (0..<4).map { item("встреча \($0)", at: noon.addingTimeInterval(Double($0) * 3600)) }
+        #expect(items.upcomingSlots(limit: 3).map(\.title) == ["встреча 0", "встреча 1"])
+    }
+
+    /// Накладка сегодня важнее планов на вечер: если ближайшее время занято
+    /// целиком, следующему в панели места не остаётся.
+    @Test("Полная накладка вытесняет следующее время")
+    func накладкаВытесняетСледующее() {
+        let items = [
+            item("созвон", at: noon),
+            item("ретро", at: noon),
+            item("груминг", at: noon),
+            item("обед", at: noon.addingTimeInterval(3600)),
+        ]
+        #expect(items.upcomingSlots(limit: 3).map(\.title) == ["созвон", "ретро", "груминг"])
+    }
+
+    @Test("Подложка на каждое время начала")
+    func группыПоВремени() {
+        let items = [
+            item("созвон", at: noon),
+            item("ретро", at: noon.addingTimeInterval(37)),
+            item("обед", at: noon.addingTimeInterval(3600)),
+        ]
+        #expect(items.groupedByStart().map { $0.map(\.title) }
+                == [["созвон", "ретро"], ["обед"]])
     }
 
     /// Панель обязана вырасти под вторую встречу: иначе вторая строка
@@ -70,5 +113,32 @@ struct SimultaneousEventsTests {
         #expect(two.extraHeight > one.extraHeight)
         #expect(two.extraHeight - one.extraHeight
                 == NotchMetrics.eventRowHeight + NotchStyle.rowSpacing)
+    }
+
+    /// Своё время — своя подложка, и панель растёт на её поля и зазор,
+    /// а не только на высоту строки.
+    @Test("Следующее время растит панель на целую подложку")
+    func следующееВремяРаститНаПодложку() {
+        let together = NotchContent(events: [item("созвон", at: noon), item("ретро", at: noon)])
+        let apart = NotchContent(events: [
+            item("созвон", at: noon),
+            item("обед", at: noon.addingTimeInterval(3600)),
+        ])
+        #expect(apart.extraHeight > together.extraHeight)
+    }
+
+    /// Потолок размера окна обязан покрывать самый высокий возможный состав:
+    /// панель, переросшая окно, обрезается по нему молча.
+    @Test("Потолок покрывает любую панель")
+    func потолокПокрываетПанель() {
+        let worst = NotchContent(
+            events: [
+                item("созвон", at: noon),
+                item("ретро", at: noon),
+                item("обед", at: noon.addingTimeInterval(3600)),
+            ],
+            taskCount: NotchMetrics.maxVisibleTasks
+        )
+        #expect(worst.extraHeight <= NotchContent.maxExtraHeight)
     }
 }

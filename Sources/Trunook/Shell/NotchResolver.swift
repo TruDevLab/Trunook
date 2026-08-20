@@ -71,6 +71,7 @@ struct NotchInputs: Equatable {
         case .hub: return .hub
         case .timer: return .timer
         case .monitor: return .monitor
+        case .teleprompter: return .teleprompter
         case nil: break
         }
         // Остров расходится в бока не после срабатывания, а по ходу жеста:

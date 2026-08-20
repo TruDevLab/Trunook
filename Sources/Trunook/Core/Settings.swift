@@ -111,14 +111,8 @@ final class Settings: ObservableObject {
     }
 
     var menuHotKey: HotKeySpec? {
-        get {
-            guard let data = defaults.data(forKey: "menuHotKey") else { return .menu }
-            return try? JSONDecoder().decode(HotKeySpec.self, from: data)
-        }
-        set {
-            objectWillChange.send()
-            defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "menuHotKey")
-        }
+        get { hotKey("menuHotKey", default: .menu) }
+        set { storeHotKey(newValue, "menuHotKey") }
     }
 
     var ollamaModel: String {
@@ -161,14 +155,8 @@ final class Settings: ObservableObject {
     }
 
     var clipboardHotKey: HotKeySpec? {
-        get {
-            guard let data = defaults.data(forKey: "clipboardHotKey") else { return .clipboard }
-            return try? JSONDecoder().decode(HotKeySpec.self, from: data)
-        }
-        set {
-            objectWillChange.send()
-            defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "clipboardHotKey")
-        }
+        get { hotKey("clipboardHotKey", default: .clipboard) }
+        set { storeHotKey(newValue, "clipboardHotKey") }
     }
 
     var clipboardSlotModifiers: ClipboardSlotModifiers {
@@ -220,14 +208,8 @@ final class Settings: ObservableObject {
     }
 
     var shelfHotKey: HotKeySpec? {
-        get {
-            guard let data = defaults.data(forKey: "shelfHotKey") else { return .shelf }
-            return try? JSONDecoder().decode(HotKeySpec.self, from: data)
-        }
-        set {
-            objectWillChange.send()
-            defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "shelfHotKey")
-        }
+        get { hotKey("shelfHotKey", default: .shelf) }
+        set { storeHotKey(newValue, "shelfHotKey") }
     }
 
     // MARK: - Погода
@@ -238,13 +220,8 @@ final class Settings: ObservableObject {
     }
 
     var monitorHotKey: HotKeySpec? {
-        get {
-            guard let data = defaults.data(forKey: "monitorHotKey") else { return .monitor }
-            return try? JSONDecoder().decode(HotKeySpec.self, from: data)
-        }
-        set {
-            defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "monitorHotKey")
-        }
+        get { hotKey("monitorHotKey", default: .monitor) }
+        set { storeHotKey(newValue, "monitorHotKey") }
     }
 
     var timerEnabled: Bool {
@@ -267,13 +244,8 @@ final class Settings: ObservableObject {
     }
 
     var timerHotKey: HotKeySpec? {
-        get {
-            guard let data = defaults.data(forKey: "timerHotKey") else { return .timer }
-            return try? JSONDecoder().decode(HotKeySpec.self, from: data)
-        }
-        set {
-            defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "timerHotKey")
-        }
+        get { hotKey("timerHotKey", default: .timer) }
+        set { storeHotKey(newValue, "timerHotKey") }
     }
 
     var weatherEnabled: Bool {
@@ -291,6 +263,50 @@ final class Settings: ObservableObject {
     var weatherPeriodHours: Int {
         get { defaults.object(forKey: "weatherPeriodHours") as? Int ?? 3 }
         set { store(newValue, "weatherPeriodHours") }
+    }
+
+    /// Откуда брать координаты. По умолчанию геопозиция — она точнее и сама
+    /// следует за переездом. Но доступ к ней отдают не все, а погода нужна
+    /// и им: город указывается руками, и тогда система про положение
+    /// не спрашивается вовсе.
+    // MARK: - Телесуфлер
+
+    var teleprompterHotKey: HotKeySpec? {
+        get { hotKey("teleprompterHotKey", default: .teleprompter) }
+        set { storeHotKey(newValue, "teleprompterHotKey") }
+    }
+
+    /// Скорость автопрокрутки в точках в секунду.
+    ///
+    /// В точках, а не в «строках в минуту»: строки в телесуфлере разной
+    /// высоты — заголовок вдвое выше обычной, — и счёт по строкам дёргал бы
+    /// текст на каждом заголовке.
+    var teleprompterSpeed: Int {
+        get { defaults.object(forKey: "teleprompterSpeed") as? Int ?? 40 }
+        set { store(newValue, "teleprompterSpeed") }
+    }
+
+    // MARK: - Погода
+
+    var weatherSource: WeatherSource {
+        get {
+            let stored = WeatherSource(rawValue: defaults.string(forKey: "weatherSource") ?? "")
+            // Город, выбранный до появления переключателя, сам себя объявляет:
+            // раз он есть, значит его и выбирали.
+            return stored ?? (weatherPlace == nil ? .location : .place)
+        }
+        set { store(newValue.rawValue, "weatherSource") }
+    }
+
+    var weatherPlace: WeatherPlace? {
+        get {
+            guard let data = defaults.data(forKey: "weatherPlace") else { return nil }
+            return try? JSONDecoder().decode(WeatherPlace.self, from: data)
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "weatherPlace")
+        }
     }
 
     // MARK: - Встречи
@@ -396,6 +412,24 @@ final class Settings: ObservableObject {
     private func store(_ value: Any, _ key: String) {
         objectWillChange.send()
         defaults.set(value, forKey: key)
+    }
+
+    // MARK: Сочетания клавиш
+    //
+    // Отдельной парой методов, а не пятью одинаковыми телами get/set. Тела
+    // писались копированием образца, и две из пяти пар потеряли при этом
+    // `objectWillChange.send()`: поле записи сочетания в настройках
+    // не перерисовывалось, пока перерисоваться не заставит что-нибудь
+    // постороннее. Строку, которую так легко забыть, надо писать один раз.
+
+    private func hotKey(_ key: String, default fallback: HotKeySpec?) -> HotKeySpec? {
+        guard let data = defaults.data(forKey: key) else { return fallback }
+        return try? JSONDecoder().decode(HotKeySpec.self, from: data)
+    }
+
+    private func storeHotKey(_ value: HotKeySpec?, _ key: String) {
+        objectWillChange.send()
+        defaults.set(value.flatMap { try? JSONEncoder().encode($0) }, forKey: key)
     }
 
     /// Связывает настройку с элементом управления SwiftUI.

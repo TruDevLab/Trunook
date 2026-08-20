@@ -52,7 +52,17 @@ final class ShortcutsService: ObservableObject {
             if let input, !input.isEmpty {
                 let url = URL(fileURLWithPath: NSTemporaryDirectory())
                     .appendingPathComponent("nook-shortcut-in-\(UUID().uuidString).txt")
-                try? input.write(to: url, atomically: true, encoding: .utf8)
+                do {
+                    try input.write(to: url, atomically: true, encoding: .utf8)
+                } catch {
+                    // Промолчать здесь нельзя. Команда запустилась бы с путём
+                    // к несуществующему файлу и отработала не над тем, что
+                    // человек выделил, — а выглядело бы это как обычный
+                    // её результат.
+                    DebugLog.write("Команды: не записать вход — \(error.localizedDescription)")
+                    completion(.failure(ShortcutsError.inputFailed))
+                    return
+                }
                 inputURL = url
                 arguments += ["--input-path", url.path]
             }
@@ -85,6 +95,12 @@ final class ShortcutsService: ObservableObject {
         let error: String
     }
 
+    /// Ссылочная коробка под то, что читает соседний поток: локальная
+    /// переменная, изменяемая из замыкания, здесь не годится.
+    private final class Drain {
+        var data = Data()
+    }
+
     private static func run(arguments: [String]) -> Result0? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -102,25 +118,40 @@ final class ShortcutsService: ObservableObject {
             return nil
         }
 
+        // Оба канала дренируются одновременно, а не по очереди. По очереди —
+        // классическая форма взаимной блокировки: дочерний процесс, забивший
+        // буфер stderr, встаёт на записи и не закрывает stdout, которого мы
+        // в это время ждём. У `shortcuts` вероятность мала — килобайтами
+        // в stderr он не пишет, — но форма неверная, а цена правки одна
+        // фоновая очередь.
+        let errors = Drain()
+        let draining = DispatchGroup()
+        draining.enter()
+        DispatchQueue.global(qos: .utility).async {
+            errors.data = err.fileHandleForReading.readDataToEndOfFile()
+            draining.leave()
+        }
         let outData = out.fileHandleForReading.readDataToEndOfFile()
-        let errData = err.fileHandleForReading.readDataToEndOfFile()
+        draining.wait()
         process.waitUntilExit()
 
         return Result0(
             status: process.terminationStatus,
             output: String(data: outData, encoding: .utf8) ?? "",
-            error: String(data: errData, encoding: .utf8)?
+            error: String(data: errors.data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         )
     }
 
     enum ShortcutsError: LocalizedError {
         case launchFailed
+        case inputFailed
         case failed(String)
 
         var errorDescription: String? {
             switch self {
             case .launchFailed: return t("Не удалось запустить «Команды»")
+            case .inputFailed: return t("Не удалось передать выделенный текст")
             case let .failed(message): return message
             }
         }

@@ -68,7 +68,10 @@ final class WeatherService: NSObject, ObservableObject {
 
     func start() {
         guard settings.weatherEnabled else { return }
-        requestAccessIfNeeded()
+        // Доступ спрашивается только когда координаты и правда нужны:
+        // с выбранным городом система про положение не спрашивается вовсе,
+        // и диалога человек не видит.
+        if settings.weatherSource == .location { requestAccessIfNeeded() }
 
         let timer = Timer(timeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
             self?.refresh()
@@ -107,6 +110,20 @@ final class WeatherService: NSObject, ObservableObject {
 
     func refresh() {
         guard settings.weatherEnabled else { return }
+
+        // Выбранный город — прямой путь: координаты уже известны, спрашивать
+        // их не у кого и незачем.
+        //
+        // Возврат безусловный, даже когда город ещё не назван: человек выбрал
+        // «по городу», и подменять его выбор геопозицией нельзя — иначе
+        // приложение спрашивало бы у системы положение ровно там, где обещало
+        // этого не делать.
+        if settings.weatherSource == .place {
+            guard let place = settings.weatherPlace else { return }
+            load(latitude: place.latitude, longitude: place.longitude)
+            return
+        }
+
         guard authorization == .authorized || authorization == .authorizedAlways else {
             return
         }
@@ -115,11 +132,29 @@ final class WeatherService: NSObject, ObservableObject {
         manager.requestLocation()
     }
 
+    /// Место сменили в настройках — перечитываем прогноз, не дожидаясь
+    /// четвертьчасового тика: иначе выбранный город появился бы через
+    /// пятнадцать минут, и выглядело бы это как «не сработало».
+    func placeChanged() {
+        current = nil
+        announcedCondition = nil
+        announcedOutlook = nil
+        if settings.weatherSource == .location { requestAccessIfNeeded() }
+        refresh()
+    }
+
     // MARK: - Запрос прогноза
 
     private func load(for location: CLLocation) {
-        let latitude = (location.coordinate.latitude * 100).rounded() / 100
-        let longitude = (location.coordinate.longitude * 100).rounded() / 100
+        load(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
+    }
+
+    private func load(latitude rawLatitude: Double, longitude rawLongitude: Double) {
+        // Округление до сотой доли градуса — это примерно километр, и погоде
+        // точнее не нужно. Для выбранного города оно и подавно безобидно,
+        // но путь пусть будет один: меньше поводов однажды отправить лишнее.
+        let latitude = (rawLatitude * 100).rounded() / 100
+        let longitude = (rawLongitude * 100).rounded() / 100
 
         var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")
         components?.queryItems = [
@@ -236,6 +271,10 @@ extension WeatherService: CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorization = manager.authorizationStatus
         DebugLog.write("погода: доступ к геопозиции — \(authorization.rawValue)")
+        // Только когда положение и правда нужно: с выбранным городом
+        // ответ системы про разрешение нас не касается, а перечитывать
+        // по нему прогноз — лишний запрос на пустом месте.
+        guard settings.weatherSource == .location else { return }
         if authorization == .authorized || authorization == .authorizedAlways {
             refresh()
         }

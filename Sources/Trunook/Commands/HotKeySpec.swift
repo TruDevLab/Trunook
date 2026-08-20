@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 /// Сочетание клавиш, заданное пользователем.
-struct HotKeySpec: Codable, Equatable {
+struct HotKeySpec: Codable, Equatable, Hashable {
     var keyCode: UInt32
     /// Маска модификаторов в терминах Carbon — именно её ждёт
     /// `RegisterEventHotKey`.
@@ -57,8 +57,24 @@ struct HotKeySpec: Codable, Equatable {
     /// ⌃⌥1 … ⌃⌥6 — слоты быстрых команд. Цифра совпадает с номером плитки
     /// в меню, так что подсматривать сочетание негде и не нужно.
     static func slot(_ index: Int) -> HotKeySpec? {
-        guard index < QuickCommands.slotCount, digits.indices.contains(index) else { return nil }
+        guard index < QuickCommands.slotCount else { return nil }
+        return ownDigit(index)
+    }
+
+    /// Цифра своего семейства по номеру, без оглядки на то, кому она
+    /// достанется. Слоты команд и строки истории буфера делят один
+    /// и тот же ряд ⌃⌥1 … ⌃⌥9, и собирать сочетание им надо одинаково.
+    static func ownDigit(_ index: Int) -> HotKeySpec? {
+        guard digits.indices.contains(index) else { return nil }
         return HotKeySpec(keyCode: UInt32(digits[index]), modifiers: own)
+    }
+
+    /// Номер цифровой клавиши, считая от нуля. `nil` — клавиша не цифра.
+    ///
+    /// Нужен обработчику, который получил нажатие и должен решить, чьё оно:
+    /// сочетание известно, а номер строки из него ещё надо достать.
+    static func digitIndex(_ keyCode: UInt32) -> Int? {
+        digits.firstIndex(of: Int(keyCode))
     }
 
     /// ⌃⌥V — история буфера. Не ⇧⌘C и не ⇧⌘V: их занимают привычные
@@ -73,6 +89,10 @@ struct HotKeySpec: Codable, Equatable {
 
     /// ⌃⌥M — нагрузка на систему.
     static let monitor = HotKeySpec(keyCode: UInt32(kVK_ANSI_M), modifiers: own)
+
+    /// ⌃⌥P — телесуфлер. Не ⌃⌥T: её занял таймер, а «prompter» начинается
+    /// с той же буквы в обоих языках.
+    static let teleprompter = HotKeySpec(keyCode: UInt32(kVK_ANSI_P), modifiers: own)
 
     /// Цифра для номерной строки истории буфера.
     static func clipboardSlot(_ index: Int, modifiers: UInt32) -> HotKeySpec? {

@@ -18,7 +18,17 @@ final class ShelfStore: ObservableObject {
     /// не видно, а держать ссылки на сотню файлов бессмысленно.
     static let limit = 30
 
+    /// Потолок кэша миниатюр. Больше, чем у самой полки, и намеренно: убранный
+    /// файл нередко кладут обратно, а картинка стоит похода в QuickLook.
+    /// Но и расти без края словарь не должен — за долгий день через полку
+    /// проходят сотни файлов, и каждая миниатюра остаётся в памяти навсегда.
+    static let thumbnailCacheLimit = limit * 2
+
     private static let thumbnailSize = CGSize(width: 128, height: 128)
+
+    /// Порядок появления миниатюр: словарь его не хранит, а вытеснять надо
+    /// самые давние.
+    private var thumbnailOrder: [URL] = []
 
     var isEmpty: Bool { items.isEmpty }
 
@@ -76,8 +86,39 @@ final class ShelfStore: ObservableObject {
             guard let rep else { return }
             let image = rep.nsImage
             DispatchQueue.main.async {
-                self?.thumbnails[item.url] = image
+                self?.cache(image, for: item.url)
             }
         }
+    }
+
+    /// Не `private` ради проверки: миниатюры приходят из QuickLook, и вызвать
+    /// его из теста нечем, а потолок кэша и правило «лежащее на полке
+    /// не вытесняем» проверить надо.
+    func cache(_ image: NSImage, for url: URL) {
+        if thumbnails[url] == nil { thumbnailOrder.append(url) }
+        thumbnails[url] = image
+        trimThumbnails()
+    }
+
+    /// Вытесняет самые давние миниатюры сверх потолка — но только те, чьих
+    /// файлов на полке уже нет: картинка того, что видно на экране, обязана
+    /// пережить любую чистку.
+    ///
+    /// Словарь переписывается один раз, а не по записи за раз: он
+    /// `@Published`, и каждое присваивание пересобирало бы полку заново.
+    private func trimThumbnails() {
+        guard thumbnailOrder.count > Self.thumbnailCacheLimit else { return }
+        let onShelf = Set(items.map(\.url))
+        var excess = thumbnailOrder.count - Self.thumbnailCacheLimit
+        var doomed: Set<URL> = []
+        for url in thumbnailOrder where excess > 0 {
+            guard !onShelf.contains(url) else { continue }
+            doomed.insert(url)
+            excess -= 1
+        }
+        guard !doomed.isEmpty else { return }
+        thumbnailOrder.removeAll { doomed.contains($0) }
+        thumbnails = thumbnails.filter { !doomed.contains($0.key) }
+        DebugLog.write("полка: миниатюр вытеснено \(doomed.count), осталось \(thumbnails.count)")
     }
 }

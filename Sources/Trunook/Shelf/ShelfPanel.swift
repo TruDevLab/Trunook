@@ -22,7 +22,14 @@ struct ShelfPanel: View {
     let onEndDragOut: () -> Void
     let onClose: () -> Void
 
-    static let width: CGFloat = 440
+    /// Ширина считается от сетки, а не задана числом: поле содержимого
+    /// отмеряется от чёрного тела, и подобранная под прежнее поле ширина
+    /// обрезала бы четвёртую колонку.
+    static var width: CGFloat {
+        CGFloat(columns) * tileWidth
+            + CGFloat(columns - 1) * tileSpacing
+            + 2 * NotchStyle.bodyInset
+    }
     static let tileWidth: CGFloat = 96
     static let tileHeight: CGFloat = 78
     static let tileSpacing = NotchStyle.gridSpacing
@@ -51,7 +58,7 @@ struct ShelfPanel: View {
     }
 
     var body: some View {
-        NotchPanel(metrics: metrics, width: Self.width) {
+        NotchPanel(metrics: metrics, width: Self.width, bodyPadding: NotchStyle.bottomPadding) {
             NotchPanelTitle(symbol: "tray.full", title: t("Полка"), tint: Palette.shelf)
         } trailing: {
             HStack(spacing: 2) {

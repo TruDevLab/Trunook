@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Trunook
@@ -75,6 +76,37 @@ struct ShelfStoreTests {
         let store = ShelfStore()
         store.add(urls)
         #expect(store.items.count == ShelfStore.limit)
+    }
+
+    /// Словарь миниатюр рос на каждый побывавший на полке файл и не убывал
+    /// никогда: за долгий день это сотни картинок в памяти без потолка.
+    @Test("Кэш миниатюр не растёт без края")
+    func миниатюрыНеРастутБезКрая() throws {
+        let (root, urls) = try makeFiles(ShelfStore.thumbnailCacheLimit + 5)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = ShelfStore()
+        let picture = NSImage(size: CGSize(width: 1, height: 1))
+        for url in urls { store.cache(picture, for: url) }
+
+        #expect(store.thumbnails.count <= ShelfStore.thumbnailCacheLimit)
+    }
+
+    /// Вытеснять то, что человек видит на экране, нельзя ни при каком
+    /// переполнении: значок подменил бы миниатюру прямо под курсором.
+    @Test("Миниатюра лежащего на полке переживает вытеснение")
+    func лежащееНеВытесняется() throws {
+        let (root, urls) = try makeFiles(ShelfStore.thumbnailCacheLimit + 5)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = ShelfStore()
+        let picture = NSImage(size: CGSize(width: 1, height: 1))
+        // Первый файл кладётся на полку и получает миниатюру раньше всех —
+        // то есть вытеснился бы первым, будь порядок единственным правилом.
+        store.add([urls[0]])
+        for url in urls { store.cache(picture, for: url) }
+
+        #expect(store.thumbnails[urls[0]] != nil, "вытеснили миниатюру того, что на полке")
     }
 
     @Test("Очистка опустошает полку")

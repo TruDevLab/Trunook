@@ -37,6 +37,9 @@ enum Palette {
     static let monitor = cyan
     /// Таймер и секундомер.
     static let timer = rose
+    /// Телесуфлер — «читают вслух», рядом по смыслу с тем, что показывает
+    /// и объясняет.
+    static let teleprompter = violet
     /// Погода и календарь.
     static let weather = cyan
     static let calendar = rose

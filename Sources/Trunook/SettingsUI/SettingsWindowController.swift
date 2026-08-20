@@ -13,6 +13,9 @@ final class SettingsWindowController {
     private let models = OllamaModelList()
     private let shortcuts = ShortcutsService()
     private let browsers = BrowserList()
+    /// Поиск города для погоды. Живёт здесь, а не в теле вида: `@State`
+    /// в этом SDK недоступен, а набранному и найденному где-то держаться надо.
+    private let placeSearch = WeatherPlaceSearch()
 
     func show(
         settings: Settings,
@@ -57,6 +60,7 @@ final class SettingsWindowController {
             browsers: browsers,
             clipboard: clipboard,
             weather: weather,
+            placeSearch: placeSearch,
             onHotKeysChanged: onHotKeysChanged,
             onOpenWelcome: onOpenWelcome
         )

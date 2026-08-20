@@ -52,6 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.shelf", #selector(showShelf)),
             ("com.trunook.debug.timer", #selector(showTimer)),
             ("com.trunook.debug.monitor", #selector(showMonitor)),
+            ("com.trunook.debug.teleprompter", #selector(showTeleprompter)),
+            ("com.trunook.debug.teleprompterScroll", #selector(scrollTeleprompter)),
+            ("com.trunook.debug.teleprompterPrompt", #selector(promptTeleprompter)),
             ("com.trunook.debug.timerRun", #selector(runTimer)),
             ("com.trunook.debug.hub", #selector(showHub)),
             ("com.trunook.debug.openEvent", #selector(openFirstItem)),
@@ -80,6 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Набранное в телесуфлере уходит на диск с задержкой — при выходе
+        // ждать её некому.
+        controller.teleprompter.saveNow()
         controller.stop()
     }
 
@@ -323,6 +329,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.debugRunSlot(0)
     }
 
+    @objc private func showTeleprompter() {
+        controller.debugToggleTeleprompter()
+    }
+
+    @objc private func scrollTeleprompter() {
+        controller.debugToggleTeleprompterScroll()
+    }
+
+    @objc private func promptTeleprompter() {
+        controller.debugCycleTeleprompterPrompt()
+    }
+
 
 
     private func add(to menu: NSMenu, title: String, action: Selector, key: String) {
@@ -345,6 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         welcomeWindow.show(
             calendar: controller.calendar,
             launchAtLogin: launchAtLogin,
+            weather: controller.weather,
             onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() }
         )
     }

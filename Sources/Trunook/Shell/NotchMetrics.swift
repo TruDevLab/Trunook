@@ -17,9 +17,9 @@ struct NotchMetrics: Equatable {
     static let taskRowHeight: CGFloat = 26
     /// Сколько задач помещаем в панель, прежде чем свернуть остаток в «+N».
     static let maxVisibleTasks = 3
-    /// Сколько одновременных встреч показываем. Больше трёх на один слот —
-    /// уже не расписание, а сбой синхронизации, и панель под это растить
-    /// незачем.
+    /// Сколько строк встреч показываем — на ближайшее время и следующее
+    /// вместе. Больше трёх строк — это уже не «что дальше», а расписание,
+    /// и за ним ходят в Календарь.
     static let maxVisibleEvents = 3
 
     init(notchWidth: CGFloat, notchHeight: CGFloat) {
@@ -63,12 +63,9 @@ struct NotchMetrics: Equatable {
     /// Полоска отсчёта бывает шире раскрытой панели — на технике с широким
     /// вырезом она вылезла бы за границу окна и обрезалась.
     var windowSize: CGSize {
-        // Потолок: все одновременные встречи плюс полный список задач.
-        let panel = expanded(
-            extraHeight: CGFloat(Self.maxVisibleEvents) * Self.eventRowHeight
-                + CGFloat(Self.maxVisibleEvents - 1) * NotchStyle.rowSpacing + 6
-                + 6 + CGFloat(Self.maxVisibleTasks) * Self.taskRowHeight
-        )
+        // Потолок панели считается тем же расчётом, что и сама панель:
+        // выписанный здесь заново, он разошёлся с ней на поле подложки.
+        let panel = expanded(extraHeight: NotchContent.maxExtraHeight)
         let commands = CommandsPanel.height(notchHeight: notchHeight, hasBackRow: true)
         let assistant = AssistantPanel.height(notchHeight: notchHeight)
         let clipboard = ClipboardPanel.height(
@@ -78,6 +75,7 @@ struct NotchMetrics: Equatable {
         // Потолок считается по настоящему составу меню: раньше здесь стояли
         // «две строки», и пятая плитка вылезла бы за окно, а окно обрезает.
         let hub = HubPanel.height(notchHeight: notchHeight, count: HubEntry.count)
+        let teleprompter = TeleprompterPanel.height(notchHeight: notchHeight)
         let shelf = ShelfPanel.height(
             notchHeight: notchHeight,
             count: ShelfPanel.columns * ShelfPanel.visibleRows
@@ -92,9 +90,10 @@ struct NotchMetrics: Equatable {
                 AssistantPanel.width,
                 ShelfPanel.width,
                 HubPanel.width,
+                TeleprompterPanel.width,
                 MeetingControlsView.width(actionCount: MeetingAction.allCases.count)
             ),
-            height: max(panel.height, commands, clipboard, assistant, shelf, hub)
+            height: max(panel.height, commands, clipboard, assistant, shelf, hub, teleprompter)
         )
     }
 }

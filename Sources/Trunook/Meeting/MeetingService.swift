@@ -90,6 +90,18 @@ final class MeetingService: ObservableObject {
     private var meetingWindow: AXUIElement?
     private var meetingTabTitle: String?
 
+    /// Обход дерева идёт здесь и только здесь.
+    ///
+    /// На главном потоке ему не место: каждый шаг обхода — обращение
+    /// к чужому процессу, а шагов тысячи. С тяжёлой страницей в браузере
+    /// приложение вставало насмерть прямо на запуске — обход начинался
+    /// из `start()`, и до значка в строке состояния дело не доходило.
+    private let scanQueue = DispatchQueue(label: "com.trunook.meeting", qos: .utility)
+
+    /// Обход уже идёт: тик опроса пропускаем. Иначе очередь копила бы обходы,
+    /// каждый из которых бывает дольше периода опроса.
+    private var isScanning = false
+
     init(settings: Settings = .shared) {
         self.settings = settings
     }
@@ -134,49 +146,81 @@ final class MeetingService: ObservableObject {
             clear()
             return
         }
+        guard !isScanning else { return }
+        isScanning = true
 
-        guard let found = findMeeting() else {
-            clear()
-            return
+        scanQueue.async { [weak self] in
+            let scan = Self.scan()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isScanning = false
+                self.apply(scan)
+            }
         }
-
-        meetingApp = found.pid
-        meetingWindow = found.window
-        meetingTabTitle = found.tabTitle
-
-        guard let area = AXTree.webArea(in: found.window) else {
-            clear()
-            return
-        }
-        applyForeground(area: area, found: found)
     }
 
-    /// Вкладка встречи открыта: читаем настоящие подписи и состояния.
-    private func applyForeground(area: AXUIElement, found: Found) {
+    /// Всё, что удалось прочитать со страницы за один обход.
+    ///
+    /// Значением, а не записью прямо в поля службы: обход идёт в стороне
+    /// от главного потока, а состояние службы остаётся его собственностью —
+    /// иначе `perform` читал бы окно встречи, пока обход его переписывает.
+    private struct Scan {
+        let pid: pid_t
+        let window: AXUIElement
+        let tabTitle: String
+        let url: URL?
+        let states: [MeetingAction: Bool]
+        let available: [MeetingAction]
+    }
+
+    /// Обход дерева. Ни одного обращения к состоянию службы — только чтение
+    /// чужих окон и разбор прочитанного.
+    private static func scan() -> Scan? {
+        guard let found = findMeeting(), let area = AXTree.webArea(in: found.window) else {
+            return nil
+        }
+
         let buttons = AXTree.buttons(of: area, maxDepth: 40)
-        url = AXTree.url(of: area)
+        let address = AXTree.url(of: area)
 
         var states: [MeetingAction: Bool] = [:]
         var available: [MeetingAction] = []
 
         for action in MeetingAction.allCases {
             if action == .copyLink {
-                if url != nil { available.append(action) }
+                if address != nil { available.append(action) }
                 continue
             }
-            guard let match = Self.match(action, in: buttons) else { continue }
+            guard let match = match(action, in: buttons) else { continue }
             available.append(action)
-            states[action] = Self.isOn(labels: match.labels)
+            states[action] = isOn(labels: match.labels)
+        }
+
+        return Scan(
+            pid: found.pid, window: found.window, tabTitle: found.tabTitle,
+            url: address, states: states, available: available
+        )
+    }
+
+    /// Прочитанное — в состояние службы. Только на главном потоке.
+    private func apply(_ scan: Scan?) {
+        guard let scan else {
+            clear()
+            return
         }
 
         if !isActive {
-            DebugLog.write("встреча: «\(found.tabTitle)», кнопок — \(available.count)")
+            DebugLog.write("встреча: «\(scan.tabTitle)», кнопок — \(scan.available.count)")
         }
 
-        title = found.tabTitle
-        self.states = states
-        availableActions = available
-        isActive = !available.isEmpty
+        meetingApp = scan.pid
+        meetingWindow = scan.window
+        meetingTabTitle = scan.tabTitle
+        url = scan.url
+        title = scan.tabTitle
+        states = scan.states
+        availableActions = scan.available
+        isActive = !scan.available.isEmpty
     }
 
     private func clear() {
@@ -198,7 +242,7 @@ final class MeetingService: ObservableObject {
         let tabTitle: String
     }
 
-    private func findMeeting() -> Found? {
+    private static func findMeeting() -> Found? {
         let apps = NSWorkspace.shared.runningApplications.filter {
             guard let id = $0.bundleIdentifier else { return false }
             return Self.browserBundleIDs.contains(id)
@@ -247,14 +291,25 @@ final class MeetingService: ObservableObject {
         }
 
         guard let pid = meetingApp, let window = meetingWindow else { return }
-        performDirectly(action, pid: pid, window: window)
+        // Кнопку ещё надо найти, а это тот же обход дерева, что и у опроса,
+        // и на главном потоке ему так же не место: вырез замирал бы ровно
+        // в тот момент, когда человек по нему нажал.
+        scanQueue.async { [weak self] in
+            Self.pressButton(action, pid: pid, window: window)
+            // Подпись кнопки меняется не мгновенно: странице нужно мгновение
+            // на обработку, и опрос раньше времени прочитал бы прежнее.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                self?.refresh()
+            }
+        }
     }
 
-    /// Действие на открытой вкладке — без переключений.
+    /// Действие на открытой вкладке — без переключений. Только обход и нажатие,
+    /// без обращений к состоянию службы: идёт в стороне от главного потока.
     @discardableResult
-    private func performDirectly(_ action: MeetingAction, pid: pid_t, window: AXUIElement) -> Bool {
+    private static func pressButton(_ action: MeetingAction, pid: pid_t, window: AXUIElement) -> Bool {
         guard let area = AXTree.webArea(in: window),
-              let match = Self.match(action, in: AXTree.buttons(of: area, maxDepth: 40))
+              let match = match(action, in: AXTree.buttons(of: area, maxDepth: 40))
         else {
             DebugLog.write("встреча: кнопка «\(action.title)» не найдена")
             return false
@@ -263,9 +318,6 @@ final class MeetingService: ObservableObject {
         // 49 — пробел.
         let pressed = AXTree.focusAndKey(match.element, pid: pid, keyCode: 49)
         DebugLog.write("встреча: \(action.title) — \(pressed ? "нажато" : "не удалось")")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            self?.refresh()
-        }
         return pressed
     }
 

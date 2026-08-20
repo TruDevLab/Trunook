@@ -25,7 +25,15 @@ struct HubPanel: View {
         let action: () -> Void
     }
 
-    static let width: CGFloat = 440
+    /// Ширина считается от сетки, а не задана числом: поле содержимого
+    /// отмеряется от чёрного тела, и подобранная под прежнее поле ширина
+    /// обрезала бы третью колонку. Так панель подстроится и под правку
+    /// размера плитки.
+    static var width: CGFloat {
+        CGFloat(columns) * tileWidth
+            + CGFloat(columns - 1) * tileSpacing
+            + 2 * NotchStyle.bodyInset
+    }
     /// Три колонки.
     ///
     /// Были две: при четырёх плитках в три они ложились как 3 + 1, и второй
@@ -59,7 +67,7 @@ struct HubPanel: View {
     }
 
     var body: some View {
-        NotchPanel(metrics: metrics, width: Self.width) {
+        NotchPanel(metrics: metrics, width: Self.width, bodyPadding: NotchStyle.bottomPadding) {
             NotchPanelTitle(symbol: "square.grid.2x2", title: t("Всё сразу"))
         } trailing: {
             HStack(spacing: 2) {

@@ -17,7 +17,10 @@ struct CommandsPanel: View {
     static let slotWidth: CGFloat = 118
     static let slotHeight: CGFloat = 58
     static let spacing = NotchStyle.gridSpacing
-    static let horizontalPadding = NotchStyle.panelPadding
+    /// Поле от чёрного тела, а не от рамки: сетка тянется во всю ширину,
+    /// и отмеренное от рамки поле съедалось бы вогнутым плечом формы —
+    /// сбоку оставалось четыре точки против двенадцати снизу.
+    static let horizontalPadding = NotchStyle.bodyInset
 
     static var width: CGFloat {
         CGFloat(columns) * slotWidth
@@ -35,7 +38,7 @@ struct CommandsPanel: View {
     }
 
     var body: some View {
-        NotchPanel(metrics: metrics, width: Self.width) {
+        NotchPanel(metrics: metrics, width: Self.width, bodyPadding: NotchStyle.bottomPadding) {
             NotchPanelTitle(
                 symbol: "square.grid.2x2",
                 title: t("Команды"),

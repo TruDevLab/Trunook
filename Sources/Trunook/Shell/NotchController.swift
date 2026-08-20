@@ -23,6 +23,9 @@ final class NotchController {
     let shelf = ShelfStore()
     let timer = TimerService()
     let monitor = MonitorService()
+    /// Текст телесуфлера. У контроллера, а не у окна: телесуфлер живёт
+    /// накладкой в вырезе — у самой камеры, — и своего окна у него нет.
+    let teleprompter = TeleprompterStore()
 
     private let alerts = EventAlertScheduler()
     /// Отдельное окно приёма файлов: сам вырез принимать их не может,
@@ -130,7 +133,7 @@ final class NotchController {
         input.onCollapse = { [weak self] in self?.collapsePanel() }
         input.onSwipe = { [weak self] direction in self?.performSwipe(direction) }
         input.onOverlayHover = { [weak self] location in self?.router.updateHover(at: location) }
-        input.onDismissOverlay = { [weak self] in self?.router.close() }
+        input.onDismissOverlay = { [weak self] in self?.router.dismiss() }
         // Зона приёма файлов оживает только пока что-то тащат: в покое она
         // прозрачна для мыши и не ест нажатия по тому, что под чёлкой.
         input.onDragChanged = { [weak self] dragging in self?.shelfDrop.isArmed = dragging }
@@ -301,6 +304,14 @@ final class NotchController {
             }
         }
 
+        // У телесуфлера выключателя нет: он ничего не делает, пока окно
+        // закрыто, и выключать в нём нечего.
+        if let teleprompterKey = settings.teleprompterHotKey {
+            HotKeyCenter.shared.register(teleprompterKey, name: "телесуфлер") { [weak self] in
+                self?.toggleTeleprompter()
+            }
+        }
+
         // Номерные строки истории. Клавиша работает и когда панель закрыта:
         // смысл в том и есть — вставить позавчерашнее, не открывая ничего.
         if settings.clipboardEnabled, let mask = settings.clipboardSlotModifiers.carbonMask {
@@ -317,13 +328,53 @@ final class NotchController {
             guard let shortcut = command.hotKey else { continue }
             let id = command.id
             HotKeyCenter.shared.register(shortcut, name: "слот \(id + 1)") { [weak self] in
-                guard let self, self.settings.quickCommandsEnabled else { return }
+                guard let self else { return }
+                // Открытая история буфера забирает цифры себе.
+                if self.pasteFromOpenClipboard(key: shortcut.keyCode) { return }
+                guard self.settings.quickCommandsEnabled else { return }
                 guard let current = self.settings.quickCommands.first(where: { $0.id == id })
                 else { return }
                 self.closeCommands()
                 self.run(current)
             }
         }
+
+        // Цифры своего семейства, никем не занятые. Пока история открыта,
+        // они тоже её строки: иначе ⌃⌥7 молчал бы там, где ⌃⌥1 вставляет,
+        // и правило «цифра — это строка списка» перестало бы быть правилом.
+        if settings.clipboardEnabled {
+            let taken = Set(settings.quickCommands.compactMap(\.hotKey))
+            for index in 0..<ClipboardService.hotSlotCount {
+                guard let spec = HotKeySpec.ownDigit(index),
+                      !taken.contains(spec),
+                      spec.modifiers != settings.clipboardSlotModifiers.carbonMask
+                else { continue }
+                HotKeyCenter.shared.register(spec, name: "буфер \(index + 1) в панели") { [weak self] in
+                    self?.pasteFromOpenClipboard(key: spec.keyCode)
+                }
+            }
+        }
+    }
+
+    /// Вставка строки истории цифрой, пока список истории на экране.
+    /// Возвращает, забрала ли история это нажатие себе.
+    ///
+    /// Ряд ⌃⌥1 … ⌃⌥9 поделен между слотами быстрых команд и строками буфера,
+    /// и развести их по разным сочетаниям некуда: ⌃⌥ — единственная пара,
+    /// которую не занимает ни система, ни привычные приложения. Разводит их
+    /// состояние экрана: пока список открыт, человек считает строки глазами,
+    /// и цифра означает строку списка, а не слот команды. Раньше здесь молча
+    /// срабатывала команда — история закрывалась, и вместо вставки уходил
+    /// запрос к модели.
+    @discardableResult
+    private func pasteFromOpenClipboard(key keyCode: UInt32) -> Bool {
+        guard state.overlay == .clipboard,
+              settings.clipboardEnabled,
+              let index = HotKeySpec.digitIndex(keyCode),
+              let entry = clipboard.entry(atSlot: index)
+        else { return false }
+        useClipboard(entry)
+        return true
     }
 
     /// Проверка кодировки на коротком запросе: логируем и то, что отправили,
@@ -359,6 +410,11 @@ final class NotchController {
 
     func debugRunSlot(_ index: Int) {
         guard let command = settings.quickCommands.first(where: { $0.id == index }) else { return }
+        // Через ту же развилку, что и настоящее нажатие: открытая история
+        // буфера забирает цифры себе. Иначе этот вход проверял бы не то,
+        // что происходит на клавише, — синтетические нажатия до Carbon
+        // не доходят, и другого способа увидеть развилку из сессии нет.
+        if let key = command.hotKey?.keyCode, pasteFromOpenClipboard(key: key) { return }
         run(command)
     }
 
@@ -403,6 +459,10 @@ final class NotchController {
             // По полоске идущего таймера нажимают, чтобы открыть его панель.
             // Прозрачное для нажатий окно этого не позволило бы.
             && timerChip == nil
+            // То же и с отсчётом до встречи: по нему нажимают, чтобы узнать,
+            // что за встреча. Наведением тут не обойтись — крылья полоски
+            // уходят далеко за края чёлки, а наведение считается по ней.
+            && state.chipItem == nil
     }
 
     /// Полоска идущего таймера — или её отсутствие. Спрашивают и расчёт
@@ -411,20 +471,30 @@ final class NotchController {
         settings.timerEnabled ? timer.chip : nil
     }
 
-    /// Состояние выреза глазами контроллера. Тот же расчёт, что и в вёрстке:
-    /// зона нажатий обязана совпадать с нарисованным, иначе панель видно,
-    /// а нажать по ней нельзя — на этом уже спотыкались.
+    /// Единственное место, где состояние выреза собирается из служб.
+    ///
+    /// Спрашивают отсюда оба: и зона нажатий окна, и вёрстка, которой снимок
+    /// отдаётся готовым. Раньше вёрстка собирала свой — и списки полей
+    /// разошлись: она передавала долю свайпа, здесь её не было, а доля решает,
+    /// расходится ли остров вширь. Полоску таймера они брали по-разному тоже:
+    /// вёрстка у самой службы, контроллер — с оглядкой на настройку. Значит
+    /// при выключенном таймере рисовалось одно, а мерилось другое.
+    ///
+    /// Урок записан в `NotchResolver`: свести расчёт в один **тип** мало,
+    /// тип не мешает построить его дважды. Сводить надо в одно место вызова.
     private var notchSnapshot: NotchSnapshot {
         NotchInputs(
             overlay: state.overlay,
             swipe: state.swipe,
+            pendingSwipe: state.pendingSwipe,
+            swipeProgress: state.swipeProgress,
             isHovered: state.isHovered,
             isPinnedOpen: state.isPinnedOpen,
             chip: state.chipItem,
             timerChip: timerChip,
             activity: activities.current,
             track: music.nowPlaying,
-            events: calendar.upcoming.startingTogether(limit: NotchMetrics.maxVisibleEvents),
+            events: calendar.upcoming.upcomingSlots(limit: NotchMetrics.maxVisibleEvents),
             taskCount: things.todayTitles.count,
             meetingActions: meeting.availableActions.count,
             clipboardRows: clipboard.entries.count,
@@ -770,11 +840,39 @@ final class NotchController {
         router.toggle(.hub)
     }
 
-    /// Возврат из меню в раскрытую панель. Накладка закрывается, а панель
-    /// фиксируется раскрытой — иначе она схлопнулась бы в мини-вид, ведь
-    /// нажатия, которое её удерживало, не было.
-    private func openExpandedFromHub() {
+    /// Телесуфлер. Клавишей — переключателем, как и остальные накладки.
+    ///
+    /// Фокус забирается сразу и явно: в телесуфлер печатают, а вырез по
+    /// устройству фокуса не отбирает — без этого поле не приняло бы ни одной
+    /// буквы. Тем же приёмом пользуется поле встречного вопроса к модели.
+    func toggleTeleprompter() {
+        let wasOpen = state.isTeleprompterOpen
+        router.toggle(.teleprompter)
+        guard !wasOpen else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        host.makeKey()
+    }
+
+    /// Плиткой меню — открытием, а не переключателем: в меню за «закрыть»
+    /// не ходят, туда идут открывать.
+    private func openTeleprompter() {
+        guard !state.isTeleprompterOpen else { return }
+        toggleTeleprompter()
+    }
+
+    /// Раскрыть главную панель без наведения на чёлку: из меню всех функций
+    /// и по нажатию на полоску обратного отсчёта.
+    ///
+    /// Наведение выставляется вместе с фиксацией, хотя курсор в зону чёлки
+    /// и не заходил. Без него панель осталась бы раскрытой навсегда: снимает
+    /// фиксацию уход курсора, а уход считается только после захода — и то,
+    /// и другое меряется по узкой полосе самой чёлки, мимо которой курсор
+    /// в обоих случаях прошёл стороной. С наведением уход считается уже
+    /// по всей раскрытой панели, и она схлопывается там, где человек
+    /// её оставил.
+    private func openExpanded() {
         router.close()
+        if !state.isHovered { setHovered(true) }
         state.isPinnedOpen = true
         host.updateInteractiveRect()
     }
@@ -823,8 +921,16 @@ final class NotchController {
             shelf: shelf,
             timer: timer,
             monitor: monitor,
+            teleprompter: teleprompter,
             settings: settings,
             metrics: metrics,
+            // Замыканием, а не значением: вид строится один раз, а состояние
+            // меняется по десять раз в секунду. Вёрстка перерисовывается
+            // от наблюдаемых служб и на каждой перерисовке спрашивает снимок
+            // заново — тот же, по которому считается зона нажатий.
+            snapshot: { [weak self] in
+                self?.notchSnapshot ?? NotchSnapshot(presentation: .collapsed, content: NotchContent())
+            },
             onTap: { [weak self] in self?.expandPanel() },
             onOpenSettings: { [weak self] in
                 self?.closeCommands()
@@ -858,7 +964,8 @@ final class NotchController {
             onOpenActivityMonitor: { [weak self] in self?.openActivityMonitor() },
             onDismissActivity: { [weak self] in self?.dismissShelfChip() },
             onOpenHub: { [weak self] in self?.openHub() },
-            onOpenExpanded: { [weak self] in self?.openExpandedFromHub() },
+            onOpenTeleprompter: { [weak self] in self?.openTeleprompter() },
+            onOpenExpanded: { [weak self] in self?.openExpanded() },
             onAskAssistant: { [weak self] in self?.askAssistant() }
         )
     }
@@ -909,6 +1016,23 @@ final class NotchController {
             return
         }
         openItem(item)
+    }
+
+    /// Отладочные входы: сочетание из скрипта не нажать, а кнопку «Пуск»
+    /// в панели — тем более.
+    func debugToggleTeleprompter() { toggleTeleprompter() }
+
+    func debugToggleTeleprompterScroll() { teleprompter.toggleScrolling() }
+
+    /// Перебирает строки вопросов телесуфлера: нажать «Ссылку» или «Очистить»
+    /// в панели из сессии нечем, а увидеть их надо — они занимают место
+    /// полосы управления, и разъехаться им с ней нельзя.
+    func debugCycleTeleprompterPrompt() {
+        switch teleprompter.prompt {
+        case nil: teleprompter.askForLink()
+        case .link: teleprompter.askToClear()
+        case .clear: teleprompter.cancelPrompt()
+        }
     }
 
     /// Отладочный вход: панель ответа модели без выделенного текста.

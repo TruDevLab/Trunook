@@ -35,6 +35,8 @@ struct NotchPanel<Leading: View, Trailing: View, Content: View>: View {
     /// Поле содержимого от краёв рамки.
     private var contentInset: CGFloat {
         guard let bodyPadding else { return NotchStyle.panelPadding }
+        // То же, что `NotchStyle.bodyInset`, но от заданного поля: панель
+        // вправе попросить своё. Считающие свою ширину берут число оттуда.
         return bodyPadding + NotchStyle.shoulderInset
     }
 
@@ -115,6 +117,11 @@ struct NotchPanelTitle: View {
 /// Кнопка-значок в правом крыле.
 struct NotchPanelButton: View {
     let symbol: String
+    /// Подпись для всплывающей подсказки. Крестику и шестерёнке она не нужна —
+    /// их узнают по значку, — а вот ряду из шести значков оформления
+    /// без подписей не обойтись: «Ж» от «К» на глифе размером с букву
+    /// отличается не сразу.
+    var hint: String?
     let action: () -> Void
 
     var body: some View {
@@ -126,6 +133,8 @@ struct NotchPanelButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressableStyle())
+        .help(hint ?? "")
+        .accessibilityLabel(hint ?? "")
     }
 }
 

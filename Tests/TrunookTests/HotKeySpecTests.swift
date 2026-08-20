@@ -32,4 +32,25 @@ struct HotKeySpecTests {
             #expect(seen.insert(key).inserted, "сочетание \(spec.display) назначено дважды")
         }
     }
+
+    /// Номер строки истории достаётся из уже нажатого сочетания: обработчик
+    /// слота команды должен уметь узнать, что нажали цифру, и какую.
+    @Test("Цифра узнаётся по коду клавиши")
+    func цифраУзнаётся() throws {
+        for index in 0..<9 {
+            let spec = try #require(HotKeySpec.ownDigit(index))
+            #expect(HotKeySpec.digitIndex(spec.keyCode) == index)
+        }
+        #expect(HotKeySpec.ownDigit(9) == nil)
+        #expect(HotKeySpec.digitIndex(HotKeySpec.menu.keyCode) == nil)
+    }
+
+    /// Слоты команд сидят на тех же цифрах, что и строки истории: развести
+    /// их по регистрации нельзя, разводит только состояние экрана.
+    @Test("Слот команды и строка буфера делят одну клавишу")
+    func слотыДелятЦифру() {
+        for index in 0..<QuickCommands.slotCount {
+            #expect(HotKeySpec.slot(index) == HotKeySpec.ownDigit(index))
+        }
+    }
 }

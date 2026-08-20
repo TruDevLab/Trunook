@@ -28,19 +28,31 @@ final class NotchState: ObservableObject {
         case hub
         case timer
         case monitor
+        case teleprompter
 
         /// Закрывается ли накладка тем, что курсор ушёл за её границы.
         ///
-        /// Полка и ответ модели — нет, и по одной причине: с ними работают
-        /// руками. С полки тащат файлы наружу, у модели читают длинный ответ
-        /// и печатают встречный вопрос, — курсор при этом заведомо уходит,
-        /// и закрытие по уходу отнимало бы панель ровно в тот момент, ради
-        /// которого она открыта. Эти две закрываются щелчком мимо.
+        /// Полка, ответ модели и телесуфлер — нет, и по одной причине: с ними
+        /// работают руками. С полки тащат файлы наружу, у модели читают длинный
+        /// ответ и печатают встречный вопрос, в телесуфлер набирают речь, —
+        /// курсор при этом заведомо уходит, и закрытие по уходу отнимало бы
+        /// панель ровно в тот момент, ради которого она открыта.
         var closesOnCursorExit: Bool {
             switch self {
             case .commands, .clipboard, .hub, .timer, .monitor: return true
-            case .shelf, .assistant: return false
+            case .shelf, .assistant, .teleprompter: return false
             }
+        }
+
+        /// Закрывается ли накладка нажатием мимо неё.
+        ///
+        /// Все закрываются — кроме телесуфлера. По нему читают вслух, глядя
+        /// в камеру и работая в чужом окне: нажатие мимо там не «я закончил»,
+        /// а обычная работа. Убрать телесуфлер можно только кнопкой «Закрыть»
+        /// или той же клавишей, что его открыла, — набранную речь нельзя
+        /// терять от случайного щелчка.
+        var closesOnClickOutside: Bool {
+            self != .teleprompter
         }
     }
 
@@ -51,6 +63,7 @@ final class NotchState: ObservableObject {
     var isHubOpen: Bool { overlay == .hub }
     var isTimerOpen: Bool { overlay == .timer }
     var isMonitorOpen: Bool { overlay == .monitor }
+    var isTeleprompterOpen: Bool { overlay == .teleprompter }
 
     /// Файлы ведут над зоной приёма прямо сейчас. Держится отдельно
     /// от `overlay`: полка бывает открыта и без перетаскивания, а подсветка
@@ -79,6 +92,9 @@ struct NotchView: View {
     @ObservedObject var state: NotchState
     @ObservedObject var activities: ActivityCenter
     @ObservedObject var music: MusicClient
+    /// Календарь наблюдается, хотя вёрстка к нему и не обращается: встречи
+    /// приходят готовыми в снимке состояния, но перерисоваться от их смены
+    /// вёрстка обязана сама — снимок берётся лениво и сам о себе не сообщает.
     @ObservedObject var calendar: CalendarService
     @ObservedObject var things: ThingsService
     @ObservedObject var meeting: MeetingService
@@ -88,12 +104,24 @@ struct NotchView: View {
     @ObservedObject var shelf: ShelfStore
     @ObservedObject var timer: TimerService
     @ObservedObject var monitor: MonitorService
+    /// Телесуфлер: текст, оформление и автопрокрутка.
+    @ObservedObject var teleprompter: TeleprompterStore
     /// Настройки наблюдаются, а не передаются снимком: слоты команд правятся
     /// в окне настроек, и без наблюдения вырез показывал бы набор, каким тот
     /// был на момент запуска.
     @ObservedObject var settings: Settings
 
     let metrics: NotchMetrics
+    /// Что вырез показывает прямо сейчас — готовым, из одних рук.
+    ///
+    /// Вёрстка не собирает состояние сама и про `NotchInputs` не знает вовсе.
+    /// Собирала — и список полей разошёлся со списком контроллера: вёрстка
+    /// передавала долю свайпа, контроллер нет, а доля участвует в решении.
+    /// Выходило, что во время жеста рисуется одно, а зона нажатий считается
+    /// по другому, — ровно тот дефект, ради которого расчёт и сводили в один
+    /// тип. Свести в тип оказалось мало: тип не мешает построить его дважды.
+    /// Сведено в одно **место вызова** — `NotchController.notchSnapshot`.
+    let snapshot: () -> NotchSnapshot
     let onTap: () -> Void
     let onOpenSettings: () -> Void
     let onJoin: (URL) -> Void
@@ -125,16 +153,16 @@ struct NotchView: View {
     let onOpenActivityMonitor: () -> Void
     let onDismissActivity: () -> Void
     let onOpenHub: () -> Void
+    /// Телесуфлер живёт в своём окне, а не накладкой в вырезе: в него печатают
+    /// и смотрят подолгу, а вырез фокуса не отбирает и прибит к кромке.
+    let onOpenTeleprompter: () -> Void
+    /// Раскрыть главную панель. Плитки в меню у этого больше нет — возврат
+    /// туда и так делается крестиком, — но нажатие по полоске отсчёта ведёт
+    /// именно сюда.
     let onOpenExpanded: () -> Void
     let onAskAssistant: () -> Void
 
     private var commands: [QuickCommand] { settings.quickCommands }
-
-    /// Ближайшие встречи, начинающиеся в одно время: обычно одна, но
-    /// на один слот в календаре нередко стоят две.
-    private var nextEvents: [CalendarItem] {
-        calendar.upcoming.startingTogether(limit: NotchMetrics.maxVisibleEvents)
-    }
 
     /// Плитки меню всех функций: состав задаёт `HubEntry`, здесь к нему
     /// добавляются только действия. Раньше состав жил здесь, а его длина —
@@ -156,42 +184,23 @@ struct NotchView: View {
 
     private func run(_ entry: HubEntry) {
         switch entry {
-        case .expanded: onOpenExpanded()
         case .commands: onOpenCommands()
         case .clipboard: onOpenClipboard()
         case .shelf: onOpenShelf()
         case .timer: onOpenTimer()
         case .monitor: onOpenMonitor()
+        case .teleprompter: onOpenTeleprompter()
         }
     }
 
-    private var snapshot: NotchSnapshot {
-        NotchInputs(
-            overlay: state.overlay,
-            swipe: state.swipe,
-            pendingSwipe: state.pendingSwipe,
-            swipeProgress: state.swipeProgress,
-            isHovered: state.isHovered,
-            isPinnedOpen: state.isPinnedOpen,
-            chip: state.chipItem,
-            timerChip: timer.chip,
-            activity: activities.current,
-            track: music.nowPlaying,
-            events: nextEvents,
-            taskCount: things.todayTitles.count,
-            meetingActions: meeting.availableActions.count,
-            clipboardRows: clipboard.entries.count,
-            assistantAnswer: assistant.answer,
-            assistantIsStreaming: assistant.isStreaming,
-            shelfCount: shelf.items.count,
-            hubCount: HubEntry.count
-        ).resolve()
-    }
+    private var content: NotchContent { snapshot().content }
+    private var presentation: NotchPresentation { snapshot().presentation }
 
-    private var content: NotchContent { snapshot.content }
-    private var presentation: NotchPresentation { snapshot.presentation }
+    private var size: CGSize { snapshot().size(metrics: metrics) }
 
-    private var size: CGSize { snapshot.size(metrics: metrics) }
+    /// Встречи берутся из снимка, а не из календаря напрямую: панель обязана
+    /// показывать ровно тот список, по которому посчитана её высота.
+    private var events: [CalendarItem] { content.events }
 
     private var isOpen: Bool { presentation != .collapsed }
 
@@ -205,7 +214,8 @@ struct NotchView: View {
             topRadius: isOpen ? NotchStyle.shoulderInset : 8,
             bottomRadius: {
                 switch presentation {
-                case .expanded, .commands, .clipboard, .assistant, .shelf, .hub, .timer, .monitor:
+                case .expanded, .commands, .clipboard, .assistant, .shelf, .hub, .timer,
+                     .monitor, .teleprompter:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
                 case .swiping: return 14
@@ -342,6 +352,12 @@ struct NotchView: View {
             )
         case .timer:
             TimerPanel(timer: timer, metrics: metrics, onClose: onCloseOverlay)
+        case .teleprompter:
+            TeleprompterPanel(
+                store: teleprompter,
+                metrics: metrics,
+                onClose: onCloseOverlay
+            )
         case .monitor:
             MonitorPanel(
                 monitor: monitor,
@@ -368,7 +384,7 @@ struct NotchView: View {
             if timer.isRunning {
                 TimerChipView(timer: timer, metrics: metrics, onOpen: onOpenTimer)
             } else if let chip = state.chipItem {
-                ChipView(item: chip, metrics: metrics)
+                ChipView(item: chip, metrics: metrics, onOpen: onOpenExpanded)
             }
         case .activity:
             if let activity = activities.current {
@@ -395,16 +411,16 @@ struct NotchView: View {
         case .preview:
             PreviewPanel(
                 track: music.nowPlaying,
-                event: nextEvents.first,
+                event: events.first,
                 metrics: metrics,
                 startDate: state.hoverStartedAt,
                 onTogglePlayback: { music.send(.togglePlayPause) }
             )
-            .frame(width: PreviewPanel.layout(track: music.nowPlaying, event: nextEvents.first, metrics: metrics).panelWidth)
+            .frame(width: PreviewPanel.layout(track: music.nowPlaying, event: events.first, metrics: metrics).panelWidth)
         case .expanded:
             ExpandedPanel(
                 music: music,
-                events: nextEvents,
+                events: events,
                 tasks: things.todayTitles,
                 metrics: metrics,
                 onOpenSettings: onOpenSettings,
@@ -441,7 +457,16 @@ private struct ExpandedPanel: View {
     let weather: WeatherService.Snapshot?
 
     var body: some View {
-        NotchPanel(metrics: metrics, width: metrics.expanded(extraHeight: 0).width) {
+        NotchPanel(
+            metrics: metrics,
+            width: metrics.expanded(extraHeight: 0).width,
+            // Поле отмеряется от чёрного тела, а не от рамки: подложки
+            // тянутся во всю ширину, и вогнутое плечо формы съедало у них
+            // три четверти бокового поля — сбоку оставалось четыре точки
+            // против двенадцати снизу, и подложка нижним углом почти
+            // упиралась в скругление панели.
+            bodyPadding: NotchStyle.bottomPadding
+        ) {
             // Погода уехала из правого угла в левое крыло, освободив правое
             // под настройки: в строке музыки шестерёнка отнимала ширину
             // у названия трека.
@@ -464,7 +489,7 @@ private struct ExpandedPanel: View {
         }
     }
 
-    /// Встреча и задачи — двумя подложками, а не одной с линией внутри.
+    /// Встречи и задачи — отдельными подложками, а не одной с линией внутри.
     ///
     /// Сначала их разделяли `Divider()`, потом волосяная линия внутри общей
     /// карточки — и то и другое читалось как полоса поперёк панели. Две
@@ -472,14 +497,16 @@ private struct ExpandedPanel: View {
     /// зазор между ними, а не проведённая черта.
     @ViewBuilder
     private var schedule: some View {
-        VStack(spacing: Self.cardGap) {
-            if !events.isEmpty {
-                // Одна подложка на все встречи этого времени: они про один
-                // и тот же слот, и по отдельным карточкам читались бы как
-                // несвязанные события в разные часы.
+        VStack(spacing: NotchStyle.cardGap) {
+            // Подложка на каждое время начала. Одновременные встречи лежат
+            // в общей: они про один и тот же слот, и по отдельным карточкам
+            // читались бы как несвязанные события в разные часы. А следующее
+            // время — уже другой слот, и общая подложка слепила бы «сейчас»
+            // и «потом» в один блок расписания.
+            ForEach(eventGroups, id: \.first?.id) { group in
                 card {
                     VStack(spacing: NotchStyle.rowSpacing) {
-                        ForEach(events) { event in
+                        ForEach(group) { event in
                             eventRow(event)
                         }
                     }
@@ -491,8 +518,12 @@ private struct ExpandedPanel: View {
         }
     }
 
-    /// Зазор между подложками — он же единственный разделитель.
-    static let cardGap: CGFloat = 6
+    /// Те же группы, по которым считается высота панели: расчёт один,
+    /// иначе нарисованное разойдётся с размером окна.
+    private var eventGroups: [[CalendarItem]] {
+        NotchContent(events: events).eventGroups
+    }
+
     /// Отступ содержимого от края подложки. Он же задаёт вертикаль, по которой
     /// выравнивается обложка трека.
     static let cardInset: CGFloat = 12
@@ -648,7 +679,8 @@ private struct ExpandedPanel: View {
                 }
                 // Высота задана, а не выведена из содержимого: расчёт размера
                 // панели опирается на неё, и «примерно столько» разъезжается
-                // с нарисованным на пустую полосу внизу.
+                // с нарисованным на пустую полосу внизу. Она же задаёт высоту
+                // всей строки — кнопки ссылки справа ниже и тянутся за ней.
                 .frame(height: NotchMetrics.eventRowHeight)
                 .contentShape(Rectangle())
             }
@@ -678,7 +710,6 @@ private struct ExpandedPanel: View {
                 .fixedSize()
             }
         }
-        .frame(height: NotchMetrics.eventRowHeight - 6)
     }
 
     private var artwork: some View {
