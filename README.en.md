@@ -55,6 +55,10 @@ changed in settings or right in the welcome window.
   chips when the weather changes or the charger is plugged in.
 - **Teleprompter.** Text right under the notch — where the camera is — with
   formatting and auto-scrolling. Read from mid-screen and you look past the lens.
+- **A cup of coffee.** A button next to the weather: while it is on, the screen
+  neither sleeps nor locks. The backdrop under the cup shows that it is on, and
+  Settings can put a limit on it — after half an hour, an hour, ninety minutes
+  or two hours it releases the screen by itself.
 
 The interface is in Russian, English and Chinese — by default it follows the
 system.

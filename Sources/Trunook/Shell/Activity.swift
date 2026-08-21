@@ -24,6 +24,8 @@ struct Activity: Identifiable, Equatable {
         case timer(text: String)
         /// Погода: текст и значок готовит служба, плашка их только рисует.
         case weather(text: String, symbol: String)
+        /// Экран перестали или снова стали гасить.
+        case caffeine(change: CaffeineChange)
         /// Данных не несёт намеренно: сведения о треке доезжают порциями,
         /// и снимок, сделанный в момент переключения, застывал бы с прежним
         /// исполнителем и без обложки. Плашка читает их живьём.
@@ -54,6 +56,9 @@ struct Activity: Identifiable, Equatable {
         // Вровень с копированием: плашка полки тоже отклик на действие руками.
         case .shelf: return 3
         case .lowBattery: return 3
+        // Вровень с копированием: это отклик на нажатие, и человек связывает
+        // плашку со своим действием.
+        case .caffeine: return 3
         // Ниже разряда: дождь через два часа подождёт, а батарея — нет.
         case .weather: return 2
         case .powerConnected, .powerDisconnected: return 2
@@ -84,6 +89,10 @@ struct Activity: Identifiable, Equatable {
         case .shelf: return .infinity
         case .lowBattery: return 4
         case .weather: return 4
+        // Столько же, сколько смене трека, и по той же причине: нажимают
+        // по чашке в раскрытой панели, а плашку видно только после того,
+        // как курсор ушёл, — ей нужно время пережить этот уход.
+        case .caffeine: return 4
         case .powerConnected, .powerDisconnected: return 2.5
         // Дольше остальных: длинному названию нужно время проехать.
         case .trackChanged: return 4
@@ -105,6 +114,19 @@ struct Activity: Identifiable, Equatable {
     }
 }
 
+/// Что случилось с удержанием экрана.
+///
+/// Отдельным типом, а не флагом «включено», потому что случаев три, а не два:
+/// истёкший срок — это не то же самое, что выключение рукой. Человек его
+/// не нажимал, и не сказать ему об этом значит оставить его гадать, почему
+/// экран вдруг снова гаснет.
+enum CaffeineChange: Equatable {
+    /// Включили. Минуты — заданный срок; ноль означает «без ограничения».
+    case on(minutes: Int)
+    case off
+    case expired
+}
+
 enum CommandState: Equatable {
     case running
     case done
@@ -120,6 +142,7 @@ extension Activity.Kind {
         case .shelf: return "полка"
         case .timer: return "таймер"
         case .weather: return "погода"
+        case .caffeine: return "бодрость"
         case .meeting: return "встреча"
         case .trackChanged: return "смена трека"
         case .powerConnected: return "зарядка подключена"

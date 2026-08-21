@@ -106,6 +106,9 @@ struct NotchView: View {
     @ObservedObject var monitor: MonitorService
     /// Телесуфлер: текст, оформление и автопрокрутка.
     @ObservedObject var teleprompter: TeleprompterStore
+    /// Держим ли экран от гашения. Наблюдается: подложка под чашкой —
+    /// единственное, чем это состояние показано.
+    @ObservedObject var wake: WakeGuard
     /// Настройки наблюдаются, а не передаются снимком: слоты команд правятся
     /// в окне настроек, и без наблюдения вырез показывал бы набор, каким тот
     /// был на момент запуска.
@@ -161,6 +164,8 @@ struct NotchView: View {
     /// именно сюда.
     let onOpenExpanded: () -> Void
     let onAskAssistant: () -> Void
+    /// Чашка кофе в левом крыле: не давать экрану гаснуть.
+    let onToggleAwake: () -> Void
 
     private var commands: [QuickCommand] { settings.quickCommands }
 
@@ -430,7 +435,9 @@ struct NotchView: View {
                 onOpenItem: onOpenItem,
                 onOpenHub: onOpenHub,
                 onAsk: settings.ollamaEnabled ? onAskAssistant : nil,
-                weather: settings.weatherEnabled ? weather.current : nil
+                weather: settings.weatherEnabled ? weather.current : nil,
+                isAwake: wake.isOn,
+                onToggleAwake: onToggleAwake
             )
             .frame(width: metrics.expanded(extraHeight: content.extraHeight).width, alignment: .leading)
         }
@@ -455,6 +462,9 @@ private struct ExpandedPanel: View {
     /// Погода живёт в полосе аппаратного выреза справа: там пусто, и панель
     /// от неё не растёт.
     let weather: WeatherService.Snapshot?
+    /// Экран удерживается от гашения.
+    let isAwake: Bool
+    let onToggleAwake: () -> Void
 
     var body: some View {
         NotchPanel(
@@ -470,9 +480,13 @@ private struct ExpandedPanel: View {
             // Погода уехала из правого угла в левое крыло, освободив правое
             // под настройки: в строке музыки шестерёнка отнимала ширину
             // у названия трека.
-            if let weather {
-                WeatherCorner(snapshot: weather, notchHeight: metrics.notchHeight)
+            HStack(spacing: 6) {
+                if let weather {
+                    WeatherCorner(snapshot: weather, notchHeight: metrics.notchHeight)
+                }
+                CaffeineButton(isOn: isAwake, action: onToggleAwake)
             }
+            .frame(height: metrics.notchHeight)
         } trailing: {
             HStack(spacing: 2) {
                 if let onAsk {

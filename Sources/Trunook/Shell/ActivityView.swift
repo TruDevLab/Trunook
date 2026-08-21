@@ -191,6 +191,8 @@ struct ActivityView: View {
             iconTile("timer")
         case let .weather(_, symbol):
             iconTile(symbol)
+        case .caffeine:
+            iconTile("cup.and.saucer.fill")
         case let .meeting(item, _):
             iconTile(item.symbol)
         case .trackChanged:
@@ -222,6 +224,17 @@ struct ActivityView: View {
             return tf("На полке файлов: %d", count)
         case let .weather(text, _):
             return text
+        case let .caffeine(change):
+            switch change {
+            case let .on(minutes):
+                return minutes > 0
+                    ? tf("Экран не гаснет %d мин", minutes)
+                    : t("Экран не будет гаснуть")
+            case .off:
+                return t("Экран снова гаснет как обычно")
+            case .expired:
+                return t("Время вышло — экран снова гаснет")
+            }
         case let .timer(text):
             return text
         case let .meeting(item, minutes):
@@ -249,6 +262,8 @@ struct ActivityView: View {
             return nil
         case .weather:
             return nil
+        case .caffeine:
+            return nil
         case .timer:
             return nil
         case let .meeting(item, _):
@@ -273,6 +288,7 @@ struct ActivityView: View {
         case .clipboard: return .cyan
         case .shelf: return .cyan
         case .weather: return .cyan
+        case .caffeine: return Palette.caffeine
         case .timer: return Palette.timer
         case let .meeting(item, _): return item.color
         case .powerConnected: return .green

@@ -445,3 +445,16 @@
 "Начать" = "Start";
 "Дальше" = "Next";
 "Знакомство с Trunook" = "Getting Started with Trunook";
+"Не давать экрану гаснуть и блокироваться" = "Keep the screen from sleeping and locking";
+"Экран не будет гаснуть" = "The screen will stay awake";
+"Экран не гаснет — нажмите, чтобы вернуть как было" = "The screen stays awake — click to let it sleep again";
+"Экран снова гаснет как обычно" = "The screen sleeps as usual again";
+"Без ограничения" = "No limit";
+"Время вышло — экран снова гаснет" = "Time is up — the screen sleeps again";
+"Когда срок выходит, вырез сообщает об этом плашкой: экран, вдруг погасший сам, иначе выглядел бы поломкой." = "When the time runs out the notch says so with a chip: a screen that suddenly sleeps on its own would otherwise look like a fault.";
+"Отключать через" = "Turn off after";
+"Срок считается от включения. Поменяли его при горящей чашке — новый подхватится со следующего включения, а нынешнее доработает по прежнему." = "The countdown starts when you switch it on. Change it while the cup is lit and the new value applies from the next time — the current run finishes on the old one.";
+"Удержание не переживает перезапуск приложения — после него экран снова гаснет как обычно." = "Keeping the screen awake does not survive an app restart — afterwards the screen sleeps as usual again.";
+"Чашка кофе" = "Cup of coffee";
+"Чашка рядом с погодой в раскрытой панели: пока она включена, экран не гаснет и не блокируется. Подложка под чашкой показывает, что удержание работает." = "The cup next to the weather in the expanded panel: while it is on, the screen neither sleeps nor locks. The backdrop under the cup shows it is working.";
+"Экран не гаснет %d мин" = "The screen stays awake for %d min";

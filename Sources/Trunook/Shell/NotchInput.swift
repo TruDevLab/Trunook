@@ -37,6 +37,9 @@ final class NotchInput {
     var onOverlayHover: ((CGPoint) -> Void)?
     /// Нажатие мимо накладки или Esc.
     var onDismissOverlay: (() -> Void)?
+    /// Курсор сдвинулся — куда угодно, не только в вырез. По этому событию
+    /// пересчитывается прозрачность окна для мыши.
+    var onCursorMoved: (() -> Void)?
     /// Тик опроса: то, что нужно пересчитывать по времени, а не по событию.
     var onTick: (() -> Void)?
     /// Что-то тащат мышью. По этому признаку оживает зона приёма файлов:
@@ -161,6 +164,10 @@ final class NotchInput {
     }
 
     private func handleMouse(at location: CGPoint) {
+        // До всех проверок и раньше любого раннего возврата: окно оживает
+        // и гаснет по положению курсора, и пропустить движение нельзя
+        // ни в одной из веток ниже.
+        onCursorMoved?()
         guard Date() >= holdUntil else { return }
         if state.overlay != nil {
             onOverlayHover?(location)

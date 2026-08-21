@@ -206,6 +206,21 @@ struct SettingsView: View {
                     hint(t("Окно с жестами, сочетаниями клавиш и доступами. Само оно показывается только при первом запуске."))
                 }
 
+                section(t("Чашка кофе"), icon: "cup.and.saucer") {
+                    Picker(t("Отключать через"), selection: settings.binding(\.caffeineLimitMinutes)) {
+                        ForEach(Settings.caffeineLimits, id: \.self) { minutes in
+                            Text(minutes > 0 ? tf("%d мин", minutes) : t("Без ограничения"))
+                                .tag(minutes)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 300, alignment: .leading)
+                    hint(t("Чашка рядом с погодой в раскрытой панели: пока она включена, экран не гаснет и не блокируется. Подложка под чашкой показывает, что удержание работает."))
+                    hint(t("Срок считается от включения. Поменяли его при горящей чашке — новый подхватится со следующего включения, а нынешнее доработает по прежнему."))
+                    hint(t("Когда срок выходит, вырез сообщает об этом плашкой: экран, вдруг погасший сам, иначе выглядел бы поломкой."))
+                    hint(t("Удержание не переживает перезапуск приложения — после него экран снова гаснет как обычно."))
+                }
+
                 section(t("Музыка"), icon: "music.note") {
                     Toggle(t("Управление музыкой"), isOn: settings.binding(\.musicEnabled))
                     Toggle(t("Показывать смену трека"), isOn: settings.binding(\.showTrackChanges))

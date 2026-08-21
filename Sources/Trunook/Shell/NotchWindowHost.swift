@@ -19,6 +19,7 @@ final class NotchWindowHost {
     /// Нажатие правой кнопкой по вырезу.
     var onRightClick: (() -> Void)?
 
+
     /// Геометрия пересобрана: зона приёма файлов считается от неё.
     var onRebuild: ((NotchGeometry, NotchMetrics) -> Void)?
 
@@ -43,6 +44,16 @@ final class NotchWindowHost {
             window.ignoresMouseEvents = newValue
             DebugLog.write("окно \(newValue ? "прозрачно для мыши" : "ловит мышь")")
         }
+    }
+
+    /// Курсор внутри нарисованного прямо сейчас.
+    ///
+    /// По нему решается, ловит ли окно мышь: непрозрачное окно съедает
+    /// нажатия во всей рамке, и держать его таким, пока курсор далеко,
+    /// значит выключить кусок экрана.
+    var visibleRectContainsCursor: Bool {
+        guard let size = currentContentSize, size != .zero else { return false }
+        return topAlignedRect(size: size).contains(NSEvent.mouseLocation)
     }
 
     /// Нынешний размер видимой формы. Нужен не только зоне нажатий:

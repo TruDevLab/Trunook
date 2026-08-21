@@ -51,6 +51,14 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
         onRightClick?()
     }
 
+    /// Мимо нарисованного — `nil`, и переопределять `mouseDown` ради таких
+    /// нажатий **нельзя**.
+    ///
+    /// Пробовали: SwiftUI внутри `NSHostingView` не заводит отдельных видов
+    /// AppKit — он рисует и проверяет попадания сам, — поэтому `super.hitTest`
+    /// возвращает саму подложку для любой точки внутри неё, а нажатия
+    /// по кнопкам приходят в тот же `mouseDown`. Обработчик, забиравший их
+    /// себе, съедал все нажатия в чёлке разом: ни одна кнопка не работала.
     override func hitTest(_ point: NSPoint) -> NSView? {
         // Точка приходит в координатах надпредставления.
         let local = superview.map { convert(point, from: $0) } ?? point

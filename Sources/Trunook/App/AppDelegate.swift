@@ -55,6 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.teleprompter", #selector(showTeleprompter)),
             ("com.trunook.debug.teleprompterScroll", #selector(scrollTeleprompter)),
             ("com.trunook.debug.teleprompterPrompt", #selector(promptTeleprompter)),
+            ("com.trunook.debug.caffeine", #selector(toggleCaffeine)),
+            ("com.trunook.debug.caffeineExpire", #selector(expireCaffeine)),
             ("com.trunook.debug.timerRun", #selector(runTimer)),
             ("com.trunook.debug.hub", #selector(showHub)),
             ("com.trunook.debug.openEvent", #selector(openFirstItem)),
@@ -339,6 +341,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func promptTeleprompter() {
         controller.debugCycleTeleprompterPrompt()
+    }
+
+    @objc private func toggleCaffeine() {
+        controller.debugToggleAwake()
+    }
+
+    @objc private func expireCaffeine() {
+        controller.debugExpireAwake()
     }
 
 

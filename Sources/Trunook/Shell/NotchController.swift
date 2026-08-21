@@ -26,6 +26,8 @@ final class NotchController {
     /// Текст телесуфлера. У контроллера, а не у окна: телесуфлер живёт
     /// накладкой в вырезе — у самой камеры, — и своего окна у него нет.
     let teleprompter = TeleprompterStore()
+    /// Удержание экрана от гашения — чашка кофе в раскрытой панели.
+    let wake: WakeGuard
 
     private let alerts = EventAlertScheduler()
     /// Отдельное окно приёма файлов: сам вырез принимать их не может,
@@ -67,6 +69,7 @@ final class NotchController {
 
     init(settings: Settings = .shared) {
         self.settings = settings
+        wake = WakeGuard(settings: settings)
         router = OverlayRouter(state: state, host: host)
         input = NotchInput(state: state, settings: settings, host: host)
         purr = PurrEffects(state: state)
@@ -94,6 +97,10 @@ final class NotchController {
         swipeResetTimer = nil
         purr.shutdown()
         chime.shutdown()
+        // Экран отпускаем явно: система сделала бы это и сама вместе
+        // с процессом, но полагаться на это, когда выключение штатное,
+        // незачем.
+        wake.disable()
         HotKeyCenter.shared.stop()
         battery.stop()
         music.stop()
@@ -125,6 +132,7 @@ final class NotchController {
             self?.rebuildShelfDrop(geometry: geometry, metrics: metrics)
         }
         router.onChange = { [weak self] overlay in self?.applyOverlay(overlay) }
+        router.onCursorExit = { [weak self] in self?.collapseAfterOverlay() }
     }
 
     private func installInput() {
@@ -134,6 +142,10 @@ final class NotchController {
         input.onSwipe = { [weak self] direction in self?.performSwipe(direction) }
         input.onOverlayHover = { [weak self] location in self?.router.updateHover(at: location) }
         input.onDismissOverlay = { [weak self] in self?.router.dismiss() }
+        // Прозрачность окна пересчитывается на каждом движении курсора,
+        // а не только в тике опроса: между тиками десятая доля секунды,
+        // и быстрый бросок к полоске с нажатием в неё не уложился бы.
+        input.onCursorMoved = { [weak self] in self?.updateWindowInteractivity() }
         // Зона приёма файлов оживает только пока что-то тащат: в покое она
         // прозрачна для мыши и не ест нажатия по тому, что под чёлкой.
         input.onDragChanged = { [weak self] dragging in self?.shelfDrop.isArmed = dragging }
@@ -226,6 +238,13 @@ final class NotchController {
                 text: phase == .rest ? t("Перерыв окончен") : t("Время вышло")
             ))
             self.updateWindowInteractivity()
+        }
+
+        // Срок удержания экрана вышел — говорим об этом плашкой. Молча
+        // отпустить экран значило бы оставить человека гадать, почему тот
+        // вдруг снова гаснет.
+        wake.onExpired = { [weak self] in
+            self?.activities.present(.caffeine(change: .expired))
         }
 
         weather.onAlert = { [weak self] text, symbol in
@@ -448,21 +467,32 @@ final class NotchController {
         host.updateInteractiveRect()
     }
 
-    /// Окно ловит мышь, только когда на экране есть во что попадать.
+    /// Окно ловит мышь, только когда на экране есть во что попадать —
+    /// **и только пока курсор над этим находится**.
     ///
-    /// Плашка копирования тоже считается: по ней нажимают, чтобы открыть
-    /// историю, а прозрачное для нажатий окно этого не позволило бы.
+    /// Вторая половина правила куплена дорого. Окно, не прозрачное для мыши,
+    /// съедает нажатия **во всей своей рамке**, а не только там, где что-то
+    /// нарисовано: проверка попаданий в `NotchHostingView` решает лишь, какой
+    /// вид внутри получит событие, но наружу, в чужое приложение, его уже
+    /// не пустит. Рамка же размером с самую большую панель — 560×388.
+    ///
+    /// Пока условие было «есть отсчёт до встречи», окно становилось
+    /// непрозрачным за полчаса до каждой встречи и оставалось таким всё это
+    /// время: прямоугольник 560×388 под чёлкой переставал реагировать
+    /// на нажатия целиком. Ровно та же беда, что была у полосы приёма файлов,
+    /// и лечится она тем же — не геометрией, а временем.
+    ///
+    /// Накладка — исключение: она живёт минуты, а не полчаса, и нажатие мимо
+    /// её закрывает, то есть съеденный клик там не пропадает зря.
     private func updateWindowInteractivity() {
-        host.ignoresMouseEvents = state.overlay == nil
-            && !state.isHovered
-            && activities.current?.isInteractive != true
-            // По полоске идущего таймера нажимают, чтобы открыть его панель.
-            // Прозрачное для нажатий окно этого не позволило бы.
-            && timerChip == nil
-            // То же и с отсчётом до встречи: по нему нажимают, чтобы узнать,
-            // что за встреча. Наведением тут не обойтись — крылья полоски
-            // уходят далеко за края чёлки, а наведение считается по ней.
-            && state.chipItem == nil
+        // Нарисованное берётся из того же снимка, что и зона нажатий:
+        // разойтись им нельзя. Само правило — в `NotchMouseCatch`, оттуда же
+        // его проверяет тест.
+        host.ignoresMouseEvents = !NotchMouseCatch.catchesMouse(
+            hasSomethingDrawn: notchSnapshot.presentation != .collapsed,
+            cursorOverVisibleRect: host.visibleRectContainsCursor,
+            isDraggingOut: state.isDraggingOut
+        )
     }
 
     /// Полоска идущего таймера — или её отсутствие. Спрашивают и расчёт
@@ -546,6 +576,25 @@ final class NotchController {
         DebugLog.write("панель раскрыта полностью")
         Haptics.tap(.levelChange)
         host.updateInteractiveRect()
+    }
+
+    /// Накладку убрал ушедший курсор — сворачиваем вырез целиком.
+    ///
+    /// Без этого из-под закрывшейся накладки выныривало то, что было под ней:
+    /// человек открывал «Всё сразу», из него нагрузку или команды, уводил
+    /// курсор — и вместо того чтобы свернуться, вырез показывал главную
+    /// панель. Держалась она потом до тех пор, пока курсор не покинет **всю
+    /// рамку окна** 560×388, то есть несколько секунд.
+    ///
+    /// Причина в том, что фиксация раскрытия и накладка живут по разным
+    /// правилам: накладка закрывается по уходу из своего прямоугольника,
+    /// а фиксация снимается по уходу из рамки окна. Правило же должно быть
+    /// одно: ушёл от накладки — ушёл от выреза. Прямоугольник накладки всегда
+    /// накрывает саму чёлку, так что выйти из него, оставшись на вырезе,
+    /// нельзя.
+    private func collapseAfterOverlay() {
+        state.isPinnedOpen = false
+        if state.isHovered { setHovered(false) }
     }
 
     /// Свернуть раскрытую панель обратно в мини-вид, не уводя курсор.
@@ -840,6 +889,18 @@ final class NotchController {
         router.toggle(.hub)
     }
 
+    /// Чашка кофе: экран перестаёт гаснуть — или снова начинает.
+    ///
+    /// Плашку показываем в обе стороны. Включение без подтверждения выглядит
+    /// как непонятно сработавшая кнопка, а выключение без него — как будто
+    /// оно не сработало вовсе: подложка под чашкой пропадает, но панель
+    /// к этому моменту уже закрыта, и увидеть это не в чем.
+    private func toggleAwake() {
+        let isOn = wake.toggle()
+        Haptics.tap(.levelChange)
+        activities.present(.caffeine(change: isOn ? .on(minutes: wake.limitMinutes) : .off))
+    }
+
     /// Телесуфлер. Клавишей — переключателем, как и остальные накладки.
     ///
     /// Фокус забирается сразу и явно: в телесуфлер печатают, а вырез по
@@ -922,6 +983,7 @@ final class NotchController {
             timer: timer,
             monitor: monitor,
             teleprompter: teleprompter,
+            wake: wake,
             settings: settings,
             metrics: metrics,
             // Замыканием, а не значением: вид строится один раз, а состояние
@@ -966,7 +1028,8 @@ final class NotchController {
             onOpenHub: { [weak self] in self?.openHub() },
             onOpenTeleprompter: { [weak self] in self?.openTeleprompter() },
             onOpenExpanded: { [weak self] in self?.openExpanded() },
-            onAskAssistant: { [weak self] in self?.askAssistant() }
+            onAskAssistant: { [weak self] in self?.askAssistant() },
+            onToggleAwake: { [weak self] in self?.toggleAwake() }
         )
     }
 
@@ -1017,6 +1080,12 @@ final class NotchController {
         }
         openItem(item)
     }
+
+    /// Отладочный вход: нажать по чашке в панели из сессии нечем.
+    func debugToggleAwake() { toggleAwake() }
+
+    /// Отладочный вход: дождаться конца получасового срока в сессии нельзя.
+    func debugExpireAwake() { wake.debugExpireNow() }
 
     /// Отладочные входы: сочетание из скрипта не нажать, а кнопку «Пуск»
     /// в панели — тем более.
