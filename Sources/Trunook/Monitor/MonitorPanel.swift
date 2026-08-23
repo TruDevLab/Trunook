@@ -10,12 +10,12 @@ struct MonitorPanel: View {
     let onOpenActivityMonitor: () -> Void
     let onClose: () -> Void
 
-    static let width: CGFloat = 440
+    static var width: CGFloat { NotchStyle.scaled(440) }
     /// Поле от чёрного тела панели: плитки тянутся во всю ширину, и вогнутое
     /// плечо формы приходится считать явно. См. `NotchStyle.shoulderInset`.
     static let bodyPadding: CGFloat = NotchStyle.bottomPadding
 
-    private static let tileHeight: CGFloat = 84
+    private static var tileHeight: CGFloat { NotchStyle.scaled(84) }
     private static let barHeight: CGFloat = 4
 
     static func height(notchHeight: CGFloat) -> CGFloat {
@@ -28,7 +28,7 @@ struct MonitorPanel: View {
                             title: t("Нагрузка"),
                             tint: Palette.monitor)
         } trailing: {
-            NotchPanelButton(symbol: "xmark", action: onClose)
+            NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
         } content: {
             HStack(spacing: NotchStyle.gridSpacing) {
                 tile(
@@ -82,7 +82,7 @@ struct MonitorPanel: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 4) {
                         Image(systemName: symbol)
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: NotchStyle.font(10), weight: .semibold))
                             .foregroundStyle(Palette.monitor.opacity(0.9))
                         Text(name)
                             .font(.system(size: NotchStyle.captionFontSize, weight: .medium))
@@ -91,7 +91,7 @@ struct MonitorPanel: View {
                     }
 
                     Text(share.map(MonitorService.percent) ?? "—")
-                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .font(.system(size: NotchStyle.font(22), weight: .semibold, design: .rounded))
                         // Моноширинные цифры: пропорциональные дёргают строку
                         // на каждом пересчёте, а он идёт дважды в секунду.
                         .monospacedDigit()

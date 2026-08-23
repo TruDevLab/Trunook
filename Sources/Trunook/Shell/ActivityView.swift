@@ -84,7 +84,10 @@ struct ActivityView: View {
     }
 
     /// Ширина крестика вместе с отступом от значения.
-    static let dismissButtonWidth: CGFloat = 26
+    /// Место под крестик в раскладке плашки. Считается от самой кнопки:
+    /// выписанное числом, оно разошлось бы с ней при первой же правке
+    /// размера — а разойдясь, обрезало бы крестик.
+    static let dismissButtonWidth: CGFloat = NotchPanelButton.size + 2
 
     /// У каких плашек есть крестик. Он нужен там, где плашка не уходит сама.
     static func isDismissable(_ kind: Activity.Kind) -> Bool {
@@ -116,12 +119,19 @@ struct ActivityView: View {
             if Self.isDismissable(activity.kind) {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .frame(width: 18, height: 18)
+                        .font(.system(size: NotchStyle.font(10), weight: .bold))
+                        // Ступенью: тот же крестик в шапках панелей берёт
+                        // её же, а разная плотность у одного и того же
+                        // значка читалась как небрежность.
+                        .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
+                        // Столько же, сколько у крестика в шапках панелей:
+                        // одна и та же кнопка, и попадать в неё должно быть
+                        // одинаково легко.
+                        .frame(width: NotchPanelButton.size, height: NotchPanelButton.size)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PressableStyle())
+                .notchHint(t("Закрыть"))
                 .fixedSize()
             }
         }
@@ -277,23 +287,36 @@ struct ActivityView: View {
         }
     }
 
+    /// Цвет значка в плашке.
+    ///
+    /// Весь до единого — из `Palette`. Раньше половина шла оттуда, а половина
+    /// системными `.green`, `.cyan`, `.orange`, и это ломалось дважды.
+    ///
+    /// По смыслу: `Palette.shelf` — янтарный, а плашка полки брала `.cyan`.
+    /// Одно и то же событие было оранжевым в панели и голубым в плашке
+    /// под чёлкой, то есть цвет переставал что-либо значить ровно там, где
+    /// он единственное, чем событие и опознаётся.
+    ///
+    /// По оттенку: системные цвета рассчитаны на оба режима и на чёрном теле
+    /// заметно тусклее собственных. Рядом в этом же `switch` стояли обе пары,
+    /// и разницу было видно, не выходя из файла.
     private var tint: Color {
         switch activity.kind {
         case let .command(_, state):
             switch state {
-            case .running: return .white
-            case .done: return .green
-            case .failed: return .orange
+            case .running: return Palette.panel
+            case .done: return Palette.positive
+            case .failed: return Palette.warning
             }
-        case .clipboard: return .cyan
-        case .shelf: return .cyan
-        case .weather: return .cyan
+        case .clipboard: return Palette.clipboard
+        case .shelf: return Palette.shelf
+        case .weather: return Palette.weather
         case .caffeine: return Palette.caffeine
         case .timer: return Palette.timer
         case let .meeting(item, _): return item.color
-        case .powerConnected: return .green
-        case .lowBattery: return .orange
-        case .powerDisconnected, .trackChanged: return .white
+        case .powerConnected: return Palette.positive
+        case .lowBattery: return Palette.warning
+        case .powerDisconnected, .trackChanged: return Palette.panel
         }
     }
 
@@ -302,7 +325,7 @@ struct ActivityView: View {
             .fill(.white.opacity(0.12))
             .overlay(
                 Image(systemName: symbol)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: NotchStyle.font(12), weight: .medium))
                     .foregroundStyle(tint)
             )
     }

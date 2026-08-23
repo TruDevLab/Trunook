@@ -47,7 +47,11 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
 
         let window = NSWindow(
             contentRect: CGRect(origin: .zero, size: WelcomeView.size),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            // `.resizable` — с тех пор, как окно растёт вместе с текстом.
+            // На двухстах процентах оно упирается в кромку экрана, и
+            // прижатое к ней содержимое нужно чем-то доставать: тянуть
+            // окно мышью человек умеет и без подсказки.
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -68,7 +72,11 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         let hosting = NSHostingView(rootView: view)
         hosting.sizingOptions = []
         window.contentView = hosting
-        window.setContentSize(WelcomeView.size)
+        // Размер считается от масштаба текста, поэтому упереться в экран он
+        // может ещё до открытия. Обрезать окно кромкой всё равно придётся —
+        // но обрезанное по видимой области оно останется целым окном
+        // с полосой заголовка, а не уедет под неё половиной.
+        window.setContentSize(Self.fitted(WelcomeView.size))
         window.isReleasedWhenClosed = false
         window.delegate = self
 
@@ -107,6 +115,17 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
 
     /// То же, что у окна настроек: новое окно создаётся в начале координат,
     /// и `center()` увёл бы его не на тот экран.
+    /// Размер, ужатый до видимой области того экрана, где сейчас курсор.
+    private static func fitted(_ size: CGSize) -> CGSize {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return size }
+        return CGSize(
+            width: min(size.width, visible.width),
+            height: min(size.height, visible.height)
+        )
+    }
+
     private func centerOnActiveScreen(_ window: NSWindow) {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main

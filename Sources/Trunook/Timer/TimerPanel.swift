@@ -6,7 +6,7 @@ struct TimerPanel: View {
     let metrics: NotchMetrics
     let onClose: () -> Void
 
-    static let width: CGFloat = 440
+    static var width: CGFloat { NotchStyle.scaled(440) }
     /// Поле от чёрного тела панели, а не от рамки. Ряды кнопок здесь тянутся
     /// во всю ширину, поэтому вогнутое плечо формы приходится считать явно —
     /// иначе слева и справа остаётся вчетверо меньше, чем снизу.
@@ -16,9 +16,9 @@ struct TimerPanel: View {
     /// Высота одна на оба режима. Секундомеру ряд готовых длительностей
     /// не нужен, но его место остаётся занятым подсказкой: панель, меняющая
     /// рост при переключении режима, дёргала бы вырез на ровном месте.
-    private static let modeHeight: CGFloat = 24
+    private static var modeHeight: CGFloat { NotchStyle.scaled(24) }
     private static let clockHeight: CGFloat = 46
-    private static let rowHeight: CGFloat = 28
+    private static var rowHeight: CGFloat { NotchStyle.scaled(28) }
 
     static func height(notchHeight: CGFloat) -> CGFloat {
         NotchStyle.height(
@@ -36,7 +36,7 @@ struct TimerPanel: View {
                 tint: Palette.timer
             )
         } trailing: {
-            NotchPanelButton(symbol: "xmark", action: onClose)
+            NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
         } content: {
             VStack(spacing: NotchStyle.gridSpacing) {
                 modeSwitch
@@ -59,21 +59,29 @@ struct TimerPanel: View {
     private var modeSwitch: some View {
         HStack(spacing: 4) {
             ForEach(TimerService.Mode.allCases) { mode in
+                let isChosen = timer.mode == mode
                 Button { timer.select(mode: mode) } label: {
                     Text(mode.title)
                         .font(.system(size: NotchStyle.rowFontSize, weight: .medium))
-                        .foregroundStyle(.white.opacity(
-                            timer.mode == mode ? NotchStyle.primaryOpacity : NotchStyle.secondaryOpacity
-                        ))
+                        // Выбранный — цветом таймера, а не просто ярче.
+                        // Подложки в 0.08 против 0.02 отличаются на 1.12:1,
+                        // то есть ничем; яркость текста разницу держит, но
+                        // одной её мало, когда рядом стоят два одинаковых
+                        // слова. Цвет добавляет второй признак, не заменяя
+                        // первый: невыбранный остаётся и тусклее.
+                        .foregroundStyle(isChosen
+                            ? Palette.timer
+                            : .white.opacity(NotchStyle.secondaryOpacity))
                         .frame(maxWidth: .infinity)
                         .frame(height: Self.modeHeight)
                         .background(
                             RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
-                                .fill(.white.opacity(timer.mode == mode ? NotchStyle.tileFill : 0.02))
+                                .fill(.white.opacity(isChosen ? NotchStyle.tileFill : 0.02))
                         )
                         .contentShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
                 }
                 .buttonStyle(PressableStyle())
+                .accessibilityAddTraits(isChosen ? [.isSelected] : [])
             }
         }
         .frame(height: Self.modeHeight)
@@ -92,7 +100,7 @@ struct TimerPanel: View {
                 Text(TimerService.clock(timer.mode == .timer ? timer.remaining : timer.elapsed))
                     // Моноширинные цифры: пропорциональные дёргают строку
                     // на каждой смене секунды.
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
+                    .font(.system(size: NotchStyle.font(34), weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.white)
                     .contentTransition(.identity)
@@ -118,9 +126,9 @@ struct TimerPanel: View {
                     Button { timer.select(minutes: minutes) } label: {
                         Text(tf("%d мин", minutes))
                             .font(.system(size: NotchStyle.captionFontSize, weight: .medium))
-                            .foregroundStyle(.white.opacity(
-                                isChosen(minutes) ? NotchStyle.primaryOpacity : NotchStyle.secondaryOpacity
-                            ))
+                            .foregroundStyle(isChosen(minutes)
+                                ? Palette.timer
+                                : .white.opacity(NotchStyle.secondaryOpacity))
                             .frame(maxWidth: .infinity)
                             .frame(height: Self.rowHeight)
                             .background(
@@ -130,6 +138,7 @@ struct TimerPanel: View {
                             .contentShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
                     }
                     .buttonStyle(PressableStyle())
+                    .accessibilityAddTraits(isChosen(minutes) ? [.isSelected] : [])
                 }
             }
             .frame(height: Self.rowHeight)
@@ -177,7 +186,7 @@ struct TimerPanel: View {
     ) -> some View {
         Button(action: run) {
             Label(title, systemImage: symbol)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: NotchStyle.font(11), weight: .medium))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 6)

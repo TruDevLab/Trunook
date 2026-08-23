@@ -76,83 +76,122 @@ struct SettingsView: View {
     /// Поиск города. Живёт снаружи, а не в теле вида: `@State` в этом SDK
     /// недоступен, а полю ввода и списку найденного где-то держаться надо.
     @ObservedObject var placeSearch: WeatherPlaceSearch
+    /// «Уменьшить прозрачность»: из неё считаются плотности `SettingsStyle`.
+    /// Наблюдается здесь, в корне окна, — оттуда перерисовка расходится
+    /// по всем разделам.
+    @ObservedObject private var motion = MotionPreference.shared
     /// Сочетания заданы пользователем, поэтому после правки их надо
     /// перерегистрировать в системе.
     let onHotKeysChanged: () -> Void
+    /// Размеры панелей поменялись — окну выреза нужно пересчитать себя.
+    ///
+    /// Своим вызовом, а не наблюдением за настройками: окно строится один раз,
+    /// и высота с шириной берутся из расчёта в тот момент. Без оповещения
+    /// панель, выросшая вместе с текстом, обрезалась бы окном прежнего
+    /// размера — молча, как и всё, что окно обрезает.
+    let onLayoutChanged: () -> Void
     /// Окно знакомства открывается заново из настроек: оно показывается само
     /// только при первом запуске, а вернуться к нему хотят и позже —
     /// перечитать про жесты или переспросить доступы.
     let onOpenWelcome: () -> Void
 
-    static let sidebarWidth: CGFloat = 210
-    static let size = CGSize(width: sidebarWidth + 460, height: 640)
+    static var sidebarWidth: CGFloat { SettingsStyle.sidebarWidth }
+    static var size: CGSize { SettingsStyle.windowSize }
 
+    /// Окно устроено как «Системные настройки»: список разделов слева,
+    /// содержимое справа.
+    ///
+    /// Раскладка своя, а не `NavigationSplitView`, и это не возврат к прежнему
+    /// столбику кнопок. Список слева остался настоящим `List` с выбором —
+    /// со всем, что к нему прилагается: ходом стрелками, выделением
+    /// системного вида, признаком выбранного для диктора.
+    ///
+    /// `NavigationSplitView` пришлось снять из-за фона. Он подкладывает
+    /// под полосу разделов `NSVisualEffectView` с материалом полосы, и тот
+    /// закрашивает всё, что подложено средствами SwiftUI: слева окно упиралось
+    /// в ровный серый прямоугольник, справа светилось. Погасить его не вышло
+    /// ни через `scrollContentBackground`, ни обходом дерева окна — SwiftUI
+    /// восстанавливает материал сам.
+    ///
+    /// Потеряна при этом одна вещь: перетаскиваемая граница между колонками.
+    /// Полоса разделов и так была прибита к одной ширине.
+    ///
+    /// `NavigationSplitView` вместо `HStack` с прочерченной вручную линией —
+    /// и разница не в одной линии. Родная раскладка приносит с собой всё,
+    /// что к ней прилагается: полупрозрачную полосу разделов с подложкой
+    /// окна, ход по списку стрелками, выделение системного вида,
+    /// перетаскиваемую границу. Самодельная не приносила ничего из этого,
+    /// и каждую мелочь пришлось бы дописывать по одной.
+    ///
+    /// Тёмное оформление задано окну целиком в `SettingsWindowController`,
+    /// поэтому `preferredColorScheme` здесь больше нет: два места, где
+    /// назначается тема, рано или поздно разойдутся.
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-            Rectangle()
-                .fill(SettingsStyle.stroke)
-                .frame(width: 1)
+            Divider()
             detail
         }
         .frame(width: Self.size.width, height: Self.size.height)
-        .background(SettingsStyle.background)
-        // Тёмная тема принудительно: вырез и знакомство тёмные всегда,
-        // и окно настроек, открытое из чёрной панели, не должно вспыхивать
-        // белым.
-        .preferredColorScheme(.dark)
-        .tint(Palette.cyan)
+        .tint(SettingsStyle.accent)
+        // Тот же фон, что в окне знакомства, и по той же причине: оба окна
+        // рассказывают про вырез, а вырез чёрный и живёт на обоях. Ровная
+        // серая подложка читается как чужое приложение, открытое рядом.
+        //
+        // Фон подложен под всё окно, а полосе разделов и форме их собственные
+        // подложки сняты, — иначе он был бы виден только по краям. Карточки
+        // разделов свои подложки сохраняют: сквозь них читать нельзя,
+        // а лежат они поверх плывущих пятен.
+        .background(AuroraBackground(intensity: 0.4))
     }
 
+    /// Полоса разделов.
+    ///
+    /// `List` с выбором, а не столбик кнопок: раньше каждая строка была
+    /// `Button`, и всё, что список умеет сам, приходилось изображать —
+    /// подложку выбранного, метку слева, признак для диктора. Ход по списку
+    /// стрелками не изображался вовсе: кнопки не образуют списка, между ними
+    /// нечем ходить.
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(SettingsSelection.Tab.allCases) { tab in
-                sidebarRow(tab)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 14)
-        .frame(width: Self.sidebarWidth, alignment: .leading)
-        .background(SettingsStyle.sidebar)
-    }
-
-    private func sidebarRow(_ tab: SettingsSelection.Tab) -> some View {
-        let isSelected = selection.tab == tab
-        return Button {
-            selection.tab = tab
-        } label: {
-            HStack(spacing: 10) {
-                RoundedRectangle(cornerRadius: 6)
+        List(SettingsSelection.Tab.allCases, selection: $selection.tab) { tab in
+            // `HStack` со своим зазором, а не `Label`: у того зазор системный
+            // и по настройке не растёт. На ста пятидесяти процентах плитка
+            // со значком выросла, зазор остался прежним, и название раздела
+            // упёрлось в значок — тот же промах, что и с самой плиткой,
+            // только на шаг дальше.
+            HStack(spacing: SettingsStyle.scaled(8)) {
+                // Значок в цветной плитке — тот же приём, что у Apple
+                // в «Системных настройках»: раздел узнаётся боковым зрением
+                // по цвету быстрее, чем по названию.
+                RoundedRectangle(cornerRadius: SettingsStyle.glyphRadius, style: .continuous)
                     .fill(tab.tint)
-                    .frame(width: 22, height: 22)
+                    .frame(width: SettingsStyle.glyphSide, height: SettingsStyle.glyphSide)
                     .overlay(
                         Image(systemName: tab.icon)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .font(.system(size: SettingsStyle.font(10), weight: .semibold))
+                            .foregroundStyle(.black.opacity(0.85))
                     )
                 Text(tab.title)
-                    .font(.system(size: 13, weight: isSelected ? .medium : .regular))
-                    .foregroundStyle(isSelected ? SettingsStyle.title : SettingsStyle.secondary)
-                Spacer(minLength: 0)
+                    .font(.system(size: SettingsStyle.font(13)))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            // Выбранный раздел — светлой подложкой, а не заливкой акцентом:
-            // цвет уже занят значком, и два цвета в одной строке спорят.
-            .background(
-                RoundedRectangle(cornerRadius: SettingsStyle.rowRadius, style: .continuous)
-                    .fill(isSelected ? SettingsStyle.selection : .clear)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: SettingsStyle.rowRadius))
+            .tag(tab)
         }
-        .buttonStyle(.plain)
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .frame(width: Self.sidebarWidth)
     }
 
+    /// Содержимое раздела.
+    ///
+    /// `Form` со сгруппированным стилем — то же, из чего собраны «Системные
+    /// настройки» начиная с Ventura. Он сам даёт карточке подложку, поля,
+    /// скругление и разделители между строками; раньше всё это рисовалось
+    /// здесь вручную и совпасть с системой не могло — только отставать от неё
+    /// на очередном обновлении.
     @ViewBuilder
     private var detail: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+        Form {
+            Group {
                 switch selection.tab {
                 case .timer: timerSection
                 case .monitor: monitorSection
@@ -167,10 +206,24 @@ struct SettingsView: View {
                 case .info: infoSection
                 }
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Подпись варианта в списке сроков плашек.
+    ///
+    /// Словами, а не «в N раз дольше» с подстановкой: «в 3 раза» и «в 10 раз»
+    /// склоняются по-разному, и одна строка формата дала бы «в 10 раза».
+    static func activityHoldTitle(_ scale: Int) -> String {
+        switch scale {
+        case 0: return t("Пока не уберу")
+        case 1: return t("Как обычно")
+        case 3: return t("Втрое дольше")
+        case 10: return t("Вдесятеро дольше")
+        default: return tf("В %d раз дольше", scale)
+        }
     }
 
     private var generalSection: some View {
@@ -185,52 +238,97 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .frame(maxWidth: 300, alignment: .leading)
+                    .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
 
                     Toggle(t("Запускать при входе в систему"), isOn: Binding(
                         get: { launchAtLogin.isEnabled },
                         set: { launchAtLogin.isEnabled = $0 }
                     ))
                     Toggle(t("Раскрывать вырез при наведении"), isOn: settings.binding(\.expandOnHover))
-                    Toggle(t("Виброотклик на трекпаде"), isOn: settings.binding(\.hapticsEnabled))
-                    Toggle(t("Мурчание"), isOn: settings.binding(\.purrEnabled))
-                    hint(t("Поводите курсором по чёлке из стороны в сторону — вырез замурчит."))
-
-                    Divider()
-
-                    HStack {
-                        Text(t("Знакомство с вырезом"))
-                        Spacer()
-                        Button(t("Открыть")) { onOpenWelcome() }
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(t("Раскрыть панель"))
+                            Spacer()
+                            HotKeyRecorder(spec: Binding(
+                                get: { settings.expandedHotKey },
+                                set: { settings.expandedHotKey = $0; onHotKeysChanged() }
+                            ))
+                            .frame(width: SettingsStyle.hotKeyField.width,
+                                   height: SettingsStyle.hotKeyField.height)
+                        }
+                        hint(t("Музыка, расписание, погода и чашка — без мыши. Нажатие при раскрытой панели сворачивает её."))
                     }
-                    hint(t("Окно с жестами, сочетаниями клавиш и доступами. Само оно показывается только при первом запуске."))
+                    Toggle(t("Виброотклик на трекпаде"), isOn: settings.binding(\.hapticsEnabled))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(t("Мурчание"), isOn: settings.binding(\.purrEnabled))
+                        hint(t("Поводите курсором по чёлке из стороны в сторону — вырез замурчит."))
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker(t("Размер текста"), selection: Binding(
+                            get: { settings.textScale },
+                            set: { settings.textScale = $0; onLayoutChanged() }
+                        )) {
+                            ForEach(Settings.textScales, id: \.self) { scale in
+                                Text(tf("%d %%", scale)).tag(scale)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+                        hint(t("В macOS нет общего размера текста, который приложение могло бы прочесть, — поэтому он свой. Действует в этом окне и в окне знакомства."))
+                        hint(t("Панели выреза не растут: под чёлкой ровно столько места, сколько оставила вырезка."))
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker(t("Держать плашки событий"), selection: settings.binding(\.activityHold)) {
+                            ForEach(Settings.activityHolds, id: \.self) { scale in
+                                Text(Self.activityHoldTitle(scale)).tag(scale)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+                        hint(t("Плашки о смене трека, встрече, таймере и заряде уходят сами через несколько секунд. Здесь их можно растянуть."))
+                        hint(t("«Пока не уберу» не запирает плашку навсегда: она уходит, стоит навести курсор на вырез."))
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(t("Знакомство с вырезом"))
+                            Spacer()
+                            Button(t("Открыть")) { onOpenWelcome() }
+                        }
+                        hint(t("Окно с жестами, сочетаниями и доступами. Само показывается только при первом запуске."))
+                    }
                 }
 
+                // Выбор срока отсюда ушёл: он появился в самой панели чашки —
+                // там же, где отсчёт и кнопка «Выключить». Настройка «что
+                // предлагать по умолчанию» пережила появление живого выбора
+                // и стала лишней: решение одно, а мест, где его принимают,
+                // стало два. Осталось то, чего в вырезе нет, — сам показ.
                 section(t("Чашка кофе"), icon: "cup.and.saucer") {
-                    Picker(t("Отключать через"), selection: settings.binding(\.caffeineLimitMinutes)) {
-                        ForEach(Settings.caffeineLimits, id: \.self) { minutes in
-                            Text(minutes > 0 ? tf("%d мин", minutes) : t("Без ограничения"))
-                                .tag(minutes)
-                        }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(t("Показывать чашку"), isOn: settings.binding(\.caffeineEnabled))
+                        hint(t("Пока чашка включена, экран не гаснет и не блокируется. Срок задаётся нажатием по самой чашке — там же виден отсчёт."))
+                        hint(t("Когда срок выходит, вырез сообщает плашкой: погасший сам собой экран иначе выглядел бы поломкой."))
+                        hint(t("Удержание не переживает перезапуск приложения."))
                     }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: 300, alignment: .leading)
-                    hint(t("Чашка рядом с погодой в раскрытой панели: пока она включена, экран не гаснет и не блокируется. Подложка под чашкой показывает, что удержание работает."))
-                    hint(t("Срок считается от включения. Поменяли его при горящей чашке — новый подхватится со следующего включения, а нынешнее доработает по прежнему."))
-                    hint(t("Когда срок выходит, вырез сообщает об этом плашкой: экран, вдруг погасший сам, иначе выглядел бы поломкой."))
-                    hint(t("Удержание не переживает перезапуск приложения — после него экран снова гаснет как обычно."))
                 }
 
                 section(t("Музыка"), icon: "music.note") {
                     Toggle(t("Управление музыкой"), isOn: settings.binding(\.musicEnabled))
-                    Toggle(t("Показывать смену трека"), isOn: settings.binding(\.showTrackChanges))
-                        .disabled(!settings.musicEnabled)
-                    hint(t("Сведения о треке читаются из системы, поэтому работают с любым плеером: Яндекс Музыка, Spotify, Apple Music, веб-плееры в браузере."))
-                    hint(t("Свайп двумя пальцами по острову переключает трек."))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(t("Показывать смену трека"), isOn: settings.binding(\.showTrackChanges))
+                            .disabled(!settings.musicEnabled)
+                        hint(t("Сведения о треке читаются из системы, поэтому работают с любым плеером: Яндекс Музыка, Spotify, Apple Music, веб-плееры."))
+                        hint(t("Свайп двумя пальцами по острову переключает трек."))
+                    }
 
-                    Toggle(t("Поменять стороны свайпа"), isOn: settings.binding(\.swipeInverted))
-                        .disabled(!settings.musicEnabled)
-                    hint(t("Кому-то «следующий» — это движение пальцев влево, как листают ленту, кому-то вправо, как переворачивают страницу."))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(t("Поменять стороны свайпа"), isOn: settings.binding(\.swipeInverted))
+                            .disabled(!settings.musicEnabled)
+                        hint(t("Кому-то «следующий» — движение влево, как листают ленту, кому-то вправо, как переворачивают страницу."))
+                    }
                 }
 
         }
@@ -239,33 +337,43 @@ struct SettingsView: View {
     private var teleprompterSection: some View {
         Group {
             section(t("Телесуфлер"), icon: "text.alignleft") {
-                HStack {
-                    Text(t("Открыть телесуфлер"))
-                    Spacer()
-                    HotKeyRecorder(spec: Binding(
-                        get: { settings.teleprompterHotKey },
-                        set: { settings.teleprompterHotKey = $0; onHotKeysChanged() }
-                    ))
-                    .frame(width: 140, height: 24)
-                }
-                hint(t("Клавиша работает переключателем: нажали при открытой панели — панель убралась."))
-
-                Picker(t("Скорость прокрутки"), selection: settings.binding(\.teleprompterSpeed)) {
-                    ForEach([10, 20, 40, 60, 90, 120], id: \.self) { value in
-                        Text(tf("%d т/с", value)).tag(value)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(t("Открыть телесуфлер"))
+                        Spacer()
+                        HotKeyRecorder(spec: Binding(
+                            get: { settings.teleprompterHotKey },
+                            set: { settings.teleprompterHotKey = $0; onHotKeysChanged() }
+                        ))
+                        .frame(width: SettingsStyle.hotKeyField.width,
+                                   height: SettingsStyle.hotKeyField.height)
                     }
+                    hint(t("Клавиша работает переключателем: нажали при открытой панели — панель убралась."))
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 300, alignment: .leading)
-                hint(t("Точек в секунду, а не строк: строки в телесуфлере разной высоты — заголовок вдвое выше обычной, — и счёт по строкам дёргал бы текст на каждом заголовке. То же значение правится ползунком в самой панели."))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker(t("Скорость прокрутки"), selection: settings.binding(\.teleprompterSpeed)) {
+                        ForEach([10, 20, 40, 60, 90, 120], id: \.self) { value in
+                            Text(tf("%d т/с", value)).tag(value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+                    hint(t("Точек в секунду, а не строк: строки разной высоты, и счёт по строкам дёргал бы текст на заголовках. То же значение есть ползунком в самой панели."))
+                }
             }
 
             section(t("Как он устроен"), icon: "questionmark.circle") {
-                hint(t("Панель открывается под самой чёлкой — там, где камера. Читая с середины экрана, человек смотрит мимо объектива, и на записи это видно сразу."))
-                hint(t("Панель не закрывается ни по уходу курсора, ни по нажатию мимо: пока читают вслух, в чужом окне продолжают работать. Убрать её можно крестиком или той же клавишей."))
-                hint(t("Текст не пропадает сам — ни при закрытии панели, ни при перезапуске. Убрать его можно только кнопкой «Очистить», и она переспрашивает."))
-                hint(t("Оформление: заголовок, полужирный, курсив, подчёркивание, ссылки и эмодзи. Набранный в тексте адрес становится ссылкой сам."))
-                hint(tf("Хранится в %@ — в формате RTF, вместе с оформлением.", TeleprompterStore.fileURL.path))
+                // Справочная карточка: сплошной текст абзацами, а не список
+                // настроек. Одной строкой — чтобы `Form` не расчерчивал абзацы
+                // разделителями, будто каждый из них что-то отдельное включает.
+                VStack(alignment: .leading, spacing: 8) {
+                    hint(t("Панель открывается под самой чёлкой, где камера: читая с середины экрана, человек смотрит мимо объектива, и на записи это видно."))
+                    hint(t("Панель не закрывается ни по уходу курсора, ни по нажатию мимо: пока читают вслух, в чужом окне работают. Убрать — крестиком или той же клавишей."))
+                    hint(t("Текст не пропадает сам — ни при закрытии панели, ни при перезапуске. Убрать его можно только кнопкой «Очистить»."))
+                    hint(t("Оформление: заголовок, полужирный, курсив, подчёркивание, ссылки и эмодзи. Набранный в тексте адрес становится ссылкой сам."))
+                    hint(tf("Хранится в %@ — в формате RTF, вместе с оформлением.", TeleprompterStore.fileURL.path))
+                }
             }
         }
     }
@@ -278,25 +386,33 @@ struct SettingsView: View {
                     set: { settings.monitorEnabled = $0; onHotKeysChanged() }
                 ))
 
-                HStack {
-                    Text(t("Открыть нагрузку"))
-                    Spacer()
-                    HotKeyRecorder(spec: Binding(
-                        get: { settings.monitorHotKey },
-                        set: { settings.monitorHotKey = $0; onHotKeysChanged() }
-                    ))
-                    .frame(width: 140, height: 24)
-                }
-                .disabled(!settings.monitorEnabled)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(t("Открыть нагрузку"))
+                        Spacer()
+                        HotKeyRecorder(spec: Binding(
+                            get: { settings.monitorHotKey },
+                            set: { settings.monitorHotKey = $0; onHotKeysChanged() }
+                        ))
+                        .frame(width: SettingsStyle.hotKeyField.width,
+                                   height: SettingsStyle.hotKeyField.height)
+                    }
+                    .disabled(!settings.monitorEnabled)
 
-                hint(t("Три показателя: процессор, память и диск. Нажмите по любому — откроется Мониторинг системы."))
+                    hint(t("Три показателя: процессор, память и диск. Нажмите по любому — откроется Мониторинг системы."))
+                }
             }
 
             section(t("Что показано и чего нет"), icon: "questionmark.circle") {
-                hint(t("Память считается так же, как в Мониторинге системы: память приложений, зарезервированная ядром и сжатая. Иначе числа расходились бы с тем приложением, которое открывается по нажатию."))
-                hint(t("Диск — том с данными, а не системный: системный доступен только для чтения и занят целиком всегда."))
-                hint(t("Видеокарты здесь нет: публичного способа узнать её загрузку в macOS не существует, а обходной отдаёт ноль даже под нагрузкой. Пустая шкала хуже, чем никакой."))
-                hint(t("Система опрашивается, только пока панель открыта. Иначе мониторинг сам стал бы той нагрузкой, которую показывает."))
+                // Справочная карточка: сплошной текст абзацами, а не список
+                // настроек. Одной строкой — чтобы `Form` не расчерчивал абзацы
+                // разделителями, будто каждый из них что-то отдельное включает.
+                VStack(alignment: .leading, spacing: 8) {
+                    hint(t("Память считается так же, как в Мониторинге системы: приложений, зарезервированная ядром и сжатая. Иначе числа расходились бы с ним."))
+                    hint(t("Диск — том с данными, а не системный: системный доступен только для чтения и занят целиком всегда."))
+                    hint(t("Видеокарты нет: публичного способа узнать её загрузку в macOS не существует, а обходной отдаёт ноль даже под нагрузкой."))
+                    hint(t("Система опрашивается, только пока панель открыта: иначе мониторинг сам стал бы нагрузкой."))
+                }
             }
         }
     }
@@ -316,23 +432,33 @@ struct SettingsView: View {
                         get: { settings.timerHotKey },
                         set: { settings.timerHotKey = $0; onHotKeysChanged() }
                     ))
-                    .frame(width: 140, height: 24)
+                    .frame(width: SettingsStyle.hotKeyField.width,
+                                   height: SettingsStyle.hotKeyField.height)
                 }
                 .disabled(!settings.timerEnabled)
 
-                Toggle(t("Сигнал по окончании"), isOn: settings.binding(\.timerSoundEnabled))
-                    .disabled(!settings.timerEnabled)
-                hint(t("Один короткий колокольчик. Не будильник: таймер сообщает о факте, а не требует внимания."))
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Сигнал по окончании"), isOn: settings.binding(\.timerSoundEnabled))
+                        .disabled(!settings.timerEnabled)
+                    hint(t("Один короткий колокольчик. Не будильник: таймер сообщает о факте, а не требует внимания."))
+                }
 
-                Toggle(t("После работы заводить перерыв"),
-                       isOn: settings.binding(\.pomodoroChainsRest))
-                    .disabled(!settings.timerEnabled)
-                hint(t("Двадцать пять минут работы, пять перерыва — как в помидоре. Перерыв заводится сам, но запускать его вам: решать, отдыхать ли сейчас, приложение не должно."))
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("После работы заводить перерыв"),
+                           isOn: settings.binding(\.pomodoroChainsRest))
+                        .disabled(!settings.timerEnabled)
+                    hint(t("Двадцать пять минут работы, пять перерыва — помидор. Перерыв заводится сам, но запускать его вам."))
+                }
             }
 
             section(t("Как это устроено"), icon: "clock.arrow.circlepath") {
-                hint(t("Время считается от момента запуска, а не тиком. Поэтому таймер не отстаёт, даже если ноутбук закрывали: после пробуждения он покажет верное время."))
-                hint(t("Пока таймер идёт, свёрнутая чёлка раздвигается полоской: значок слева, счёт справа. Нажмите по ней — откроется панель."))
+                // Справочная карточка: сплошной текст абзацами, а не список
+                // настроек. Одной строкой — чтобы `Form` не расчерчивал абзацы
+                // разделителями, будто каждый из них что-то отдельное включает.
+                VStack(alignment: .leading, spacing: 8) {
+                    hint(t("Время считается от момента запуска, а не тиком: таймер не отстаёт, даже если ноутбук закрывали."))
+                    hint(t("Пока таймер идёт, свёрнутая чёлка раздвигается полоской: значок слева, счёт справа."))
+                }
             }
         }
     }
@@ -340,11 +466,13 @@ struct SettingsView: View {
     private var shelfSection: some View {
         Group {
             section(t("Полка"), icon: "tray.full") {
-                Toggle(t("Принимать перетаскиваемые файлы"), isOn: Binding(
-                    get: { settings.shelfEnabled },
-                    set: { settings.shelfEnabled = $0; onHotKeysChanged() }
-                ))
-                hint(t("Ведите файлы на чёлку — вырез раскроется полкой. Оттуда их вытаскивают в любое окно."))
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Принимать перетаскиваемые файлы"), isOn: Binding(
+                        get: { settings.shelfEnabled },
+                        set: { settings.shelfEnabled = $0; onHotKeysChanged() }
+                    ))
+                    hint(t("Ведите файлы на чёлку — вырез раскроется полкой. Оттуда их вытаскивают в любое окно."))
+                }
 
                 HStack {
                     Text(t("Открыть полку"))
@@ -353,15 +481,21 @@ struct SettingsView: View {
                         get: { settings.shelfHotKey },
                         set: { settings.shelfHotKey = $0; onHotKeysChanged() }
                     ))
-                    .frame(width: 140, height: 24)
+                    .frame(width: SettingsStyle.hotKeyField.width,
+                                   height: SettingsStyle.hotKeyField.height)
                 }
                 .disabled(!settings.shelfEnabled)
             }
 
             section(t("Как это работает"), icon: "arrow.up.and.down.and.arrow.left.and.right") {
-                hint(t("Пока файл лежит на полке, он остаётся в своей папке. Когда вы вытаскиваете его с полки, он переезжает — в исходной папке его больше нет."))
-                hint(t("После перезапуска полка пуста: это перевалочный пункт между двумя окнами, а не хранилище."))
-                hint(t("Полоска приёма опускается ниже чёлки, чтобы файл не пришлось вести к самой кромке экрана — там система открывает Mission Control."))
+                // Справочная карточка: сплошной текст абзацами, а не список
+                // настроек. Одной строкой — чтобы `Form` не расчерчивал абзацы
+                // разделителями, будто каждый из них что-то отдельное включает.
+                VStack(alignment: .leading, spacing: 8) {
+                    hint(t("Пока файл на полке, он остаётся в своей папке. Когда вытаскиваете — переезжает, в исходной папке его больше нет."))
+                    hint(t("После перезапуска полка пуста: это перевалочный пункт между двумя окнами, а не хранилище."))
+                    hint(t("Полоска приёма опускается ниже чёлки: у самой кромки экрана система открывает Mission Control."))
+                }
             }
         }
     }
@@ -378,34 +512,40 @@ struct SettingsView: View {
                         get: { settings.clipboardHotKey },
                         set: { settings.clipboardHotKey = $0; onHotKeysChanged() }
                     ))
-                    .frame(width: 140, height: 24)
+                    .frame(width: SettingsStyle.hotKeyField.width,
+                                   height: SettingsStyle.hotKeyField.height)
                 }
                 .disabled(!settings.clipboardEnabled)
 
-                Picker(t("Клавиши записей"), selection: Binding(
-                    get: { settings.clipboardSlotModifiers },
-                    set: { settings.clipboardSlotModifiers = $0; onHotKeysChanged() }
-                )) {
-                    ForEach(ClipboardSlotModifiers.allCases) { option in
-                        Text(option.title).tag(option)
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker(t("Клавиши записей"), selection: Binding(
+                        get: { settings.clipboardSlotModifiers },
+                        set: { settings.clipboardSlotModifiers = $0; onHotKeysChanged() }
+                    )) {
+                        ForEach(ClipboardSlotModifiers.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
                     }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+                    .disabled(!settings.clipboardEnabled)
+
+                    hint(t("Цифра вставляет запись по номеру: первая — самая свежая. Работает и когда панель закрыта."))
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 300, alignment: .leading)
-                .disabled(!settings.clipboardEnabled)
 
-                hint(t("Цифра вставляет запись по её номеру в списке: первая — самая свежая. Работает и когда панель закрыта."))
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Вставлять сразу"), isOn: settings.binding(\.clipboardPastes))
+                        .disabled(!settings.clipboardEnabled)
+                    hint(t("Выключено — запись только ложится в буфер, вставить нужно самому."))
+                }
 
-                Toggle(t("Вставлять сразу"), isOn: settings.binding(\.clipboardPastes))
-                    .disabled(!settings.clipboardEnabled)
-                hint(t("Выключено — запись только ложится в буфер, вставить нужно самому."))
-
-                Toggle(t("Показывать плашку при копировании"),
-                       isOn: settings.binding(\.clipboardShowsChip))
-                    .disabled(!settings.clipboardEnabled)
-                hint(t("По плашке можно нажать — откроется история."))
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Показывать плашку при копировании"),
+                           isOn: settings.binding(\.clipboardShowsChip))
+                        .disabled(!settings.clipboardEnabled)
+                    hint(t("По плашке можно нажать — откроется история."))
+                }
             }
-
 
             section(t("Сколько хранить"), icon: "clock.arrow.circlepath") {
                 Picker(t("Срок хранения"), selection: settings.binding(\.clipboardLifetimeHours)) {
@@ -417,7 +557,7 @@ struct SettingsView: View {
                     Text(t("без ограничения")).tag(0)
                 }
                 .pickerStyle(.menu)
-                .frame(maxWidth: 300, alignment: .leading)
+                .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
 
                 Picker(t("Не больше записей"), selection: settings.binding(\.clipboardLimit)) {
                     ForEach([20, 30, 50], id: \.self) { value in
@@ -425,9 +565,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(maxWidth: 300, alignment: .leading)
-
-                Divider()
+                .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
 
                 HStack {
                     Text(tf("Сейчас записей: %d", clipboard.entries.count))
@@ -441,9 +579,14 @@ struct SettingsView: View {
             }
 
             section(t("Что не сохраняется"), icon: "lock") {
-                hint(t("Пароли: менеджеры паролей помечают такое копирование флагом org.nspasteboard.ConcealedType, и запись пропускается."))
-                hint(t("Служебные копирования с флагами TransientType и AutoGeneratedType — их ставят приложения для своих нужд."))
-                hint(t("Изображения крупнее шести мегабайт: история должна оставаться лёгкой."))
+                // Справочная карточка: сплошной текст абзацами, а не список
+                // настроек. Одной строкой — чтобы `Form` не расчерчивал абзацы
+                // разделителями, будто каждый из них что-то отдельное включает.
+                VStack(alignment: .leading, spacing: 8) {
+                    hint(t("Пароли: менеджеры паролей помечают такое копирование особым флагом, и запись пропускается."))
+                    hint(t("Служебные копирования, которые приложения делают для своих нужд."))
+                    hint(t("Изображения крупнее шести мегабайт: история должна оставаться лёгкой."))
+                }
             }
         }
     }
@@ -451,14 +594,16 @@ struct SettingsView: View {
     private var weatherSection: some View {
         Group {
             section(t("Погода в вырезе"), icon: "cloud.sun") {
-                Toggle(t("Показывать погоду"), isOn: Binding(
-                    get: { settings.weatherEnabled },
-                    set: { enabled in
-                        settings.weatherEnabled = enabled
-                        weather.restart()
-                    }
-                ))
-                hint(t("В раскрытой панели значок и температура стоят в правом верхнем углу — там, где вырез и так пустой. Сама чёлка от этого не растёт."))
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Показывать погоду"), isOn: Binding(
+                        get: { settings.weatherEnabled },
+                        set: { enabled in
+                            settings.weatherEnabled = enabled
+                            weather.restart()
+                        }
+                    ))
+                    hint(t("В раскрытой панели значок и температура стоят в правом верхнем углу. Сама чёлка от этого не растёт."))
+                }
 
                 Picker(t("Сообщать"), selection: Binding(
                     get: { settings.weatherAlertMode },
@@ -469,7 +614,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(maxWidth: 300, alignment: .leading)
+                .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
                 .disabled(!settings.weatherEnabled)
 
                 if settings.weatherAlertMode == .periodic {
@@ -479,7 +624,7 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .frame(maxWidth: 300, alignment: .leading)
+                    .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
                     .disabled(!settings.weatherEnabled)
                 } else {
                     hint(t("Плашка всплывает, когда меняется погода или когда в ближайшие часы ожидаются осадки — один раз на явление, а не каждую проверку."))
@@ -501,7 +646,7 @@ struct SettingsView: View {
                 if settings.weatherSource == .place {
                     placePicker
                 } else {
-                    hint(t("Приложение запросит доступ к геопозиции. Одна засечка на обновление — постоянно следить за положением незачем."))
+                    hint(t("Приложение запросит доступ к геопозиции. Одна засечка на обновление."))
                 }
             }
 
@@ -510,9 +655,13 @@ struct SettingsView: View {
             }
 
             section(t("Откуда берётся"), icon: "network") {
-                hint(t("Прогноз запрашивается у open-meteo.com — без ключа и регистрации. Это единственное место, откуда приложение выходит в интернет."))
-                hint(t("Наружу уходят только координаты, округлённые до сотой доли градуса: это примерно километр, и погоде точнее не нужно."))
-                hint(t("WeatherKit от Apple подошёл бы лучше, но он привязан к платной учётной записи разработчика."))
+                // Справочная карточка: сплошной текст абзацами, а не список
+                // настроек. Одной строкой — чтобы `Form` не расчерчивал абзацы
+                // разделителями, будто каждый из них что-то отдельное включает.
+                VStack(alignment: .leading, spacing: 8) {
+                    hint(t("Прогноз запрашивается у open-meteo.com — без ключа и регистрации. Это единственное место, откуда приложение выходит в интернет."))
+                    hint(t("Наружу уходят только координаты, округлённые до сотой доли градуса — примерно до километра."))
+                }
             }
         }
     }
@@ -541,7 +690,7 @@ struct SettingsView: View {
             placeField
         }
 
-        hint(t("Город ищется у того же open-meteo.com. Наружу уходит только набранное название — доступ к геопозиции при этом не нужен вовсе."))
+        hint(t("Город ищется у того же open-meteo.com. Наружу уходит только название — геопозиция не нужна."))
     }
 
     @ViewBuilder
@@ -549,7 +698,7 @@ struct SettingsView: View {
         HStack(spacing: 8) {
             TextField(t("Название города"), text: $placeSearch.query)
                 .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 260)
+                .frame(maxWidth: SettingsStyle.searchFieldWidth)
                 // Ввод с клавиатуры: искать по каждой букве значило бы слать
                 // запрос на каждое нажатие.
                 .onSubmit { placeSearch.search() }
@@ -597,7 +746,7 @@ struct SettingsView: View {
         switch weather.authorization {
         case .denied, .restricted:
             HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.warning)
                 Text(t("Доступ к геопозиции запрещён. Без него погоду не узнать."))
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
@@ -653,7 +802,7 @@ struct SettingsView: View {
                 }
             }
             .pickerStyle(.menu)
-            .frame(maxWidth: 220, alignment: .leading)
+            .frame(maxWidth: SettingsStyle.resultWidth, alignment: .leading)
             .disabled(!settings.batteryEnabled || !settings.warnOnLowBattery)
         }
     }
@@ -663,16 +812,19 @@ struct SettingsView: View {
             section(t("Меню команд"), icon: "square.grid.2x2") {
                 Toggle(t("Быстрые команды"), isOn: settings.binding(\.quickCommandsEnabled))
 
-                HStack {
-                    Text(t("Открыть меню"))
-                    Spacer()
-                    HotKeyRecorder(spec: Binding(
-                        get: { settings.menuHotKey },
-                        set: { settings.menuHotKey = $0; onHotKeysChanged() }
-                    ))
-                    .frame(width: 140, height: 24)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(t("Открыть меню"))
+                        Spacer()
+                        HotKeyRecorder(spec: Binding(
+                            get: { settings.menuHotKey },
+                            set: { settings.menuHotKey = $0; onHotKeysChanged() }
+                        ))
+                        .frame(width: SettingsStyle.hotKeyField.width,
+                                   height: SettingsStyle.hotKeyField.height)
+                    }
+                    hint(t("Нажмите поле и задайте сочетание. Delete снимает, Esc отменяет. Без модификаторов не принимается: перехватывало бы обычный набор."))
                 }
-                hint(t("Нажмите поле и задайте сочетание. Delete снимает назначенное, Esc отменяет запись. Сочетание без модификаторов не принимается: оно перехватывало бы обычный набор текста."))
             }
 
             section(t("Запросы к модели"), icon: "sparkles") {
@@ -703,24 +855,31 @@ struct SettingsView: View {
                             }
                         }
                         .disabled(models.isLoading)
+                        // Имя рядом с подсказкой, а не вместо неё: `.help`
+                        // в macOS кладёт текст в подсказку элемента, а имя
+                        // оставляет пустым — кнопка из одного значка так
+                        // и остаётся для диктора безымянной.
                         .help(t("Обновить список моделей"))
+                        .accessibilityLabel(t("Обновить список моделей"))
                     }
 
                     if let error = models.error {
                         Text(error)
                             .font(.callout)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Palette.warning)
                     }
 
-                    Picker(t("Держать модель в памяти"), selection: settings.binding(\.ollamaKeepAlive)) {
-                        Text(t("5 минут")).tag("5m")
-                        Text(t("30 минут")).tag("30m")
-                        Text(t("2 часа")).tag("2h")
-                        Text(t("Постоянно")).tag("-1")
-                    }
-                    .pickerStyle(.menu)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker(t("Держать модель в памяти"), selection: settings.binding(\.ollamaKeepAlive)) {
+                            Text(t("5 минут")).tag("5m")
+                            Text(t("30 минут")).tag("30m")
+                            Text(t("2 часа")).tag("2h")
+                            Text(t("Постоянно")).tag("-1")
+                        }
+                        .pickerStyle(.menu)
 
-                    hint(t("Ответ кладётся в буфер обмена. Место подстановки выделенного текста — {{selection}}. Загрузка модели в память занимает около минуты, поэтому её стоит держать загруженной; модель поменьше отвечает заметно быстрее."))
+                        hint(t("Ответ кладётся в буфер обмена. {{selection}} — место подстановки выделенного текста. Модель стоит держать загруженной: загрузка занимает около минуты, а модель поменьше отвечает быстрее."))
+                    }
                 }
             }
 
@@ -733,7 +892,12 @@ struct SettingsView: View {
     private func commandEditor(_ command: QuickCommand) -> some View {
         section(tf("Слот %d", command.id + 1), icon: command.effectiveSymbol) {
             HStack(spacing: 8) {
-                Toggle("", isOn: binding(command, \.isEnabled)).labelsHidden()
+                // Подпись есть, но скрыта: на экране её заменяет заголовок
+                // раздела, а в дереве доступности заменить нечем. С пустой
+                // строкой девять выключателей слотов подряд звучали
+                // одинаково — «выключатель», и никак их не различить.
+                Toggle(tf("Слот %d", command.id + 1), isOn: binding(command, \.isEnabled))
+                    .labelsHidden()
                 TextField(t("Название"), text: binding(command, \.title))
                 HotKeyRecorder(
                     spec: Binding(
@@ -748,7 +912,8 @@ struct SettingsView: View {
                     ),
                     placeholder: t("Без клавиши")
                 )
-                .frame(width: 130, height: 24)
+                .frame(width: SettingsStyle.hotKeyFieldNarrow.width,
+                       height: SettingsStyle.hotKeyFieldNarrow.height)
             }
 
             Picker(t("Действие"), selection: binding(command, \.kind)) {
@@ -798,13 +963,16 @@ struct SettingsView: View {
                     }
                     .disabled(shortcuts.isLoading)
                     .help(t("Обновить список команд"))
+                    .accessibilityLabel(t("Обновить список команд"))
                 }
-                Toggle(t("Передавать выделенный текст"), isOn: binding(command, \.passesSelection))
-                hint(t("Если команда что-то возвращает, результат попадёт в буфер обмена."))
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Передавать выделенный текст"), isOn: binding(command, \.passesSelection))
+                    hint(t("Если команда что-то возвращает, результат попадёт в буфер обмена."))
+                }
             } else {
                 Text(t("Приложение «Команды» недоступно"))
                     .font(.callout)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Palette.warning)
             }
 
         case .ollama:
@@ -952,15 +1120,15 @@ struct SettingsView: View {
     ) -> some View {
         HStack(spacing: 10) {
             if let icon = CommandPickers.icon(forPath: command.payload) {
-                Image(nsImage: icon).resizable().frame(width: 20, height: 20)
+                Image(nsImage: icon).resizable().frame(width: SettingsStyle.scaled(20), height: SettingsStyle.scaled(20))
             } else {
                 Image(systemName: "questionmark.square.dashed")
                     .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
+                    .frame(width: SettingsStyle.scaled(20), height: SettingsStyle.scaled(20))
             }
 
             Text(command.payload.isEmpty ? empty : (command.payload as NSString).lastPathComponent)
-                .font(.system(size: 12))
+                .font(.system(size: SettingsStyle.font(12)))
                 .foregroundStyle(command.payload.isEmpty ? .secondary : .primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1014,8 +1182,6 @@ struct SettingsView: View {
             ))
             Toggle(t("Задачи Things 3"), isOn: settings.binding(\.thingsEnabled))
 
-            Divider()
-
             Picker(t("Предупреждать за"), selection: settings.binding(\.eventLeadMinutes)) {
                 Text(t("в момент начала")).tag(0)
                 Text(t("5 минут")).tag(5)
@@ -1023,7 +1189,7 @@ struct SettingsView: View {
                 Text(t("15 минут")).tag(15)
             }
             .pickerStyle(.menu)
-            .frame(maxWidth: 280, alignment: .leading)
+            .frame(maxWidth: SettingsStyle.scaled(280), alignment: .leading)
 
             Toggle(t("Ещё раз в момент начала"), isOn: settings.binding(\.alertAtEventStart))
                 .disabled(settings.eventLeadMinutes == 0)
@@ -1036,17 +1202,19 @@ struct SettingsView: View {
                 }
             }
             .pickerStyle(.menu)
-            .frame(maxWidth: 280, alignment: .leading)
+            .frame(maxWidth: SettingsStyle.scaled(280), alignment: .leading)
             .disabled(!settings.showCountdown)
 
             accessStatus
         }
 
         section(t("Управление встречей"), icon: "video") {
-            Toggle(t("Кнопки встречи в вырезе"), isOn: settings.binding(\.meetingControlsEnabled))
-            hint(t("Пока идёт встреча, наведение на вырез показывает микрофон, камеру, демонстрацию экрана, поднятие руки и выход. Работает с Телемостом, Google Meet, Zoom и Teams в браузере."))
-            hint(t("Кнопки нажимаются прямо на странице встречи через систему универсального доступа — фокус на браузер не переключается."))
-            hint(t("Вкладка встречи должна быть открыта: содержимое фоновых вкладок браузер наружу не отдаёт. Удобнее всего вытащить встречу в отдельное окно."))
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Кнопки встречи в вырезе"), isOn: settings.binding(\.meetingControlsEnabled))
+                hint(t("Во время встречи наведение на вырез показывает микрофон, камеру, демонстрацию, поднятие руки и выход. Работает с Телемостом, Google Meet, Zoom и Teams в браузере."))
+                hint(t("Кнопки нажимаются прямо на странице встречи через универсальный доступ — фокус на браузер не переключается."))
+                hint(t("Вкладка встречи должна быть открыта: содержимое фоновых вкладок браузер не отдаёт. Удобнее вытащить встречу в отдельное окно."))
+            }
         }
 
         if !calendar.availableCalendars.isEmpty {
@@ -1066,10 +1234,9 @@ struct SettingsView: View {
     @ViewBuilder
     private var accessStatus: some View {
         if settings.calendarEnabled, calendar.eventsAccess != .fullAccess {
-            Divider()
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Palette.warning)
                 Text(calendar.eventsAccess == .denied
                      ? t("Доступ к Календарю запрещён. Выдайте его в Системных настройках.")
                      : t("Доступ к Календарю ещё не выдан."))
@@ -1091,14 +1258,16 @@ struct SettingsView: View {
     private var infoSection: some View {
         Group {
             section(t("О приложении"), icon: "app.badge") {
-                HStack {
-                    Text(t("Версия"))
-                    Spacer()
-                    Text(AppInfo.version)
-                        .foregroundStyle(SettingsStyle.secondary)
-                        .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(t("Версия"))
+                        Spacer()
+                        Text(AppInfo.version)
+                            .foregroundStyle(SettingsStyle.secondary)
+                            .textSelection(.enabled)
+                    }
+                    hint(t("Вырез MacBook как центр управления: музыка, встречи, команды, ответ модели, буфер, полка, таймер, нагрузка и телесуфлер."))
                 }
-                hint(t("Вырез MacBook как центр управления: музыка, встречи, команды, ответ модели, буфер обмена, полка для файлов, таймер, нагрузка на систему и телесуфлер."))
             }
 
             section(t("Жесты"), icon: "hand.draw") {
@@ -1130,9 +1299,9 @@ struct SettingsView: View {
     private func info(_ title: String, _ text: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: SettingsStyle.font(12), weight: .semibold))
             Text(text)
-                .font(.system(size: 11.5))
+                .font(.system(size: SettingsStyle.font(11.5)))
                 .foregroundStyle(SettingsStyle.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -1155,7 +1324,7 @@ struct SettingsView: View {
                     }
                 )) {
                     HStack(spacing: 8) {
-                        Circle().fill(source.color).frame(width: 8, height: 8)
+                        Circle().fill(source.color).frame(width: SettingsStyle.scaled(8), height: SettingsStyle.scaled(8))
                         Text(source.title)
                     }
                 }
@@ -1163,33 +1332,38 @@ struct SettingsView: View {
         }
     }
 
+    /// Карточка раздела.
+    ///
+    /// Настоящая `Section` внутри `Form`, а не нарисованная подложка
+    /// со своей обводкой и своим скруглением. Значок в заголовке остался —
+    /// он в этом окне единственное, что отличает одну карточку от другой
+    /// при беглом взгляде.
     private func section<Content: View>(
         _ title: String,
         icon: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 7) {
+        Section {
+            content()
+                // Подложка карточки. Системная ушла вместе с фоном формы —
+                // а без неё строки лежали прямо на плывущих пятнах, и текст
+                // читался тем хуже, чем ярче пятно под ним.
+                //
+                // Полупрозрачная, а не глухая: сквозь неё фон виден, но уже
+                // приглушённым — ровно настолько, чтобы связь с окном
+                // знакомства осталась, а строка перестала спорить с пятном.
+                .listRowBackground(
+                    Color(nsColor: .controlBackgroundColor).opacity(0.72)
+                )
+        } header: {
+            HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: SettingsStyle.font(11), weight: .semibold))
                     .foregroundStyle(SettingsStyle.tertiary)
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: SettingsStyle.font(12), weight: .semibold))
                     .foregroundStyle(SettingsStyle.secondary)
             }
-            VStack(alignment: .leading, spacing: 10) {
-                content()
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: SettingsStyle.cardRadius, style: .continuous)
-                    .fill(SettingsStyle.card)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: SettingsStyle.cardRadius, style: .continuous)
-                            .strokeBorder(SettingsStyle.stroke, lineWidth: 1)
-                    )
-            )
         }
     }
 
@@ -1204,33 +1378,51 @@ struct SettingsView: View {
         ZStack(alignment: .topLeading) {
             if text.wrappedValue.isEmpty {
                 Text(placeholder)
-                    .font(.system(size: isCode ? 11 : 12, design: isCode ? .monospaced : .default))
-                    .foregroundStyle(.white.opacity(0.28))
+                    .font(.system(size: SettingsStyle.font(isCode ? 11 : 12),
+                                  design: isCode ? .monospaced : .default))
+                    .foregroundStyle(Color(nsColor: .placeholderTextColor))
                     .padding(.horizontal, 9)
                     .padding(.vertical, 8)
                     .allowsHitTesting(false)
             }
             TextEditor(text: text)
-                .font(.system(size: isCode ? 11 : 12, design: isCode ? .monospaced : .default))
+                .font(.system(size: SettingsStyle.font(isCode ? 11 : 12),
+                              design: isCode ? .monospaced : .default))
                 .scrollContentBackground(.hidden)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 4)
         }
         .frame(minHeight: minHeight, alignment: .topLeading)
+        // Рамка системная. Своя была нарисована двумя прямоугольниками,
+        // и обводка у неё выходила 1.26:1 к подложке карточки при норме 3:1
+        // для границ элементов управления: поле для промта выглядело
+        // как пустое место в карточке. Системная норму держит по определению
+        // и сама показывает фокус — тем же способом, что все прочие поля.
         .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(SettingsStyle.fieldFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(SettingsStyle.stroke, lineWidth: 1)
-                )
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color(nsColor: .textBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
         )
     }
 
+    /// Пояснение под настройкой.
+    ///
+    /// Во всю ширину строки, а не по содержимому: в `Form` строка занимает
+    /// всю карточку, и текст, прижатый к центру, читался бы как подпись
+    /// к соседнему элементу управления, а не как пояснение к своему.
     private func hint(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11.5))
+            .font(.system(size: SettingsStyle.font(11.5)))
             .foregroundStyle(SettingsStyle.tertiary)
             .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Линия сверху убрана: пояснение относится к настройке над ним,
+            // а разделитель отрезал его от неё и приклеивал к следующей.
+            // Снизу линия остаётся — она и отделяет пару «настройка
+            // с пояснением» от того, что идёт дальше.
+            .listRowSeparator(.hidden, edges: .top)
     }
 }

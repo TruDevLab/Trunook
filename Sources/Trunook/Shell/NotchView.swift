@@ -29,6 +29,7 @@ final class NotchState: ObservableObject {
         case timer
         case monitor
         case teleprompter
+        case caffeine
 
         /// Закрывается ли накладка тем, что курсор ушёл за её границы.
         ///
@@ -39,7 +40,7 @@ final class NotchState: ObservableObject {
         /// панель ровно в тот момент, ради которого она открыта.
         var closesOnCursorExit: Bool {
             switch self {
-            case .commands, .clipboard, .hub, .timer, .monitor: return true
+            case .commands, .clipboard, .hub, .timer, .monitor, .caffeine: return true
             case .shelf, .assistant, .teleprompter: return false
             }
         }
@@ -64,6 +65,7 @@ final class NotchState: ObservableObject {
     var isTimerOpen: Bool { overlay == .timer }
     var isMonitorOpen: Bool { overlay == .monitor }
     var isTeleprompterOpen: Bool { overlay == .teleprompter }
+    var isCaffeineOpen: Bool { overlay == .caffeine }
 
     /// Файлы ведут над зоной приёма прямо сейчас. Держится отдельно
     /// от `overlay`: полка бывает открыта и без перетаскивания, а подсветка
@@ -98,6 +100,17 @@ struct NotchView: View {
     @ObservedObject var calendar: CalendarService
     @ObservedObject var things: ThingsService
     @ObservedObject var meeting: MeetingService
+    /// Подпись значка под курсором. Общий на всё приложение объект, как
+    /// и `HoverTracker`: значок под курсором в вырезе всегда один.
+    @ObservedObject private var hint = NotchHintTracker.shared
+    /// Настройки доступности наблюдаются здесь, в корне.
+    ///
+    /// Ступени прозрачности и плотности заливок в `NotchStyle` вычисляются
+    /// из «Уменьшить прозрачность», а стили кнопок — из «Уменьшить движение».
+    /// Ни то ни другое подписаться само не может: `NotchStyle` — набор чисел,
+    /// `ButtonStyle` — не `View`. Подписка в корне перерисовывает всё
+    /// поддерево разом, и они читают новые значения.
+    @ObservedObject private var motion = MotionPreference.shared
     @ObservedObject var clipboard: ClipboardService
     @ObservedObject var assistant: AssistantSession
     @ObservedObject var weather: WeatherService
@@ -164,8 +177,14 @@ struct NotchView: View {
     /// именно сюда.
     let onOpenExpanded: () -> Void
     let onAskAssistant: () -> Void
-    /// Чашка кофе в левом крыле: не давать экрану гаснуть.
-    let onToggleAwake: () -> Void
+    /// Чашка кофе в левом крыле открывает выбор срока.
+    ///
+    /// Раньше нажатие переключало удержание вслепую: включалось оно на срок
+    /// из настроек, и узнать, на какой именно, из выреза было нельзя.
+    let onOpenAwake: () -> Void
+    /// Выбран срок в панели бодрости. Ноль — без ограничения.
+    let onChooseAwakeLimit: (Int) -> Void
+    let onDisableAwake: () -> Void
 
     private var commands: [QuickCommand] { settings.quickCommands }
 
@@ -220,7 +239,7 @@ struct NotchView: View {
             bottomRadius: {
                 switch presentation {
                 case .expanded, .commands, .clipboard, .assistant, .shelf, .hub, .timer,
-                     .monitor, .teleprompter:
+                     .monitor, .teleprompter, .caffeine:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
                 case .swiping: return 14
@@ -244,7 +263,7 @@ struct NotchView: View {
             // Внутри ZStack, а не поверх: обрезка формой съедает внешнюю
             // половину обводки и оставляет ровную линию по краю острова.
             if showsProgress {
-                NotchProgressRing(track: music.nowPlaying, shape: shape)
+                NotchProgressRing(track: music.nowPlaying, shape: shape, tint: music.artworkTint)
             }
 
             panel
@@ -273,6 +292,21 @@ struct NotchView: View {
         .clipShape(shape)
         .contentShape(shape)
         .onTapGesture(perform: onTap)
+        // Подпись значка — под всей чёлкой, а не под самим значком: в крыле
+        // на неё нет места, а здесь пусто в любом состоянии выреза.
+        //
+        // Оверлей навешивается **после** `clipShape` и `onTapGesture`:
+        // до обрезки плашку срезало бы формой панели, а до жеста она отняла
+        // бы у панели нажатия. Попаданий она не принимает и сама.
+        .overlay(alignment: .bottom) {
+            NotchHintBubble(text: hint.text)
+                .offset(y: NotchHintLayout.reserved)
+                .allowsHitTesting(false)
+        }
+        // Панель сменилась или закрылась — подпись уходит с ней. Кнопка
+        // исчезает вместе с панелью и об уходе курсора уже не сообщает,
+        // так что сама плашка о своём устаревании не узнает.
+        .onChange(of: presentation) { _, _ in hint.clear() }
         // Дрожь поверх обрезки: трясётся весь остров целиком, а не его
         // содержимое внутри неподвижной формы.
         .offset(x: state.tremble.width, y: state.tremble.height)
@@ -357,6 +391,14 @@ struct NotchView: View {
             )
         case .timer:
             TimerPanel(timer: timer, metrics: metrics, onClose: onCloseOverlay)
+        case .caffeine:
+            CaffeinePanel(
+                wake: wake,
+                metrics: metrics,
+                onChoose: onChooseAwakeLimit,
+                onDisable: onDisableAwake,
+                onClose: onCloseOverlay
+            )
         case .teleprompter:
             TeleprompterPanel(
                 store: teleprompter,
@@ -437,7 +479,7 @@ struct NotchView: View {
                 onAsk: settings.ollamaEnabled ? onAskAssistant : nil,
                 weather: settings.weatherEnabled ? weather.current : nil,
                 isAwake: wake.isOn,
-                onToggleAwake: onToggleAwake
+                onOpenAwake: settings.caffeineEnabled ? onOpenAwake : nil
             )
             .frame(width: metrics.expanded(extraHeight: content.extraHeight).width, alignment: .leading)
         }
@@ -464,7 +506,11 @@ private struct ExpandedPanel: View {
     let weather: WeatherService.Snapshot?
     /// Экран удерживается от гашения.
     let isAwake: Bool
-    let onToggleAwake: () -> Void
+    /// Нажатие по чашке. `nil` — чашка выключена в настройках и не рисуется.
+    /// Тем же способом сюда приходят выключенные погода и ответ модели:
+    /// решение принимает тот, у кого настройки под рукой, а панель только
+    /// показывает то, что ей дали.
+    let onOpenAwake: (() -> Void)?
 
     var body: some View {
         NotchPanel(
@@ -484,15 +530,17 @@ private struct ExpandedPanel: View {
                 if let weather {
                     WeatherCorner(snapshot: weather, notchHeight: metrics.notchHeight)
                 }
-                CaffeineButton(isOn: isAwake, action: onToggleAwake)
+                if let onOpenAwake {
+                    CaffeineButton(isOn: isAwake, action: onOpenAwake)
+                }
             }
             .frame(height: metrics.notchHeight)
         } trailing: {
             HStack(spacing: 2) {
                 if let onAsk {
-                    NotchPanelButton(symbol: "sparkles", action: onAsk)
+                    NotchPanelButton(symbol: "sparkles", hint: t("Спросить модель"), action: onAsk)
                 }
-                NotchPanelButton(symbol: "gearshape", action: onOpenSettings)
+                NotchPanelButton(symbol: "gearshape", hint: t("Настройки"), action: onOpenSettings)
             }
         } content: {
             VStack(spacing: NotchStyle.gridSpacing) {
@@ -560,13 +608,13 @@ private struct ExpandedPanel: View {
             artwork
             VStack(alignment: .leading, spacing: 2) {
                 Text(trackTitle)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: NotchStyle.font(13), weight: .semibold))
                     .lineLimit(1)
                 // Пустая вторая строка не рисуется вовсе: без неё название
                 // встаёт по центру обложки, а не липнет к её верху.
                 if hasTrack, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.system(size: 11))
+                        .font(.system(size: NotchStyle.font(11)))
                         .foregroundStyle(.white.opacity(0.6))
                         .lineLimit(1)
                 }
@@ -590,7 +638,7 @@ private struct ExpandedPanel: View {
     /// Раньше кнопка вела прямо в команды. Теперь функций больше, чем одна,
     /// и вести из панели в одну из них, минуя остальные, — произвол.
     private var hubButton: some View {
-        button("square.grid.2x2.fill", action: onOpenHub)
+        button("square.grid.2x2.fill", hint: t("Всё сразу"), action: onOpenHub)
             .padding(.leading, 6)
     }
 
@@ -641,11 +689,11 @@ private struct ExpandedPanel: View {
     private func taskRow(_ task: String, isLast: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "circle")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: NotchStyle.font(9), weight: .semibold))
                 .foregroundStyle(.white.opacity(0.5))
 
             Text(task)
-                .font(.system(size: 12))
+                .font(.system(size: NotchStyle.font(12)))
                 .lineLimit(1)
 
             Spacer(minLength: 8)
@@ -654,7 +702,7 @@ private struct ExpandedPanel: View {
             // место у самих задач.
             if isLast, tasks.count > visibleTasks.count {
                 Text("+\(tasks.count - visibleTasks.count)")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: NotchStyle.font(11), weight: .semibold))
                     .foregroundStyle(.white.opacity(0.5))
                     .fixedSize()
             }
@@ -679,12 +727,12 @@ private struct ExpandedPanel: View {
                     // именно оно и отвечает на вопрос «что за встреча».
                     VStack(alignment: .leading, spacing: 1) {
                         Text(event.title)
-                            .font(.system(size: 12))
+                            .font(.system(size: NotchStyle.font(12)))
                             .foregroundStyle(.white)
                             .lineLimit(1)
 
                         Text(event.isAllDay ? event.timeLabel : "\(event.timeLabel) · \(event.countdown())")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: NotchStyle.font(10), weight: .medium))
                             .foregroundStyle(.white.opacity(0.55))
                             .lineLimit(1)
                     }
@@ -699,22 +747,25 @@ private struct ExpandedPanel: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(PressableStyle())
-            .help(t("Открыть в Календаре"))
+            // Подсказкой, а не именем: имя строки — название самой встречи,
+            // и подменять его на «Открыть в Календаре» значило бы сделать
+            // все строки расписания неразличимыми на слух.
+            .notchActionHint(t("Открыть в Календаре"))
 
             if let link = event.link {
                 Button { onCopyLink(link.url) } label: {
                     Image(systemName: "link")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: NotchStyle.font(11), weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(7)
                         .background(Circle().fill(.white.opacity(0.18)))
                 }
                 .buttonStyle(PressableStyle())
-                .help(t("Скопировать ссылку"))
+                .notchHint(t("Скопировать ссылку"))
 
                 Button { onJoin(link.url) } label: {
                     Label(link.provider.title, systemImage: link.provider.symbol)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: NotchStyle.font(11), weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
@@ -735,7 +786,7 @@ private struct ExpandedPanel: View {
                     .fill(.white.opacity(0.12))
                     .overlay(
                         Image(systemName: "music.note")
-                            .foregroundStyle(.white.opacity(0.45))
+                            .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
                     )
             }
         }
@@ -749,18 +800,30 @@ private struct ExpandedPanel: View {
     /// повторяя жест, который и так работает, — а место нужнее названию трека:
     /// оно обрезалось на третьем слове.
     private var transport: some View {
-        button(music.nowPlaying?.isPlaying == true ? "pause.fill" : "play.fill") {
+        let isPlaying = music.nowPlaying?.isPlaying == true
+        // Подпись меняется вместе со значком, а не остаётся одной на оба
+        // состояния: значок «пауза» и значок «играть» — это разные кнопки
+        // для того, кто их не видит.
+        return button(
+            isPlaying ? "pause.fill" : "play.fill",
+            hint: isPlaying ? t("Пауза") : t("Играть")
+        ) {
             music.send(.togglePlayPause)
         }
     }
 
-    private func button(_ symbol: String, action: @escaping () -> Void) -> some View {
+    private func button(
+        _ symbol: String,
+        hint: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: NotchStyle.font(13), weight: .medium))
                 .foregroundStyle(.white)
         }
         // Отклик на нажатие и вибрация живут в стиле, а не здесь.
         .buttonStyle(NotchButtonStyle())
+        .notchHint(hint)
     }
 }

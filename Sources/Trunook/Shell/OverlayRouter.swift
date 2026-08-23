@@ -96,6 +96,7 @@ final class OverlayRouter {
         case .timer: return "таймер"
         case .monitor: return "нагрузка"
         case .teleprompter: return "телесуфлер"
+        case .caffeine: return "бодрость"
         }
     }
 }

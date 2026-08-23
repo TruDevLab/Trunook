@@ -17,6 +17,9 @@ import TrunookXPC
 struct NotchProgressRing: View {
     let track: NowPlaying?
     let shape: NotchShape
+    /// Преобладающий цвет обложки. `nil` — обложки нет или она серая,
+    /// и полоса остаётся белой.
+    var tint: Color?
     var thickness: CGFloat = 4
 
     var body: some View {
@@ -28,11 +31,26 @@ struct NotchProgressRing: View {
                 outline
                     .trim(from: 0, to: progress(of: track, duration: duration, at: context.date))
                     .stroke(
-                        .white.opacity(0.9),
+                        stroke,
                         style: StrokeStyle(lineWidth: thickness, lineCap: .round)
                     )
+                    // Смена трека меняет цвет полосы, и переход стоит показать:
+                    // мгновенная подмена цвета читается как сбой отрисовки,
+                    // а не как «заиграло другое». Полсекунды — дольше всего
+                    // прочего в вырезе: остальное отзывается на действие
+                    // человека, а это происходит само.
+                    .animation(.easeInOut(duration: 0.5), value: tint)
             }
         }
+    }
+
+    /// Цвет полосы.
+    ///
+    /// Прозрачность одна и та же для цветной и белой: цвет обложки уже поднят
+    /// по яркости до порога, и приглушать его отдельно значило бы отменять
+    /// эту работу.
+    private var stroke: Color {
+        (tint ?? .white).opacity(NotchStyle.dense(0.9))
     }
 
     private var outline: NotchShape {

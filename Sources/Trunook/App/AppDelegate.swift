@@ -386,6 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             clipboard: controller.clipboard,
             weather: controller.weather,
             onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() },
+            onLayoutChanged: { [weak self] in self?.controller.relayout() },
             onOpenWelcome: { [weak self] in self?.openWelcome() }
         )
     }

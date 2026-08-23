@@ -18,12 +18,31 @@ struct TeleprompterPanel: View {
 
     /// Шире прочих панелей: строку речи читают целиком, а перенос на каждом
     /// третьем слове сбивает темп.
-    static let width: CGFloat = 560
+    /// Ширина панели.
+    ///
+    /// Не число, а расчёт, и вот почему: в крыле стоят **семь** кнопок —
+    /// шесть значков оформления и крестик. При области нажатия в 24 точки
+    /// ряду нужно 180, а крыло при ширине 560 давало от 146 до 154 —
+    /// в зависимости от того, насколько широка чёлка у конкретной модели.
+    /// Последняя кнопка уезжала под вырез, где её просто не видно.
+    ///
+    /// Подобранное число эту зависимость от машины и скрывало: на одной
+    /// помещалось, на другой нет. Считаем.
+    static func width(notchWidth: CGFloat) -> CGFloat {
+        max(
+            NotchStyle.scaled(560),
+            NotchStyle.width(
+                fittingWing: NotchStyle.wingRow(buttons: 7),
+                notchWidth: notchWidth,
+                bodyPadding: NotchStyle.bottomPadding
+            )
+        )
+    }
     /// Высота видимой части текста. Панель висит подолгу, поэтому не во весь
     /// экран: под ней продолжают работать.
     static let bodyHeight: CGFloat = 300
     /// Полоса управления прокруткой под текстом.
-    private static let controlsHeight: CGFloat = 28
+    private static var controlsHeight: CGFloat { NotchStyle.scaled(28) }
 
     static func height(notchHeight: CGFloat) -> CGFloat {
         NotchStyle.height(
@@ -35,7 +54,7 @@ struct TeleprompterPanel: View {
     var body: some View {
         NotchPanel(
             metrics: metrics,
-            width: Self.width,
+            width: Self.width(notchWidth: metrics.notchWidth),
             // Текст и полоса управления тянутся во всю ширину, поэтому поле
             // отмеряется от чёрного тела, а не от рамки: вогнутое плечо формы
             // иначе съело бы три четверти бокового отступа.
@@ -70,6 +89,28 @@ struct TeleprompterPanel: View {
                         RoundedRectangle(cornerRadius: NotchStyle.cardRadius, style: .continuous)
                             .fill(.white.opacity(NotchButtonStyle.restingFill))
                     )
+                    // Пустой суфлер — это пустой прямоугольник с курсором,
+                    // и по нему не видно ни что сюда кладут, ни что будет
+                    // дальше. У буфера и полки такая строка есть, у суфлера
+                    // не было: панель написана позже них.
+                    //
+                    // Отступы и кегль — те же, что у самого текстового вида,
+                    // и взяты из него, а не выписаны заново. Порознь они
+                    // и разъехались: подсказка стояла на пять точек левее
+                    // текста и была вдвое мельче, поэтому курсор вставал
+                    // на первой букве, да ещё и торчал выше неё.
+                    .overlay(alignment: .topLeading) {
+                        if store.isEmpty {
+                            Text(t("Вставьте текст — он поедет вверх сам"))
+                                .font(.system(size: TeleprompterStore.bodyFontSize))
+                                .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                                .padding(.horizontal, TeleprompterTextView.textInset.width)
+                                .padding(.vertical, TeleprompterTextView.textInset.height)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 // Строка вопроса занимает место полосы управления, а не
                 // добавляется к ней: высота панели задана числом, и выросшее
                 // содержимое вылезло бы за её край.
@@ -121,7 +162,10 @@ struct TeleprompterPanel: View {
             .frame(width: 96)
             // Ширина задана: без неё полоса дёргалась бы на каждой смене
             // числа с двузначного на трёхзначное.
-            .help(t("Скорость прокрутки"))
+            //
+            // Имя ползунку нужно так же, как кнопке: своего текста у него
+            // нет, и без имени диктор объявляет голый «ползунок, 42».
+            .notchHint(t("Скорость прокрутки"))
             Text(tf("%d т/с", store.speed))
                 .font(.system(size: NotchStyle.captionFontSize, design: .monospaced))
                 .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
@@ -138,11 +182,15 @@ struct TeleprompterPanel: View {
     private var linkRow: some View {
         HStack(spacing: 8) {
             Image(systemName: "link")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: NotchStyle.font(10), weight: .semibold))
                 .foregroundStyle(Palette.teleprompter)
+                // Значок — метка строки, а не отдельная мысль: он повторяет
+                // то, что уже сказано полем рядом. Диктору читать его нечего.
+                .accessibilityHidden(true)
             TextField("https://", text: $store.linkAddress)
+                .accessibilityLabel(t("Адрес ссылки"))
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(.system(size: NotchStyle.font(12)))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 8)
                 .frame(height: 22)
@@ -161,10 +209,10 @@ struct TeleprompterPanel: View {
     private var clearRow: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: NotchStyle.font(10), weight: .semibold))
                 .foregroundStyle(Palette.warning)
             Text(t("Удалить весь текст? Вернуть его будет нельзя."))
-                .font(.system(size: 11))
+                .font(.system(size: NotchStyle.font(11)))
                 .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
                 .lineLimit(1)
             Spacer(minLength: 6)
@@ -183,7 +231,7 @@ struct TeleprompterPanel: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: symbol)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: NotchStyle.font(10), weight: .semibold))
                 Text(title)
                     .font(.system(size: NotchStyle.hintFontSize + 1.5, weight: .medium))
                     .fixedSize()

@@ -77,6 +77,14 @@ struct HotKeySpec: Codable, Equatable, Hashable {
         digits.firstIndex(of: Int(keyCode))
     }
 
+    /// ⌃⌥N — раскрыть основную панель: музыка, расписание, погода, чашка.
+    ///
+    /// Единственное, до чего с клавиатуры было не добраться вовсе. Шесть
+    /// накладок свои сочетания имели, а панель, ради которой вырез
+    /// и существует, открывалась только наведением или нажатием мышью:
+    /// тому, кто указателем не пользуется, половина приложения была закрыта.
+    static let expanded = HotKeySpec(keyCode: UInt32(kVK_ANSI_N), modifiers: own)
+
     /// ⌃⌥V — история буфера. Не ⇧⌘C и не ⇧⌘V: их занимают привычные
     /// менеджеры буфера обмена.
     static let clipboard = HotKeySpec(keyCode: UInt32(kVK_ANSI_V), modifiers: own)

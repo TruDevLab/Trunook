@@ -34,12 +34,22 @@ enum WindowSnapshot {
         }
     }
 
-    static func write(_ window: NSWindow?, named name: String) {
-        guard let window, let view = window.contentView, let layer = view.layer else {
+    /// - Parameter withTitlebar: снимать вместе с полосой заголовка.
+    ///   По умолчанию снимается только содержимое — так снимки для документации
+    ///   не зависят от того, какие кнопки система рисует в полосе. Но полоса
+    ///   тоже бывает предметом правки: её красит подложка окна, а не фон
+    ///   содержимого, и проверить её иначе нечем.
+    static func write(_ window: NSWindow?, named name: String, withTitlebar: Bool = false) {
+        // Полосу заголовка рисует надвид содержимого — рама окна.
+        guard let window,
+              let content = window.contentView,
+              let layer = { withTitlebar ? (content.superview ?? content) : content }().layer
+        else {
             DebugLog.write("снимок «\(name)»: окно не открыто")
             return
         }
 
+        let view = withTitlebar ? (content.superview ?? content) : content
         let scale = window.backingScaleFactor
         let size = view.bounds.size
         let width = Int(size.width * scale)
@@ -60,10 +70,16 @@ enum WindowSnapshot {
             return
         }
 
-        // У `CGContext` начало координат внизу, у слоя — вверху: без
-        // переворота снимок выходит вверх ногами.
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: scale, y: -scale)
+        // У `CGContext` начало координат внизу. У содержимого окна — вверху
+        // (`isFlipped`), у рамы окна — внизу, как у контекста. Переворот
+        // поэтому не безусловный: применённый к раме, он давал снимок
+        // вверх ногами.
+        if view.isFlipped {
+            context.translateBy(x: 0, y: CGFloat(height))
+            context.scaleBy(x: scale, y: -scale)
+        } else {
+            context.scaleBy(x: scale, y: scale)
+        }
         layer.render(in: context)
 
         guard let image = context.makeImage() else {

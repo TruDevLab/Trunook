@@ -33,8 +33,18 @@ struct MarqueeText: View {
     /// Пауза перед началом движения, чтобы успеть прочитать начало.
     var startDelay: TimeInterval = 0.5
 
+    /// «Уменьшить движение» останавливает прокрутку.
+    ///
+    /// Бесконечное движение — ровно то, от чего эта настройка защищает,
+    /// и своей паузы у бегущей строки нет: остановить её нечем, кроме
+    /// как убрать плашку целиком. Строка при этом не пропадает — она
+    /// показывается неподвижной и обрезается многоточием.
+    @ObservedObject private var motion = MotionPreference.shared
+
     private var textWidth: CGFloat { TextMeasure.width(text, font: font) }
-    private var needsScroll: Bool { textWidth > availableWidth + 0.5 }
+    private var needsScroll: Bool {
+        !motion.reduceMotion && textWidth > availableWidth + 0.5
+    }
 
     var body: some View {
         if needsScroll {
@@ -50,8 +60,18 @@ struct MarqueeText: View {
             .clipped()
         } else {
             label
-                .frame(width: availableWidth, alignment: .center)
+                // Длинную строку без прокрутки надо обрезать, иначе она вылезет
+                // за панель: `fixedSize` в бегущем виде разрешал ей быть шире
+                // отведённого, а сдвиг возвращал на место. Здесь сдвига нет.
+                .frame(width: availableWidth, alignment: alignment)
+                .clipped()
         }
+    }
+
+    /// Помещающаяся строка центруется, обрезанная равняется по левому краю:
+    /// у обрезанной начало важнее середины.
+    private var alignment: Alignment {
+        textWidth > availableWidth + 0.5 ? .leading : .center
     }
 
     private var label: some View {

@@ -1,4 +1,5 @@
 import TrunookXPC
+import AppKit
 import Foundation
 
 /// Кратковременное событие, которое временно расширяет свёрнутый вырез.
@@ -157,6 +158,59 @@ final class ActivityCenter: ObservableObject {
     @Published private(set) var current: Activity?
 
     private var dismissTimer: Timer?
+    private let settings: Settings
+
+    /// Что играет прямо сейчас — для объявления о смене трека.
+    ///
+    /// Замыканием, а не полем: плашка смены трека намеренно не несёт данных
+    /// (сведения доезжают порциями и снимок застывал бы с прежним
+    /// исполнителем), и текст для неё читается живьём в момент показа.
+    var nowPlaying: (() -> NowPlaying?)?
+
+    init(settings: Settings = .shared) {
+        self.settings = settings
+    }
+
+    /// Сказать вслух то, что показано.
+    ///
+    /// Плашка — сообщение о состоянии: она не забирает фокус и ничего
+    /// не спрашивает. Для того, кто её не видит, она до сих пор не значила
+    /// ровно ничего: вышло время таймера, разрядилась батарея, началась
+    /// встреча, команда упала с ошибкой — всё это появлялось на экране молча.
+    ///
+    /// Одна точка на все четырнадцать видов событий: сюда они и так все
+    /// приходят, и объявлять их по месту значило бы четырнадцать раз забыть.
+    private func announce(_ activity: Activity) {
+        let text = ActivityView.text(for: activity.kind, track: nowPlaying?())
+        guard !text.isEmpty else { return }
+        // Важное перебивает начатую фразу, остальное дожидается своей очереди:
+        // разряженную батарею нельзя ставить в хвост за сменой трека.
+        let level: NSAccessibilityPriorityLevel = activity.priority >= 4 ? .high : .medium
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: text,
+                .priority: level.rawValue,
+            ]
+        )
+    }
+
+    /// Сколько плашка висит на самом деле: свой срок, растянутый настройкой.
+    ///
+    /// Отдельно от `Activity.duration` потому, что тот отвечает на вопрос
+    /// «сколько этому событию нужно по существу» — девять секунд встрече,
+    /// две смене питания, — а настройка на все эти сроки смотрит одинаково.
+    /// Смешать их значило бы прописать множитель в четырнадцати местах.
+    func hold(for activity: Activity) -> TimeInterval {
+        let base = activity.duration
+        guard base.isFinite else { return base }
+        let scale = settings.activityHold
+        guard scale != 1 else { return base }
+        // Ноль — «пока не уберу»: убирает такую плашку наведение на вырез.
+        guard scale > 0 else { return .infinity }
+        return base * TimeInterval(scale)
+    }
 
     func present(_ kind: Activity.Kind) {
         let activity = Activity(kind: kind)
@@ -179,17 +233,19 @@ final class ActivityCenter: ObservableObject {
         dismissTimer?.invalidate()
         dismissTimer = nil
         current = activity
+        announce(activity)
 
         // Плашка полки висит без срока: она сообщает не о событии, а о том,
         // что файлы отложены и о них не забыли. Убирает её крестик или
         // опустевшая полка.
-        guard activity.duration.isFinite else {
+        let hold = hold(for: activity)
+        guard hold.isFinite else {
             DebugLog.write("событие \(activity.kind.label) показано без срока")
             return
         }
-        DebugLog.write("событие \(activity.kind.label) показано на \(activity.duration) с")
+        DebugLog.write("событие \(activity.kind.label) показано на \(hold) с")
 
-        let timer = Timer(timeInterval: activity.duration, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: hold, repeats: false) { [weak self] _ in
             guard let self, self.current == activity else { return }
             DebugLog.write("событие \(activity.kind.label) истекло")
             self.current = nil

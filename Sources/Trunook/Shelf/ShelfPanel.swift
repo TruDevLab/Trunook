@@ -30,9 +30,9 @@ struct ShelfPanel: View {
             + CGFloat(columns - 1) * tileSpacing
             + 2 * NotchStyle.bodyInset
     }
-    static let tileWidth: CGFloat = 96
-    static let tileHeight: CGFloat = 78
-    static let tileSpacing = NotchStyle.gridSpacing
+    static var tileWidth: CGFloat { NotchStyle.scaled(96) }
+    static var tileHeight: CGFloat { NotchStyle.scaled(78) }
+    static var tileSpacing: CGFloat { NotchStyle.gridSpacing }
     static let columns = 4
     /// Сколько рядов видно без прокрутки. Три уже закрывают треть экрана.
     static let visibleRows = 2
@@ -64,12 +64,12 @@ struct ShelfPanel: View {
             HStack(spacing: 2) {
                 if !items.isEmpty {
                     NotchPanelCount(value: items.count)
-                    NotchPanelButton(symbol: "trash", action: onClear)
+                    NotchPanelButton(symbol: "trash", hint: t("Очистить полку"), action: onClear)
                 }
                 // Крестик — общий для всех накладок и всегда последний
                 // в крыле: где бы человек ни находился, закрывается панель
                 // одинаково и в одном и том же месте.
-                NotchPanelButton(symbol: "xmark", action: onClose)
+                NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
             }
         } content: {
             if items.isEmpty { empty } else { grid }
@@ -82,7 +82,7 @@ struct ShelfPanel: View {
                 .font(.system(size: NotchStyle.headerFontSize, weight: .medium))
                 .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
             Text(t("Перетащите файлы на чёлку — они лягут сюда"))
-                .font(.system(size: 10))
+                .font(.system(size: NotchStyle.font(10)))
                 .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
         }
         .frame(maxWidth: .infinity)
@@ -126,15 +126,18 @@ struct ShelfPanel: View {
                 .frame(width: 34, height: 34)
 
             Text(item.name)
-                .font(.system(size: 9.5))
+                .font(.system(size: NotchStyle.font(9.5)))
                 .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .truncationMode(.middle)
 
             Text(item.subtitle)
-                .font(.system(size: 8.5))
-                .foregroundStyle(.white.opacity(0.32))
+                .font(.system(size: NotchStyle.font(8.5)))
+                // Ступенью, а не числом по месту: 0.32 давала 2.67:1 —
+                // вдвое ниже нормы, притом что это самый мелкий текст
+                // в приложении и читать его труднее всего.
+                .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
                 .lineLimit(1)
         }
         .padding(.horizontal, 4)

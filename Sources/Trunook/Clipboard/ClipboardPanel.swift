@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// История буфера обмена строками, прямо в вырезе.
@@ -17,8 +18,39 @@ struct ClipboardPanel: View {
     let onOpenSettings: () -> Void
     let onClose: () -> Void
 
-    static let width: CGFloat = 440
-    static let rowHeight: CGFloat = 34
+    /// Место под подсказку клавиш в крыле.
+    ///
+    /// Считается по самому длинному из вариантов, а не подбирается числом:
+    /// набор сочетаний настраивается, и «⇧⌘1…9» шире «⌃⌥1…9».
+    private static var slotHintWidth: CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: NotchStyle.hintFontSize, weight: .medium)
+        return ClipboardSlotModifiers.allCases
+            .compactMap(\.hint)
+            .map { TextMeasure.width($0, font: font) }
+            .max() ?? 0
+    }
+
+    /// Ширина панели.
+    ///
+    /// В крыле, кроме трёх кнопок, стоит подсказка про номерные клавиши.
+    /// При области нажатия в 24 точки ряд перестал помещаться в прежние 440:
+    /// подсказка вылезала под чёлку, где её не прочесть, — а она там ровно
+    /// затем, чтобы о клавишах узнали.
+    /// Прежняя ширина — теперь нижняя граница: у́же панель не станет,
+    /// даже если крылу столько и не нужно.
+    private static var minimumWidth: CGFloat { NotchStyle.scaled(440) }
+
+    static func width(notchWidth: CGFloat) -> CGFloat {
+        max(
+            minimumWidth,
+            NotchStyle.width(
+                fittingWing: NotchStyle.wingRow(buttons: 3, reserved: slotHintWidth),
+                notchWidth: notchWidth,
+                bodyPadding: NotchStyle.bottomPadding
+            )
+        )
+    }
+    static var rowHeight: CGFloat { NotchStyle.scaled(34) }
     /// Промежуток между строками входит в расчёт высоты: без него список
     /// обрезал последнюю строку ровно на величину всех зазоров.
     static let rowSpacing = NotchStyle.rowSpacing
@@ -36,7 +68,11 @@ struct ClipboardPanel: View {
     }
 
     var body: some View {
-        NotchPanel(metrics: metrics, width: Self.width, bodyPadding: NotchStyle.bottomPadding) {
+        NotchPanel(
+            metrics: metrics,
+            width: Self.width(notchWidth: metrics.notchWidth),
+            bodyPadding: NotchStyle.bottomPadding
+        ) {
             NotchPanelTitle(
                 symbol: "doc.on.clipboard",
                 title: t("Буфер"),
@@ -53,13 +89,13 @@ struct ClipboardPanel: View {
                         .fixedSize()
                 }
                 if !entries.isEmpty {
-                    NotchPanelButton(symbol: "trash", action: onClear)
+                    NotchPanelButton(symbol: "trash", hint: t("Очистить историю"), action: onClear)
                 }
-                NotchPanelButton(symbol: "gearshape", action: onOpenSettings)
+                NotchPanelButton(symbol: "gearshape", hint: t("Настройки"), action: onOpenSettings)
                 // Крестик — общий для всех накладок и всегда последний
                 // в крыле: где бы человек ни находился, закрывается панель
                 // одинаково и в одном и том же месте.
-                NotchPanelButton(symbol: "xmark", action: onClose)
+                NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
             }
         } content: {
             if entries.isEmpty { empty } else { list }
@@ -69,11 +105,11 @@ struct ClipboardPanel: View {
     private var empty: some View {
         VStack(spacing: 3) {
             Text(t("Пока пусто"))
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.5))
+                .font(.system(size: NotchStyle.font(11), weight: .medium))
+                .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
             Text(t("Скопируйте что-нибудь — запись появится здесь"))
-                .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.3))
+                .font(.system(size: NotchStyle.font(10)))
+                .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
         }
         .frame(maxWidth: .infinity)
         .frame(height: Self.rowHeight)
@@ -91,30 +127,38 @@ struct ClipboardPanel: View {
     }
 
     private func row(_ entry: ClipboardEntry, index: Int) -> some View {
+        // `NotchTile`, а не своя подложка. Своя была двумя ошибками сразу:
+        // плотность 0.06 против 0.08 у соседних панелей — то есть строка была
+        // тусклее всего, что лежит рядом, — и мимо `dense()`, поэтому при
+        // «уменьшить прозрачность» она одна не уплотнялась.
+        //
+        // Главное же — отклика на курсор не было вовсе. Плитка написана ровно
+        // против этого, и панель, где строк больше всего и промах дороже
+        // всего, обходилась без неё дольше остальных.
         Button { onUse(entry) } label: {
-            HStack(spacing: 9) {
-                number(index)
-                preview(entry)
-                    .frame(width: 18, height: 18)
+            NotchTile(id: "clipboard-\(entry.id)", radius: NotchStyle.rowRadius) {
+                HStack(spacing: 9) {
+                    number(index)
+                    preview(entry)
+                        .frame(width: 18, height: 18)
 
-                Text(entry.oneLine)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    Text(entry.oneLine)
+                        .font(.system(size: NotchStyle.font(11.5)))
+                        .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-                Spacer(minLength: 8)
+                    Spacer(minLength: 8)
 
-                Text(subtitle(entry))
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.white.opacity(0.35))
-                    .lineLimit(1)
-                    .fixedSize()
+                    Text(subtitle(entry))
+                        .font(.system(size: NotchStyle.font(9.5)))
+                        .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                .padding(.horizontal, 8)
+                .frame(height: Self.rowHeight)
             }
-            .padding(.horizontal, 8)
-            .frame(height: Self.rowHeight)
-            .background(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous).fill(.white.opacity(0.06)))
-            .contentShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
         }
         .buttonStyle(PressableStyle())
         .contextMenu {
@@ -127,8 +171,8 @@ struct ClipboardPanel: View {
     private func number(_ index: Int) -> some View {
         if index < ClipboardService.hotSlotCount {
             Text("\(index + 1)")
-                .font(.system(size: 9, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.45))
+                .font(.system(size: NotchStyle.font(9), weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
                 .frame(width: 14)
         } else {
             Color.clear.frame(width: 14)
@@ -144,8 +188,11 @@ struct ClipboardPanel: View {
                 .clipShape(RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous))
         } else {
             Image(systemName: entry.kind.symbol)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.4))
+                .font(.system(size: NotchStyle.font(11), weight: .medium))
+                .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
+                // Вид записи виден по самому тексту строки рядом: диктору
+                // значок добавил бы шум, а не сведения.
+                .accessibilityHidden(true)
         }
     }
 

@@ -14,6 +14,10 @@ final class NotchWindow: NSPanel {
             defer: false
         )
 
+        // Полосы заголовка у окна без рамки нет, и на экране имя не появится.
+        // Нужно оно диктору: без него VoiceOver добирался до безымянного окна
+        // и сказать о нём мог только «окно».
+        title = AppInfo.name
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false

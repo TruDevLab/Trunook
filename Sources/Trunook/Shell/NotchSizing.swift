@@ -32,6 +32,8 @@ enum NotchPresentation: Equatable {
     case monitor
     /// Телесуфлер под самой чёлкой — там, где камера.
     case teleprompter
+    /// Выбор срока для чашки кофе.
+    case caffeine
 }
 
 enum SwipeDirection: Equatable {
@@ -190,7 +192,7 @@ enum NotchSizing {
             )
         case .clipboard:
             return CGSize(
-                width: ClipboardPanel.width,
+                width: ClipboardPanel.width(notchWidth: metrics.notchWidth),
                 height: ClipboardPanel.height(
                     notchHeight: metrics.notchHeight,
                     rows: content.clipboardRows
@@ -216,8 +218,13 @@ enum NotchSizing {
             )
         case .teleprompter:
             return CGSize(
-                width: TeleprompterPanel.width,
+                width: TeleprompterPanel.width(notchWidth: metrics.notchWidth),
                 height: TeleprompterPanel.height(notchHeight: metrics.notchHeight)
+            )
+        case .caffeine:
+            return CGSize(
+                width: CaffeinePanel.width,
+                height: CaffeinePanel.height(notchHeight: metrics.notchHeight)
             )
         case .hub:
             return CGSize(

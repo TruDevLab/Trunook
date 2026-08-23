@@ -12,7 +12,7 @@ struct AssistantPanel: View {
     let onSend: (String) -> Void
     let onClose: () -> Void
 
-    static let width: CGFloat = 480
+    static var width: CGFloat { NotchStyle.scaled(480) }
     static let headerHeight: CGFloat = 24
     /// Высота нижней строки. Ровно по самому высокому в ней — полю ввода:
     /// лишний люфт уходил в нижнее поле панели, и снизу оказывалось
@@ -85,7 +85,7 @@ struct AssistantPanel: View {
                 }
             }
         } trailing: {
-            NotchPanelButton(symbol: "xmark", action: onClose)
+            NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
         } content: {
             VStack(alignment: .leading, spacing: NotchStyle.gridSpacing) {
                 body_
@@ -106,14 +106,14 @@ struct AssistantPanel: View {
                 VStack(alignment: .leading, spacing: 3) {
                     if let error = session.error {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11.5))
+                            .font(.system(size: NotchStyle.font(11.5)))
                             .foregroundStyle(.orange)
                     }
                     if session.answer.isEmpty {
                         // Пустое место под ответом молчит непонятно: у панели,
                         // открытой кнопкой, ответа ещё нет и не было.
                         Text(emptyText)
-                            .font(.system(size: 12))
+                            .font(.system(size: NotchStyle.font(12)))
                             .foregroundStyle(.white.opacity(0.4))
                     } else {
                         ForEach(MarkdownRender.lines(from: session.answer)) { line in
@@ -157,11 +157,11 @@ struct AssistantPanel: View {
             // перестаёт читаться списком.
             HStack(alignment: .top, spacing: 6) {
                 Text(marker)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .font(.system(size: NotchStyle.font(12)))
+                    .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
                     .frame(width: 14, alignment: .trailing)
                 Text(line.text)
-                    .font(.system(size: 12))
+                    .font(.system(size: NotchStyle.font(12)))
                     .foregroundStyle(.white.opacity(0.92))
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -173,7 +173,7 @@ struct AssistantPanel: View {
                     .fill(.white.opacity(0.25))
                     .frame(width: 2)
                 Text(line.text)
-                    .font(.system(size: 12))
+                    .font(.system(size: NotchStyle.font(12)))
                     .foregroundStyle(.white.opacity(0.7))
                 Spacer(minLength: 0)
             }
@@ -181,7 +181,7 @@ struct AssistantPanel: View {
 
         case .code:
             Text(line.text)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: NotchStyle.font(11), design: .monospaced))
                 .foregroundStyle(.white.opacity(0.85))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -195,7 +195,7 @@ struct AssistantPanel: View {
 
         case .paragraph:
             Text(line.text)
-                .font(.system(size: 12))
+                .font(.system(size: NotchStyle.font(12)))
                 .foregroundStyle(.white.opacity(0.92))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -215,7 +215,8 @@ struct AssistantPanel: View {
                     placeholder: session.hasNoConversation
                         ? t("Спросите что угодно")
                         : t("Спросите ещё"),
-                    onSubmit: { onSend(session.draft) }
+                    onSubmit: { onSend(session.draft) },
+                    onFocusChange: { session.isDraftFocused = $0 }
                 )
                 .frame(height: Self.fieldHeight)
                 .padding(.horizontal, 12)
@@ -232,14 +233,24 @@ struct AssistantPanel: View {
                 // Капсула обычная, не `.continuous`: у сглаженной обводка
                 // торца рвётся — дуга не доходит до края, и слева от неё
                 // остаётся отдельный вертикальный огрызок.
+                //
+                // Обводка вдвое ярче и вдвое толще, когда поле в фокусе.
+                // Это и есть кольцо фокуса — своей формы и своего цвета,
+                // вместо системного синего прямоугольника, который ложился
+                // поперёк капсулы.
                 .background(
                     Capsule()
                         .fill(.white.opacity(NotchStyle.tileFill))
                         .overlay(
-                            Capsule()
-                                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                            Capsule().strokeBorder(
+                                session.isDraftFocused
+                                    ? Palette.assistant.opacity(NotchStyle.dense(0.85))
+                                    : .white.opacity(NotchStyle.dense(0.12)),
+                                lineWidth: session.isDraftFocused ? 1.5 : 1
+                            )
                         )
                 )
+                .animation(.easeOut(duration: 0.12), value: session.isDraftFocused)
 
                 action(t("Отправить"), symbol: "arrow.up.circle.fill") { onSend(session.draft) }
                     .disabled(session.draft.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -262,7 +273,7 @@ struct AssistantPanel: View {
     private func action(_ title: String, symbol: String, run: @escaping () -> Void) -> some View {
         Button(action: run) {
             Label(title, systemImage: symbol)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: NotchStyle.font(11), weight: .medium))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 6)
@@ -282,6 +293,9 @@ struct FocusedTextField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
     var onSubmit: () -> Void
+    /// Поле получило или отдало первый отклик. Обводку по этому признаку
+    /// рисует подложка — своей формы и своего цвета.
+    var onFocusChange: (Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -295,7 +309,8 @@ struct FocusedTextField: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        let field = FocusReportingField()
+        field.onFocusChange = onFocusChange
         field.delegate = context.coordinator
         field.placeholderAttributedString = Self.hint(placeholder)
         field.font = .systemFont(ofSize: 12)
@@ -304,6 +319,18 @@ struct FocusedTextField: NSViewRepresentable {
         // прямоугольной и торчала бы углами из скруглённой подложки.
         field.drawsBackground = false
         field.isBordered = false
+        // Системное кольцо снято, но признак фокуса остался — его рисует
+        // сама подложка в `AssistantPanel`.
+        //
+        // Кольцо тут побывало дважды. Сначала его сняли, и при полном доступе
+        // с клавиатуры поле не показывало, что оно в фокусе. Потом вернули
+        // как `.exterior` — и получили синий системный прямоугольник поверх
+        // капсулы: чужой формы, чужого цвета и в единственном месте
+        // приложения, где вообще есть системная синева.
+        //
+        // Верно и то и другое: признак нужен, но рисовать его должно то же,
+        // что рисует само поле. Поле сообщает о фокусе наружу, подложка
+        // меняет обводку — форма своя, цвет свой.
         field.focusRingType = .none
         field.cell?.usesSingleLineMode = true
         field.cell?.wraps = false
@@ -315,6 +342,47 @@ struct FocusedTextField: NSViewRepresentable {
         context.coordinator.parent = self
         if field.stringValue != text { field.stringValue = text }
         field.placeholderAttributedString = Self.hint(placeholder)
+    }
+
+    /// `NSTextField`, сообщающий о своём фокусе.
+    ///
+    /// Через подкласс, а не через делегат: `controlTextDidBeginEditing`
+    /// приходит на первом набранном символе, а обводка нужна с того
+    /// мгновения, как поле стало первым откликом, — то есть до набора.
+    ///
+    /// Редактирование в `NSTextField` ведёт общий на окно `NSTextView`,
+    /// поэтому первым откликом становится он, а поле остаётся его
+    /// «делегатом поля». Отсюда проверка на `currentEditor`, а не просто
+    /// возврат `true`.
+    final class FocusReportingField: NSTextField {
+        var onFocusChange: (Bool) -> Void = { _ in }
+
+        override func becomeFirstResponder() -> Bool {
+            let became = super.becomeFirstResponder()
+            guard became else { return false }
+            // Курсор цветом панели, а не системным синим. Синева ушла
+            // с обводки, но осталась бы в мигающей чёрточке — в единственном
+            // месте выреза, где вообще есть системный акцент.
+            //
+            // Здесь, а не в `makeNSView`: у `NSTextField` своего курсора нет,
+            // рисует его общий на окно редактор полей, и достаётся он только
+            // тогда, когда поле уже стало первым откликом.
+            (currentEditor() as? NSTextView)?.insertionPointColor =
+                NSColor(Palette.assistant)
+            onFocusChange(true)
+            return true
+        }
+
+        override func resignFirstResponder() -> Bool {
+            let resigned = super.resignFirstResponder()
+            if resigned { onFocusChange(false) }
+            return resigned
+        }
+
+        override func textDidEndEditing(_ notification: Notification) {
+            super.textDidEndEditing(notification)
+            onFocusChange(false)
+        }
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {

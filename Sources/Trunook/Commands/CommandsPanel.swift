@@ -46,11 +46,11 @@ struct CommandsPanel: View {
             )
         } trailing: {
             HStack(spacing: 2) {
-                NotchPanelButton(symbol: "gearshape", action: onOpenSettings)
+                NotchPanelButton(symbol: "gearshape", hint: t("Настройки"), action: onOpenSettings)
                 // Крестик — общий для всех накладок и всегда последний
                 // в крыле: где бы человек ни находился, закрывается панель
                 // одинаково и в одном и том же месте.
-                NotchPanelButton(symbol: "xmark", action: onClose)
+                NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
             }
         } content: {
             VStack(spacing: Self.spacing) {
@@ -83,9 +83,9 @@ struct CommandsPanel: View {
                 Button { onRun(command) } label: {
                     VStack(spacing: 5) {
                         Image(systemName: command.effectiveSymbol)
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.system(size: NotchStyle.font(16), weight: .medium))
                         Text(command.title)
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: NotchStyle.font(10), weight: .medium))
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
                             // Поля по бокам: без них длинная подпись упиралась
@@ -97,8 +97,10 @@ struct CommandsPanel: View {
                     .overlay(alignment: .topTrailing) {
                         // Номер слота: он же цифра в сочетании ⌃⌥N.
                         Text("\(command.id + 1)")
-                            .font(.system(size: 9, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.35))
+                            .font(.system(size: NotchStyle.font(9), weight: .bold, design: .rounded))
+                            // 0.35 давала 3.06:1 — цифру, по которой нажимают
+                            // клавишу, читать было нечем.
+                            .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
                             .padding(5)
                     }
                     // Зона нажатия — вся плитка, а не только надпись:
@@ -113,11 +115,11 @@ struct CommandsPanel: View {
             Button(action: onOpenSettings) {
                 VStack(spacing: 5) {
                     Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: NotchStyle.font(14), weight: .medium))
                     Text(tf("Слот %d", command.id + 1))
-                        .font(.system(size: 10))
+                        .font(.system(size: NotchStyle.font(10)))
                 }
-                .foregroundStyle(.white.opacity(0.3))
+                .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
                 .frame(width: Self.slotWidth, height: Self.slotHeight)
                 .background(
                     RoundedRectangle(cornerRadius: NotchStyle.tileRadius, style: .continuous)

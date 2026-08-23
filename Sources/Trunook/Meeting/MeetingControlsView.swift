@@ -41,14 +41,14 @@ struct MeetingControlsView: View {
             meeting.perform(action)
         } label: {
             Image(systemName: action.symbol(isOn: isOn))
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: NotchStyle.font(13), weight: .medium))
                 .foregroundStyle(foreground(action, isOn: isOn))
                 .frame(width: Self.buttonSize, height: Self.buttonSize)
                 .background(Circle().fill(background(action, isOn: isOn)))
                 .contentShape(Circle())
         }
         .buttonStyle(PressableStyle())
-        .help(action.title)
+        .notchHint(action.title)
     }
 
     /// Выключенные микрофон и камера подсвечены красным — это состояние,

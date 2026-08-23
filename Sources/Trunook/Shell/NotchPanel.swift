@@ -53,12 +53,8 @@ struct NotchPanel<Leading: View, Trailing: View, Content: View>: View {
     /// Поле под последней строкой.
     private var bottomInset: CGFloat { bodyPadding ?? NotchStyle.bottomPadding }
 
-    /// Отступ от самой чёлки: вплотную к ней подпись читается как часть
-    /// аппаратного выреза, а не как заголовок панели.
-    private static var notchInset: CGFloat { 10 }
-
     private var wingWidth: CGFloat {
-        max(0, (width - metrics.notchWidth) / 2 - outerInset - Self.notchInset)
+        max(0, (width - metrics.notchWidth) / 2 - outerInset - NotchStyle.notchInset)
     }
 
     var body: some View {
@@ -82,7 +78,7 @@ struct NotchPanel<Leading: View, Trailing: View, Content: View>: View {
 
             // Место самой чёлки: здесь панель не рисует ничего, потому что
             // здесь её просто не видно.
-            Spacer(minLength: metrics.notchWidth + 2 * Self.notchInset)
+            Spacer(minLength: metrics.notchWidth + 2 * NotchStyle.notchInset)
 
             trailing()
                 .frame(width: wingWidth, alignment: .trailing)
@@ -103,7 +99,7 @@ struct NotchPanelTitle: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: symbol)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: NotchStyle.font(10), weight: .semibold))
                 .foregroundStyle(tint.opacity(0.85))
             Text(title)
                 .font(.system(size: NotchStyle.headerFontSize, weight: .semibold))
@@ -117,24 +113,42 @@ struct NotchPanelTitle: View {
 /// Кнопка-значок в правом крыле.
 struct NotchPanelButton: View {
     let symbol: String
-    /// Подпись для всплывающей подсказки. Крестику и шестерёнке она не нужна —
-    /// их узнают по значку, — а вот ряду из шести значков оформления
-    /// без подписей не обойтись: «Ж» от «К» на глифе размером с букву
-    /// отличается не сразу.
-    var hint: String?
+    /// Подпись значка — обязательная.
+    ///
+    /// Была необязательной, и тринадцать кнопок из двадцати одной обходились
+    /// без неё: считалось, что крестик и шестерёнку узнают по самому значку.
+    /// Глазом — да. Но `hint` уходил ещё и в `.accessibilityLabel`, а там
+    /// `hint ?? ""` подставлял пустую строку — и она не просто ничего
+    /// не добавляет, она **перекрывает** имя, которое SwiftUI вывел бы
+    /// из названия символа. VoiceOver говорил «кнопка» и умолкал.
+    ///
+    /// Обязательным поле сделано, чтобы четырнадцатую кнопку без подписи
+    /// поймал компилятор, а не следующий аудит.
+    let hint: String
     let action: () -> Void
+
+    /// Сторона области нажатия.
+    ///
+    /// Было 18. Норма для указательного ввода — 24, и послабление
+    /// «маленькие цели можно, если они разрежены» здесь не работает: кнопки
+    /// стоят с шагом в две точки, а послабление требует двадцати четырёх
+    /// между центрами.
+    ///
+    /// Растёт только область нажатия — кегль значка прежний, десять пунктов.
+    /// Рисунок шапки не меняется, меняется то, куда можно попасть курсором.
+    static var size: CGFloat { max(24, NotchStyle.scaled(24)) }
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: NotchStyle.font(10), weight: .medium))
                 .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
-                .frame(width: 18, height: 18)
+                .frame(width: Self.size, height: Self.size)
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressableStyle())
-        .help(hint ?? "")
-        .accessibilityLabel(hint ?? "")
+        // Имя для диктора и плашка под чёлкой для глаза — из одной строки.
+        .notchHint(hint)
     }
 }
 
@@ -144,7 +158,7 @@ struct NotchPanelCount: View {
 
     var body: some View {
         Text("\(value)")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: NotchStyle.font(9), weight: .bold, design: .rounded))
             .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
             .padding(.horizontal, 4)
             .padding(.vertical, 0.5)

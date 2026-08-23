@@ -12,15 +12,20 @@ struct WeatherCorner: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: snapshot.condition.symbol)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: NotchStyle.font(12), weight: .medium))
                 .foregroundStyle(snapshot.condition.tint)
             Text("\(snapshot.temperature)°")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: NotchStyle.font(12), weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.85))
         }
         .frame(height: notchHeight)
-        .help(helpText)
+        // Не кнопка, но и не украшение: значок состояния плюс число.
+        // Порознь диктор читал их как «12 градусов» — без самой погоды,
+        // ради которой всё и показано. Собираем в один элемент и называем.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(tf("%@, %d°", snapshot.condition.title, snapshot.temperature))
+        .notchActionHint(helpText)
     }
 
     private var helpText: String {

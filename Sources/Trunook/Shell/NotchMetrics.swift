@@ -12,9 +12,9 @@ struct NotchMetrics: Equatable {
     static let concaveOverhang: CGFloat = 8
 
     /// Высота строки со встречей в раскрытой панели.
-    static let eventRowHeight: CGFloat = 38
+    static var eventRowHeight: CGFloat { NotchStyle.scaled(38) }
     /// Строка задачи ниже: их бывает несколько подряд.
-    static let taskRowHeight: CGFloat = 26
+    static var taskRowHeight: CGFloat { NotchStyle.scaled(26) }
     /// Сколько задач помещаем в панель, прежде чем свернуть остаток в «+N».
     static let maxVisibleTasks = 3
     /// Сколько строк встреч показываем — на ближайшее время и следующее
@@ -32,7 +32,7 @@ struct NotchMetrics: Equatable {
     }
 
     /// Высота строки музыки: обложка задаёт её целиком.
-    static let musicRowHeight: CGFloat = 44
+    static var musicRowHeight: CGFloat { NotchStyle.scaled(44) }
 
     /// Раскрытая панель растёт вниз ровно на высоту того, что показывает.
     /// Складывается по общему правилу панелей: шапка живёт в крыльях,
@@ -76,6 +76,7 @@ struct NotchMetrics: Equatable {
         // «две строки», и пятая плитка вылезла бы за окно, а окно обрезает.
         let hub = HubPanel.height(notchHeight: notchHeight, count: HubEntry.count)
         let teleprompter = TeleprompterPanel.height(notchHeight: notchHeight)
+        let caffeine = CaffeinePanel.height(notchHeight: notchHeight)
         let shelf = ShelfPanel.height(
             notchHeight: notchHeight,
             count: ShelfPanel.columns * ShelfPanel.visibleRows
@@ -86,14 +87,20 @@ struct NotchMetrics: Equatable {
                 ChipView.width(metrics: self),
                 TimerChipView.width(metrics: self, showsHours: true),
                 CommandsPanel.width,
-                ClipboardPanel.width,
+                ClipboardPanel.width(notchWidth: notchWidth),
                 AssistantPanel.width,
                 ShelfPanel.width,
                 HubPanel.width,
-                TeleprompterPanel.width,
+                TeleprompterPanel.width(notchWidth: notchWidth),
+                CaffeinePanel.width,
                 MeetingControlsView.width(actionCount: MeetingAction.allCases.count)
             ),
-            height: max(panel.height, commands, clipboard, assistant, shelf, hub, teleprompter)
+            // Плашка с подписью значка висит под панелью, а окно обрезает:
+            // без запаса она пропала бы ровно там, где нужнее всего, —
+            // под самой высокой панелью, телесуфлером с его шестью значками
+            // оформления.
+            height: max(panel.height, commands, clipboard, assistant, shelf, hub, teleprompter, caffeine)
+                + NotchHintLayout.reserved
         )
     }
 }

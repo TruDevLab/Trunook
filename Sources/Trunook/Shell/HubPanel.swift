@@ -71,11 +71,11 @@ struct HubPanel: View {
             NotchPanelTitle(symbol: "square.grid.2x2", title: t("Всё сразу"))
         } trailing: {
             HStack(spacing: 2) {
-                NotchPanelButton(symbol: "gearshape", action: onOpenSettings)
+                NotchPanelButton(symbol: "gearshape", hint: t("Настройки"), action: onOpenSettings)
                 // Крестик — общий для всех накладок и всегда последний
                 // в крыле: где бы человек ни находился, закрывается панель
                 // одинаково и в одном и том же месте.
-                NotchPanelButton(symbol: "xmark", action: onClose)
+                NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
             }
         } content: {
             LazyVGrid(columns: columnLayout, spacing: Self.tileSpacing) {
@@ -89,7 +89,7 @@ struct HubPanel: View {
             Button(action: item.action) {
             VStack(spacing: 5) {
                 Image(systemName: item.symbol)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: NotchStyle.font(16), weight: .medium))
                     .foregroundStyle(item.isEnabled ? item.tint : .white.opacity(0.25))
                     // Высота задана жёстко: значки системного набора разного
                     // роста — «доска с листом» и циферблат выше подноса, —
@@ -97,14 +97,14 @@ struct HubPanel: View {
                     // читался кривым.
                     .frame(height: Self.symbolHeight)
                 Text(item.title)
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(.system(size: NotchStyle.font(10.5), weight: .medium))
                     .foregroundStyle(.white.opacity(item.isEnabled ? 0.9 : 0.35))
                     .lineLimit(1)
                 // Строка подсказки есть у всех, даже когда сочетания нет:
                 // без неё плитки с клавишей и без неё вставали на разной
                 // высоте, и ряд читался рваным.
                 Text(item.hint ?? " ")
-                    .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                    .font(.system(size: NotchStyle.font(8.5), weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(item.isEnabled ? 0.3 : 0.18))
                     .opacity(item.hint == nil ? 0 : 1)
                     .lineLimit(1)

@@ -79,7 +79,7 @@ struct PreviewPanel: View {
                 .fill(.white.opacity(0.12))
                 .overlay(
                     Image(systemName: event?.symbol ?? "calendar")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: NotchStyle.font(12), weight: .medium))
                         .foregroundStyle(event?.color ?? .white.opacity(0.5))
                 )
         }
@@ -98,7 +98,7 @@ struct PreviewPanel: View {
                     ZStack {
                         Color.black.opacity(0.4)
                         Image(systemName: track?.isPlaying == true ? "pause.fill" : "play.fill")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: NotchStyle.font(10), weight: .bold))
                             .foregroundStyle(.white)
                     }
                 }
@@ -106,6 +106,10 @@ struct PreviewPanel: View {
                 .contentShape(RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous))
         }
         .buttonStyle(PressableStyle())
+        // Обложка — картинка, своего текста у неё нет: без имени диктор
+        // объявлял бы её просто «кнопкой». Подпись меняется вместе
+        // со значком, как и у кнопки воспроизведения в раскрытой панели.
+        .notchHint(track?.isPlaying == true ? t("Пауза") : t("Играть"))
     }
 
     @ViewBuilder
@@ -120,7 +124,7 @@ struct PreviewPanel: View {
                 .fill(.white.opacity(0.12))
                 .overlay(
                     Image(systemName: "music.note")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: NotchStyle.font(12), weight: .medium))
                         .foregroundStyle(.white.opacity(0.5))
                 )
         }
@@ -136,8 +140,13 @@ struct SwipeIndicator: View {
 
     var body: some View {
         Image(systemName: direction == .next ? "forward.fill" : "backward.fill")
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: NotchStyle.font(14), weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: NotchSizing.swipeExtension)
+            // Плашки под чёлкой здесь быть не может: указатель живёт
+            // во время жеста двумя пальцами, а не по наведению — показывать
+            // подпись некому и некогда. Имя всё равно нужно: значок
+            // сообщает, куда переключится трек, если довести палец.
+            .accessibilityLabel(direction == .next ? t("Следующий трек") : t("Предыдущий трек"))
     }
 }

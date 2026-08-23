@@ -69,6 +69,10 @@ final class PurrEffects {
     /// подрагивание.
     private func startTremble() {
         guard trembleTimer == nil else { return }
+        // Дрожь — то самое движение, от которого настройка и защищает.
+        // Мурчание при этом остаётся: звук и виброотклик к движению
+        // на экране отношения не имеют.
+        guard !MotionPreference.shared.reduceMotion else { return }
         let started = Date()
         let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }

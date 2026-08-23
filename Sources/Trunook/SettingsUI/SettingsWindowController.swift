@@ -24,6 +24,7 @@ final class SettingsWindowController {
         clipboard: ClipboardService,
         weather: WeatherService,
         onHotKeysChanged: @escaping () -> Void,
+        onLayoutChanged: @escaping () -> Void,
         onOpenWelcome: @escaping () -> Void
     ) {
         // Всё, что приходит извне, перечитывается при каждом открытии, а не
@@ -62,11 +63,15 @@ final class SettingsWindowController {
             weather: weather,
             placeSearch: placeSearch,
             onHotKeysChanged: onHotKeysChanged,
+            onLayoutChanged: onLayoutChanged,
             onOpenWelcome: onOpenWelcome
         )
         let window = NSWindow(
             contentRect: CGRect(origin: .zero, size: SettingsView.size),
-            styleMask: [.titled, .closable, .miniaturizable],
+            // `.resizable` — с тех пор, как окно растёт вместе с текстом.
+            // На двухстах процентах оно упирается в кромку экрана, и прижатое
+            // к ней содержимое нужно чем-то доставать.
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -76,7 +81,24 @@ final class SettingsWindowController {
         // от другого приложения.
         window.appearance = NSAppearance(named: .darkAqua)
         window.titlebarAppearsTransparent = true
-        window.backgroundColor = NSColor(SettingsStyle.background)
+        // Подложка окна — основание того же фона, что рисует содержимое.
+        //
+        // Полоса заголовка лежит выше содержимого и его фоном не закрыта:
+        // красит её сама подложка окна. Когда подложку сделали прозрачной —
+        // из опасения, что она закроет плывущие пятна, — полоса стала
+        // просвечивать до рабочего стола, и кнопка закрытия пропадала
+        // на светлых обоях.
+        //
+        // Опасение было напрасным: подложка лежит **под** содержимым, а фон
+        // рисует само содержимое и рисует непрозрачно. В области содержимого
+        // подложки не видно вовсе; видно её ровно там, где она и нужна, —
+        // в полосе заголовка.
+        //
+        // `Palette.windowBase`, а не системный серый: это тот же цвет, на
+        // котором стоят пятна, и переход от полосы к содержимому не читается
+        // вовсе.
+        window.backgroundColor = NSColor(Palette.windowBase)
+        window.isOpaque = true
         window.contentView = NSHostingView(rootView: view)
         window.isReleasedWhenClosed = false
         self.window = window
@@ -85,7 +107,7 @@ final class SettingsWindowController {
     }
 
     func snapshot() {
-        WindowSnapshot.write(window, named: "settings")
+        WindowSnapshot.write(window, named: "settings", withTitlebar: true)
     }
 
     /// `NSWindow.center()` ориентируется на экран, где окно уже находится,

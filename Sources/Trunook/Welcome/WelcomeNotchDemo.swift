@@ -16,6 +16,13 @@ struct WelcomeNotchDemo: View {
     /// прочитаться, а ожидание следующего не тяготило.
     private static let loop: TimeInterval = 22.5
 
+    /// На каком кадре замирает показ при «уменьшить движение».
+    ///
+    /// Не ноль: в начале цикла сцена ещё пуста, и вместо объяснения человек
+    /// увидел бы пустой прямоугольник. Треть цикла — момент, когда на сцене
+    /// уже что-то есть.
+    private static let stillFrame: TimeInterval = loop / 3
+
     private static let closedSize = CGSize(width: 168, height: 26)
     private static let previewSize = CGSize(width: 252, height: 46)
     /// Раскрытая панель заметно уже макета экрана: иначе она упирается
@@ -29,10 +36,18 @@ struct WelcomeNotchDemo: View {
     /// Плашка о полке — из тех, что выпадают из-под чёлки одной строкой.
     private static let chipSize = CGSize(width: 244, height: 42)
 
+    @ObservedObject private var motion = MotionPreference.shared
+
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { context in
-            let time = context.date.timeIntervalSinceReferenceDate
-                .truncatingRemainder(dividingBy: Self.loop)
+        // При «уменьшить движение» показ замирает на одном кадре, а не крутит
+        // цикл тридцать раз в секунду. Кадр выбран не нулевой: в нуле сцена
+        // ещё пуста, и вместо объяснения человек увидел бы пустой прямоугольник.
+        TimelineView(motion.reduceMotion ? .periodic(from: .now, by: .infinity)
+                                         : .periodic(from: .now, by: 1.0 / 30.0)) { context in
+            let time = motion.reduceMotion
+                ? Self.stillFrame
+                : context.date.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: Self.loop)
             VStack(spacing: 14) {
                 stage(at: time)
                 caption(at: time)
@@ -362,7 +377,7 @@ struct WelcomeNotchDemo: View {
                 Spacer(minLength: 0)
                 Text("⌃⌥V")
                     .font(.system(size: 7, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.3))
+                    .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
             }
             ForEach(0..<3, id: \.self) { index in
                 HStack(spacing: 7) {
@@ -398,7 +413,7 @@ struct WelcomeNotchDemo: View {
                 Spacer(minLength: 0)
                 Text("⌃⌥C")
                     .font(.system(size: 7, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.3))
+                    .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
             }
             VStack(spacing: 5) {
                 ForEach(0..<2, id: \.self) { row in
@@ -500,7 +515,7 @@ struct WelcomeNotchDemo: View {
                 Spacer(minLength: 0)
                 Text("⌃⌥S")
                     .font(.system(size: 7, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.3))
+                    .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
             }
             HStack(spacing: 6) {
                 ForEach(0..<4, id: \.self) { index in

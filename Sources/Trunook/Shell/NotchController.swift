@@ -11,7 +11,7 @@ import Combine
 /// службы и решения о том, что показать.
 final class NotchController {
     let music = MusicClient()
-    let activities = ActivityCenter()
+    let activities = ActivityCenter(settings: .shared)
     let battery = BatteryMonitor()
     let calendar = CalendarService()
     let things = ThingsService()
@@ -240,6 +240,10 @@ final class NotchController {
             self.updateWindowInteractivity()
         }
 
+        // Плашка смены трека данных не несёт — читает их живьём. Диктору
+        // текст нужен ровно тогда же, поэтому и он берётся отсюда.
+        activities.nowPlaying = { [weak self] in self?.music.nowPlaying }
+
         // Срок удержания экрана вышел — говорим об этом плашкой. Молча
         // отпустить экран значило бы оставить человека гадать, почему тот
         // вдруг снова гаснет.
@@ -320,6 +324,14 @@ final class NotchController {
         if settings.shelfEnabled, let shelfKey = settings.shelfHotKey {
             HotKeyCenter.shared.register(shelfKey, name: "полка") { [weak self] in
                 self?.toggleShelf()
+            }
+        }
+
+        // Основная панель. Переключателем, как и накладки: нажали при
+        // раскрытой — свернулась.
+        if let expandedKey = settings.expandedHotKey {
+            HotKeyCenter.shared.register(expandedKey, name: "основная панель") { [weak self] in
+                self?.toggleExpanded()
             }
         }
 
@@ -889,16 +901,46 @@ final class NotchController {
         router.toggle(.hub)
     }
 
-    /// Чашка кофе: экран перестаёт гаснуть — или снова начинает.
+    // MARK: - Бодрость
+
+    /// Нажатие по чашке открывает выбор срока.
     ///
-    /// Плашку показываем в обе стороны. Включение без подтверждения выглядит
-    /// как непонятно сработавшая кнопка, а выключение без него — как будто
-    /// оно не сработало вовсе: подложка под чашкой пропадает, но панель
-    /// к этому моменту уже закрыта, и увидеть это не в чем.
-    private func toggleAwake() {
-        let isOn = wake.toggle()
+    /// Раньше оно переключало удержание вслепую: срок брался из настроек,
+    /// и какой он, из выреза было не узнать. Чашку же включают под конкретное
+    /// дело, и срок у каждого дела свой — ходить за ним в отдельное окно
+    /// дороже самого дела.
+    func openAwake() {
+        router.set(.caffeine)
+    }
+
+    /// Выбран срок. Ноль — без ограничения.
+    ///
+    /// Панель после выбора закрывается: выбор срока — это и есть всё, зачем
+    /// её открывали, и оставлять её висеть значило бы требовать ещё одного
+    /// нажатия по крестику.
+    private func chooseAwakeLimit(minutes: Int) {
+        let wasOn = wake.isOn
+        wake.setLimit(minutes: minutes)
+        router.close()
         Haptics.tap(.levelChange)
-        activities.present(.caffeine(change: isOn ? .on(minutes: wake.limitMinutes) : .off))
+        // Плашку показываем только на включении. При перестановке срока
+        // у горящей чашки её не нужно: панель была открыта, человек видел,
+        // что нажал, — а плашка поверх только что закрытой панели читалась бы
+        // как второе, отдельное событие.
+        if !wasOn {
+            activities.present(.caffeine(change: .on(minutes: minutes)))
+        }
+    }
+
+    /// Выключить удержание.
+    ///
+    /// Плашка нужна: подложка под чашкой пропадает, но панель к этому моменту
+    /// уже закрыта, и без плашки выключение выглядело бы не сработавшим.
+    private func disableAwake() {
+        wake.disable()
+        router.close()
+        Haptics.tap(.levelChange)
+        activities.present(.caffeine(change: .off))
     }
 
     /// Телесуфлер. Клавишей — переключателем, как и остальные накладки.
@@ -936,6 +978,32 @@ final class NotchController {
         if !state.isHovered { setHovered(true) }
         state.isPinnedOpen = true
         host.updateInteractiveRect()
+    }
+
+    /// Пересобрать окно: размеры панелей изменились.
+    ///
+    /// Тот же путь, что при смене экрана, — окно там пересчитывается целиком.
+    /// Отдельного, более дешёвого пути заводить незачем: размер текста меняют
+    /// раз в жизни, а два способа пересчитать одно и то же со временем
+    /// разошлись бы.
+    func relayout() {
+        host.rebuild()
+    }
+
+    /// Клавиша раскрывает панель и ею же сворачивает.
+    ///
+    /// Мышью свернуть можно уводом курсора, а с клавиатуры уводить нечего:
+    /// без переключателя раскрытая панель осталась бы висеть до тех пор,
+    /// пока к вырезу не подведут указатель, — то есть ровно то, чего у того,
+    /// кто пользуется клавиатурой, и нет.
+    private func toggleExpanded() {
+        if state.isPinnedOpen {
+            state.isPinnedOpen = false
+            setHovered(false)
+            host.updateInteractiveRect()
+        } else {
+            openExpanded()
+        }
     }
 
     // MARK: - Записи и ссылки
@@ -1029,7 +1097,9 @@ final class NotchController {
             onOpenTeleprompter: { [weak self] in self?.openTeleprompter() },
             onOpenExpanded: { [weak self] in self?.openExpanded() },
             onAskAssistant: { [weak self] in self?.askAssistant() },
-            onToggleAwake: { [weak self] in self?.toggleAwake() }
+            onOpenAwake: { [weak self] in self?.openAwake() },
+            onChooseAwakeLimit: { [weak self] minutes in self?.chooseAwakeLimit(minutes: minutes) },
+            onDisableAwake: { [weak self] in self?.disableAwake() }
         )
     }
 
@@ -1082,7 +1152,17 @@ final class NotchController {
     }
 
     /// Отладочный вход: нажать по чашке в панели из сессии нечем.
-    func debugToggleAwake() { toggleAwake() }
+    ///
+    /// Идёт теми же путями, что и панель выбора, а не мимо них: отладка,
+    /// которая ходит в обход настоящего кода, проверяет не то, что работает
+    /// у человека.
+    func debugToggleAwake() {
+        if wake.isOn {
+            disableAwake()
+        } else {
+            chooseAwakeLimit(minutes: wake.limitMinutes)
+        }
+    }
 
     /// Отладочный вход: дождаться конца получасового срока в сессии нельзя.
     func debugExpireAwake() { wake.debugExpireNow() }

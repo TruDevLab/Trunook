@@ -47,6 +47,13 @@ enum Palette {
     /// Погода и календарь.
     static let weather = cyan
     static let calendar = rose
+    /// Подложка обычного окна — знакомства и настроек.
+    ///
+    /// Почти чёрная с холодным отливом: окна показывают вырез, а он чёрный.
+    /// Ровный системный серый читался бы как чужое приложение, открытое рядом.
+    /// Жила в `WelcomePalette`, пока принадлежала одному окну.
+    static let windowBase = Color(red: 0.035, green: 0.043, blue: 0.075)
+
     /// Панель целиком и прочее без собственного цвета.
     static let panel = Color.white
     static let neutral = Color.white.opacity(0.55)

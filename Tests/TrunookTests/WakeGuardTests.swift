@@ -16,13 +16,55 @@ struct WakeGuardTests {
         #expect(!guardian.isOn)
     }
 
-    @Test("Переключатель отвечает новым состоянием")
-    func переключатель() {
+    /// Срок теперь выбирают прямо в вырезе, и выбор обязан включить чашку,
+    /// если она погашена: отдельного «включить» в панели нет — есть сроки.
+    @Test("Выбор срока включает погашенную чашку")
+    func выборВключает() {
         let guardian = WakeGuard()
-        #expect(guardian.toggle())
-        #expect(guardian.isOn)
-        #expect(!guardian.toggle())
         #expect(!guardian.isOn)
+        guardian.setLimit(minutes: 30)
+        #expect(guardian.isOn)
+        #expect(guardian.activeLimitMinutes == 30)
+        #expect(guardian.endsAt != nil, "со сроком должен быть виден и его конец")
+        guardian.disable()
+        #expect(!guardian.isOn)
+        #expect(guardian.endsAt == nil)
+    }
+
+    /// Панель выбора открывают и при горящей чашке — чтобы продлить или
+    /// укоротить. Перестановка срока не должна отпускать экран посередине.
+    @Test("Перестановка срока не выключает удержание")
+    func перестановкаНеВыключает() {
+        let guardian = WakeGuard()
+        guardian.setLimit(minutes: 30)
+        let first = guardian.endsAt
+        guardian.setLimit(minutes: 120)
+        #expect(guardian.isOn, "перестановка срока отпустила экран")
+        #expect(guardian.activeLimitMinutes == 120)
+        #expect(guardian.endsAt != first, "конец срока не сдвинулся")
+        guardian.disable()
+    }
+
+    /// Ноль — «без срока»: удержание есть, а конца у него нет.
+    @Test("Без срока конца не назначается")
+    func безСрокаНетКонца() {
+        let guardian = WakeGuard()
+        guardian.setLimit(minutes: 0)
+        #expect(guardian.isOn)
+        #expect(guardian.activeLimitMinutes == 0)
+        #expect(guardian.endsAt == nil)
+        guardian.disable()
+    }
+
+    /// Подписи кнопок в панели: круглые часы подписаны часами, остальное —
+    /// минутами, ноль — словами. Повторов быть не должно, иначе две кнопки
+    /// в ряду выглядят одинаково.
+    @Test("У каждого срока своя подпись")
+    func подписиСроков() {
+        let titles = Settings.caffeineLimits.map(CaffeinePanel.title(minutes:))
+        #expect(Set(titles).count == titles.count, "подписи повторяются: \(titles)")
+        #expect(titles.allSatisfy { !$0.isEmpty })
+        #expect(CaffeinePanel.title(minutes: 120) == CaffeinePanel.title(minutes: 120))
     }
 
     /// Повторное включение не должно заводить вторую ассерцию: первая тогда

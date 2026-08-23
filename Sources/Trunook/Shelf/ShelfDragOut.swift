@@ -149,6 +149,11 @@ final class ShelfDragOutView: NSView, NSDraggingSource {
         let menu = NSMenu()
         menu.addItem(withTitle: t("Открыть"), action: #selector(menuOpen), keyEquivalent: "")
         menu.addItem(withTitle: t("Показать в Finder"), action: #selector(menuReveal), keyEquivalent: "")
+        // Единственный путь унести файл с полки, кроме перетаскивания.
+        // Перетаскивание одним указателем не выполнить — ни трекпадом
+        // с залипанием клавиш, ни головой, ни переключателем, — а «убрать
+        // с полки» уносит запись, но не файл.
+        menu.addItem(withTitle: t("Скопировать файл"), action: #selector(menuCopy), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: t("Убрать с полки"), action: #selector(menuRemove), keyEquivalent: "")
         menu.items.forEach { $0.target = self }
@@ -157,5 +162,14 @@ final class ShelfDragOutView: NSView, NSDraggingSource {
 
     @objc private func menuOpen() { onClick?() }
     @objc private func menuReveal() { onReveal?() }
+
+    /// Кладёт сам файл в буфер — так же, как это делает Finder по ⌘C.
+    /// Вставленный в папку, он там и окажется.
+    @objc private func menuCopy() {
+        guard let item else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([item.url as NSURL])
+    }
     @objc private func menuRemove() { onRemove?() }
 }

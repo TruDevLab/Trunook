@@ -68,23 +68,8 @@
 "Открыть ссылку" = "Open a link";
 "Скрипт AppleScript" = "AppleScript";
 "Исправить ошибки" = "Fix mistakes";
-"Исправь орфографию и пунктуацию. Верни только исправленный текст, без пояснений.
-
-{{selection}}" = "Fix spelling and punctuation. Return only the corrected text, no explanations.
-
-{{selection}}";
 "Перевести на русский" = "Translate to English";
-"Переведи на русский. Верни только перевод.
-
-{{selection}}" = "Translate to English. Return only the translation.
-
-{{selection}}";
 "Кратко пересказать" = "Summarize";
-"Перескажи кратко, тремя пунктами.
-
-{{selection}}" = "Summarize in three bullet points.
-
-{{selection}}";
 "Команда завершилась с ошибкой" = "The command failed";
 "Не удалось запустить «Команды»" = "Could not launch Shortcuts";
 "Не удалось передать выделенный текст" = "Could not pass the selected text";
@@ -118,23 +103,23 @@
 "Поводите курсором по чёлке из стороны в сторону — вырез замурчит." = "Move the pointer back and forth across the notch — it will start purring.";
 "Знакомство с вырезом" = "Getting started";
 "Открыть" = "Open";
-"Окно с жестами, сочетаниями клавиш и доступами. Само оно показывается только при первом запуске." = "The window with gestures, shortcuts and permissions. It only opens by itself on first launch.";
+"Окно с жестами, сочетаниями и доступами. Само показывается только при первом запуске." = "A window with gestures, shortcuts and permissions. It appears on its own only on first launch.";
 "Музыка" = "Music";
 "Управление музыкой" = "Music controls";
 "Показывать смену трека" = "Show track changes";
-"Сведения о треке читаются из системы, поэтому работают с любым плеером: Яндекс Музыка, Spotify, Apple Music, веб-плееры в браузере." = "Track info is read from the system, so it works with any player: Spotify, Apple Music, Yandex Music, web players in the browser.";
+"Сведения о треке читаются из системы, поэтому работают с любым плеером: Яндекс Музыка, Spotify, Apple Music, веб-плееры." = "Track info is read from the system, so it works with any player: Yandex Music, Spotify, Apple Music, web players.";
 "Свайп двумя пальцами по острову переключает трек." = "A two-finger swipe across the island switches tracks.";
 "Поменять стороны свайпа" = "Swap swipe directions";
-"Кому-то «следующий» — это движение пальцев влево, как листают ленту, кому-то вправо, как переворачивают страницу." = "For some, “next” means swiping left, the way a feed scrolls; for others, right, the way a page turns.";
+"Кому-то «следующий» — движение влево, как листают ленту, кому-то вправо, как переворачивают страницу." = "For some, “next” is a swipe left, the way you scroll a feed; for others a swipe right, the way you turn a page.";
 "Открыть телесуфлер" = "Open the teleprompter";
 "Клавиша работает переключателем: нажали при открытой панели — панель убралась." = "The shortcut toggles: press it while the panel is open and the panel goes away.";
 "Скорость прокрутки" = "Scrolling speed";
 "%d т/с" = "%d pt/s";
-"Точек в секунду, а не строк: строки в телесуфлере разной высоты — заголовок вдвое выше обычной, — и счёт по строкам дёргал бы текст на каждом заголовке. То же значение правится ползунком в самой панели." = "Points per second rather than lines: lines differ in height — a heading is twice as tall — and counting in lines would jerk the text at every heading. The same value can be set with the slider in the panel.";
+"Точек в секунду, а не строк: строки разной высоты, и счёт по строкам дёргал бы текст на заголовках. То же значение есть ползунком в самой панели." = "Points per second, not lines: lines vary in height, so counting by lines would jerk the text at every heading. The same value has a slider in the panel itself.";
 "Как он устроен" = "How it works";
-"Панель открывается под самой чёлкой — там, где камера. Читая с середины экрана, человек смотрит мимо объектива, и на записи это видно сразу." = "The panel opens right under the notch — where the camera is. Reading from the middle of the screen means looking past the lens, and that shows up on the recording immediately.";
-"Панель не закрывается ни по уходу курсора, ни по нажатию мимо: пока читают вслух, в чужом окне продолжают работать. Убрать её можно крестиком или той же клавишей." = "The panel closes neither when the cursor leaves nor on a click outside: while you read aloud, you keep working in another window. Dismiss it with the cross or the same shortcut.";
-"Текст не пропадает сам — ни при закрытии панели, ни при перезапуске. Убрать его можно только кнопкой «Очистить», и она переспрашивает." = "The text never disappears on its own — not when the panel closes, not on restart. Only the Clear button removes it, and it asks first.";
+"Панель открывается под самой чёлкой, где камера: читая с середины экрана, человек смотрит мимо объектива, и на записи это видно." = "The panel opens right under the notch, where the camera is: reading from mid-screen makes you look past the lens, and it shows on the recording.";
+"Панель не закрывается ни по уходу курсора, ни по нажатию мимо: пока читают вслух, в чужом окне работают. Убрать — крестиком или той же клавишей." = "The panel does not close when the cursor leaves or you click elsewhere: while you read aloud, you keep working in another window. Close it with the ✕ or the same shortcut.";
+"Текст не пропадает сам — ни при закрытии панели, ни при перезапуске. Убрать его можно только кнопкой «Очистить»." = "The text never disappears on its own — not when the panel closes, not on restart. Only “Clear” removes it.";
 "Оформление: заголовок, полужирный, курсив, подчёркивание, ссылки и эмодзи. Набранный в тексте адрес становится ссылкой сам." = "Formatting: heading, bold, italic, underline, links and emoji. An address typed into the text becomes a link by itself.";
 "Хранится в %@ — в формате RTF, вместе с оформлением." = "Stored in %@ — as RTF, formatting included.";
 "Нагрузка на систему" = "System load";
@@ -142,32 +127,32 @@
 "Открыть нагрузку" = "Open system load";
 "Три показателя: процессор, память и диск. Нажмите по любому — откроется Мониторинг системы." = "Three readings: CPU, memory and disk. Click any of them to open Activity Monitor.";
 "Что показано и чего нет" = "What is shown and what is not";
-"Память считается так же, как в Мониторинге системы: память приложений, зарезервированная ядром и сжатая. Иначе числа расходились бы с тем приложением, которое открывается по нажатию." = "Memory is counted the way Activity Monitor counts it: app memory, wired and compressed. Otherwise the numbers would disagree with the app that opens on a click.";
+"Память считается так же, как в Мониторинге системы: приложений, зарезервированная ядром и сжатая. Иначе числа расходились бы с ним." = "Memory is counted the same way Activity Monitor does: app memory, wired and compressed. Otherwise the numbers would disagree with it.";
 "Диск — том с данными, а не системный: системный доступен только для чтения и занят целиком всегда." = "Disk means the data volume, not the system one: the system volume is read-only and always full.";
-"Видеокарты здесь нет: публичного способа узнать её загрузку в macOS не существует, а обходной отдаёт ноль даже под нагрузкой. Пустая шкала хуже, чем никакой." = "There is no GPU here: macOS offers no public way to read its load, and the workaround returns zero even under load. An empty gauge is worse than none.";
-"Система опрашивается, только пока панель открыта. Иначе мониторинг сам стал бы той нагрузкой, которую показывает." = "The system is polled only while the panel is open. Otherwise the monitor would become the very load it reports.";
+"Видеокарты нет: публичного способа узнать её загрузку в macOS не существует, а обходной отдаёт ноль даже под нагрузкой." = "There is no GPU here: macOS offers no public way to read its load, and the workaround returns zero even under load.";
+"Система опрашивается, только пока панель открыта: иначе мониторинг сам стал бы нагрузкой." = "The system is polled only while the panel is open: otherwise the monitor would become the load it shows.";
 "Таймер и секундомер" = "Timer and stopwatch";
 "Показывать таймер" = "Show the timer";
 "Открыть таймер" = "Open the timer";
 "Сигнал по окончании" = "Sound when it ends";
 "Один короткий колокольчик. Не будильник: таймер сообщает о факте, а не требует внимания." = "A single short chime. Not an alarm: the timer reports a fact, it does not demand attention.";
 "После работы заводить перерыв" = "Queue a break after work";
-"Двадцать пять минут работы, пять перерыва — как в помидоре. Перерыв заводится сам, но запускать его вам: решать, отдыхать ли сейчас, приложение не должно." = "Twenty-five minutes of work, five of rest — the pomodoro way. The break is queued automatically, but you start it: whether to rest right now is not the app’s call.";
+"Двадцать пять минут работы, пять перерыва — помидор. Перерыв заводится сам, но запускать его вам." = "Twenty-five minutes of work, five of rest — a pomodoro. The break is set up for you, but you start it yourself.";
 "Как это устроено" = "How it works";
-"Время считается от момента запуска, а не тиком. Поэтому таймер не отстаёт, даже если ноутбук закрывали: после пробуждения он покажет верное время." = "Time is measured from the moment you start it rather than counted tick by tick. The timer stays accurate even if the lid was closed: it shows the right time after waking.";
-"Пока таймер идёт, свёрнутая чёлка раздвигается полоской: значок слева, счёт справа. Нажмите по ней — откроется панель." = "While the timer runs, the collapsed notch widens into a strip: the icon on the left, the count on the right. Click it to open the panel.";
+"Время считается от момента запуска, а не тиком: таймер не отстаёт, даже если ноутбук закрывали." = "Time is measured from the start, not by ticks: the timer does not fall behind even if the laptop was closed.";
+"Пока таймер идёт, свёрнутая чёлка раздвигается полоской: значок слева, счёт справа." = "While the timer runs, the collapsed notch widens into a strip: icon on the left, count on the right.";
 "Принимать перетаскиваемые файлы" = "Accept dragged files";
 "Ведите файлы на чёлку — вырез раскроется полкой. Оттуда их вытаскивают в любое окно." = "Drag files onto the notch and it opens as a shelf. From there you can drag them into any window.";
 "Открыть полку" = "Open shelf";
 "Как это работает" = "How it works";
-"Пока файл лежит на полке, он остаётся в своей папке. Когда вы вытаскиваете его с полки, он переезжает — в исходной папке его больше нет." = "While a file sits on the shelf it stays in its folder. Drag it off the shelf and it moves — it is no longer in the original folder.";
+"Пока файл на полке, он остаётся в своей папке. Когда вытаскиваете — переезжает, в исходной папке его больше нет." = "While a file sits on the shelf it stays in its folder. When you drag it off, it moves — it is no longer in the original folder.";
 "После перезапуска полка пуста: это перевалочный пункт между двумя окнами, а не хранилище." = "The shelf is empty after a restart: it is a waypoint between two windows, not storage.";
-"Полоска приёма опускается ниже чёлки, чтобы файл не пришлось вести к самой кромке экрана — там система открывает Mission Control." = "The catch strip reaches below the notch so you never have to drag to the very top edge — the system opens Mission Control there.";
+"Полоска приёма опускается ниже чёлки: у самой кромки экрана система открывает Mission Control." = "The drop strip sits below the notch: at the very edge of the screen the system opens Mission Control.";
 "История буфера обмена" = "Clipboard History";
 "Запоминать копирования" = "Remember copies";
 "Открыть историю" = "Open history";
 "Клавиши записей" = "Entry shortcuts";
-"Цифра вставляет запись по её номеру в списке: первая — самая свежая. Работает и когда панель закрыта." = "The digit pastes the entry with that number in the list: the first one is the newest. Works with the panel closed, too.";
+"Цифра вставляет запись по номеру: первая — самая свежая. Работает и когда панель закрыта." = "The digit pastes the entry by its number: the first is the most recent. Works with the panel closed too.";
 "Вставлять сразу" = "Paste immediately";
 "Выключено — запись только ложится в буфер, вставить нужно самому." = "When off, the entry only goes to the clipboard and you paste it yourself.";
 "Показывать плашку при копировании" = "Show a chip when copying";
@@ -184,25 +169,25 @@
 "Сейчас записей: %d" = "Entries now: %d";
 "Очистить историю" = "Clear History";
 "Что не сохраняется" = "What Is Not Saved";
-"Пароли: менеджеры паролей помечают такое копирование флагом org.nspasteboard.ConcealedType, и запись пропускается." = "Passwords: password managers mark such copies with the org.nspasteboard.ConcealedType flag, and the entry is skipped.";
-"Служебные копирования с флагами TransientType и AutoGeneratedType — их ставят приложения для своих нужд." = "Service copies flagged TransientType and AutoGeneratedType — apps set those for their own needs.";
+"Пароли: менеджеры паролей помечают такое копирование особым флагом, и запись пропускается." = "Passwords: password managers mark such copies with a special flag, and the entry is skipped.";
+"Служебные копирования, которые приложения делают для своих нужд." = "Utility copies that apps make for their own needs.";
 "Изображения крупнее шести мегабайт: история должна оставаться лёгкой." = "Images larger than six megabytes: the history has to stay light.";
 "Погода в вырезе" = "Weather in the Notch";
 "Показывать погоду" = "Show the weather";
-"В раскрытой панели значок и температура стоят в правом верхнем углу — там, где вырез и так пустой. Сама чёлка от этого не растёт." = "In the expanded panel the icon and temperature sit in the top-right corner, where the notch is empty anyway. The notch itself does not grow.";
+"В раскрытой панели значок и температура стоят в правом верхнем углу. Сама чёлка от этого не растёт." = "In the expanded panel the icon and temperature sit in the top-right corner. The notch itself does not grow.";
 "Сообщать" = "Notify";
 "Как часто" = "How often";
 "Плашка всплывает, когда меняется погода или когда в ближайшие часы ожидаются осадки — один раз на явление, а не каждую проверку." = "The chip appears when the weather changes or when precipitation is expected in the next few hours — once per event, not on every check.";
 "Место" = "Place";
 "Где смотреть погоду" = "Where to look up weather";
-"Приложение запросит доступ к геопозиции. Одна засечка на обновление — постоянно следить за положением незачем." = "The app will ask for location access. One fix per update — there is no need to track your position continuously.";
+"Приложение запросит доступ к геопозиции. Одна засечка на обновление." = "The app will ask for location access. One fix per update.";
 "Состояние" = "Status";
 "Откуда берётся" = "Where It Comes From";
 "Прогноз запрашивается у open-meteo.com — без ключа и регистрации. Это единственное место, откуда приложение выходит в интернет." = "The forecast is requested from open-meteo.com — no key, no registration. This is the only place where the app reaches the internet.";
-"Наружу уходят только координаты, округлённые до сотой доли градуса: это примерно километр, и погоде точнее не нужно." = "Only coordinates leave the machine, rounded to a hundredth of a degree: about a kilometre, and weather needs no more.";
-"WeatherKit от Apple подошёл бы лучше, но он привязан к платной учётной записи разработчика." = "Apple's WeatherKit would fit better, but it is tied to a paid developer account.";
+"Наружу уходят только координаты, округлённые до сотой доли градуса — примерно до километра." = "Only coordinates leave the machine, rounded to a hundredth of a degree — about a kilometre.";
+
 "Сменить" = "Change";
-"Город ищется у того же open-meteo.com. Наружу уходит только набранное название — доступ к геопозиции при этом не нужен вовсе." = "Cities are looked up at the same open-meteo.com. Only the name you type leaves the machine — no location access is needed at all.";
+"Город ищется у того же open-meteo.com. Наружу уходит только название — геопозиция не нужна." = "The city is looked up at the same open-meteo.com. Only the name leaves the machine — no location access needed.";
 "Название города" = "City name";
 "Найти" = "Search";
 "Доступ к геопозиции запрещён. Без него погоду не узнать." = "Location access is denied. Without it there is no weather.";
@@ -218,7 +203,7 @@
 "Меню команд" = "Command Menu";
 "Быстрые команды" = "Quick commands";
 "Открыть меню" = "Open menu";
-"Нажмите поле и задайте сочетание. Delete снимает назначенное, Esc отменяет запись. Сочетание без модификаторов не принимается: оно перехватывало бы обычный набор текста." = "Click the field and press a shortcut. Delete clears it, Esc cancels recording. A shortcut without modifiers is rejected: it would swallow ordinary typing.";
+"Нажмите поле и задайте сочетание. Delete снимает, Esc отменяет. Без модификаторов не принимается: перехватывало бы обычный набор." = "Click the field and press a shortcut. Delete clears it, Esc cancels. Without modifiers it is rejected: it would intercept ordinary typing.";
 "Запросы к модели" = "Model Prompts";
 "Использовать Ollama" = "Use Ollama";
 "Адрес (по умолчанию %@)" = "Address (default %@)";
@@ -228,7 +213,7 @@
 "30 минут" = "30 minutes";
 "2 часа" = "2 hours";
 "Постоянно" = "Always";
-"Ответ кладётся в буфер обмена. Место подстановки выделенного текста — {{selection}}. Загрузка модели в память занимает около минуты, поэтому её стоит держать загруженной; модель поменьше отвечает заметно быстрее." = "The answer goes to the clipboard. {{selection}} is where the selected text is substituted. Loading a model into memory takes about a minute, so it is worth keeping it loaded; a smaller model answers noticeably faster.";
+"Ответ кладётся в буфер обмена. {{selection}} — место подстановки выделенного текста. Модель стоит держать загруженной: загрузка занимает около минуты, а модель поменьше отвечает быстрее." = "The answer goes to the clipboard. {{selection}} is where the selected text is substituted. Keep the model loaded: loading takes about a minute, and a smaller model answers faster.";
 "Название" = "Name";
 "Без клавиши" = "No shortcut";
 "Действие" = "Action";
@@ -238,11 +223,6 @@
 "Передавать выделенный текст" = "Pass the selected text";
 "Если команда что-то возвращает, результат попадёт в буфер обмена." = "If the command returns anything, the result goes to the clipboard.";
 "Приложение «Команды» недоступно" = "The Shortcuts app is unavailable";
-"Переведи на английский.
-
-{{selection}}" = "Translate to English.
-
-{{selection}}";
 "Приложение не выбрано" = "No app selected";
 "Путь не выбран" = "No path selected";
 "Браузер" = "Browser";
@@ -266,16 +246,16 @@
 "%d минут" = "%d minutes";
 "Управление встречей" = "Meeting Controls";
 "Кнопки встречи в вырезе" = "Meeting buttons in the notch";
-"Пока идёт встреча, наведение на вырез показывает микрофон, камеру, демонстрацию экрана, поднятие руки и выход. Работает с Телемостом, Google Meet, Zoom и Teams в браузере." = "During a meeting, hovering the notch shows the microphone, camera, screen sharing, raise hand and leave. Works with Google Meet, Zoom, Teams and Telemost in the browser.";
-"Кнопки нажимаются прямо на странице встречи через систему универсального доступа — фокус на браузер не переключается." = "The buttons are pressed right on the meeting page through Accessibility — focus never switches to the browser.";
-"Вкладка встречи должна быть открыта: содержимое фоновых вкладок браузер наружу не отдаёт. Удобнее всего вытащить встречу в отдельное окно." = "The meeting tab has to be open: browsers do not expose the contents of background tabs. The easiest fix is to pull the meeting out into its own window.";
+"Во время встречи наведение на вырез показывает микрофон, камеру, демонстрацию, поднятие руки и выход. Работает с Телемостом, Google Meet, Zoom и Teams в браузере." = "During a meeting, hovering over the notch shows the mic, camera, screen share, raise hand and leave. Works with Telemost, Google Meet, Zoom and Teams in the browser.";
+"Кнопки нажимаются прямо на странице встречи через универсальный доступ — фокус на браузер не переключается." = "The buttons are pressed right on the meeting page through Accessibility — focus does not switch to the browser.";
+"Вкладка встречи должна быть открыта: содержимое фоновых вкладок браузер не отдаёт. Удобнее вытащить встречу в отдельное окно." = "The meeting tab must be open: browsers do not expose the contents of background tabs. It is easier to pull the meeting into its own window.";
 "Какие календари показывать" = "Which Calendars to Show";
 "Какие списки напоминаний показывать" = "Which Reminder Lists to Show";
 "Доступ к Календарю запрещён. Выдайте его в Системных настройках." = "Calendar access is denied. Grant it in System Settings.";
 "Доступ к Календарю ещё не выдан." = "Calendar access has not been granted yet.";
 "О приложении" = "About";
 "Версия" = "Version";
-"Вырез MacBook как центр управления: музыка, встречи, команды, ответ модели, буфер обмена, полка для файлов, таймер, нагрузка на систему и телесуфлер." = "The MacBook notch as a control centre: music, meetings, commands, model replies, clipboard history, a shelf for files, a timer, system load and a teleprompter.";
+"Вырез MacBook как центр управления: музыка, встречи, команды, ответ модели, буфер, полка, таймер, нагрузка и телесуфлер." = "The MacBook notch as a control centre: music, meetings, commands, model answers, clipboard, shelf, timer, system load and teleprompter.";
 "Жесты" = "Gestures";
 "Наведение" = "Hover";
 "Мини-вид: что играет и когда ближайшая встреча." = "Mini view: what is playing and when the next meeting is.";
@@ -337,6 +317,9 @@
 "Ссылка" = "Link";
 "Эмодзи" = "Emoji";
 "Закрыть" = "Close";
+"Настройки" = "Settings";
+"Спросить модель" = "Ask the Model";
+"Очистить полку" = "Clear Shelf";
 "Стоп" = "Stop";
 "Пуск" = "Start";
 "В начало" = "To start";
@@ -348,6 +331,34 @@
 "Перерыв" = "Break";
 "Секундомер считает вверх, пока его не остановят" = "The stopwatch counts up until you stop it";
 "Пауза" = "Pause";
+"Играть" = "Play";
+"Бодрость" = "Awake";
+"Размер текста" = "Text size";
+"%d %%" = "%d%%";
+"В macOS нет общего размера текста, который приложение могло бы прочесть, — поэтому он свой. Действует в этом окне и в окне знакомства." = "macOS has no system-wide text size an app could read, so this one is its own. It applies to this window and the welcome window.";
+"Скопировать файл" = "Copy File";
+"Раскрыть панель" = "Open the panel";
+"Музыка, расписание, погода и чашка — без мыши. Нажатие при раскрытой панели сворачивает её." = "Music, schedule, weather and the cup — without the mouse. Pressing it while the panel is open collapses it.";
+"Держать плашки событий" = "Keep event chips";
+"Как обычно" = "As usual";
+"Втрое дольше" = "Three times longer";
+"Вдесятеро дольше" = "Ten times longer";
+"Пока не уберу" = "Until I dismiss";
+"В %d раз дольше" = "%d times longer";
+"Плашки о смене трека, встрече, таймере и заряде уходят сами через несколько секунд. Здесь их можно растянуть." = "Badges about a track change, a meeting, the timer and charging disappear on their own after a few seconds. Here you can make them last longer.";
+"«Пока не уберу» не запирает плашку навсегда: она уходит, стоит навести курсор на вырез." = "Until I dismiss does not trap a chip forever: it goes away as soon as you move the pointer onto the notch.";
+"Экран не гаснет — нажмите, чтобы выбрать срок" = "The display stays on — click to pick a limit";
+"Не давать экрану гаснуть — выбрать срок" = "Keep the display awake — pick a limit";
+"Выключить" = "Turn Off";
+"Без срока" = "No limit";
+"Экран гаснет как обычно" = "The display sleeps as usual";
+"Экран не гаснет — без ограничения" = "The display stays on — no limit";
+"Экран не гаснет — осталось %@" = "The display stays on — %@ left";
+"Следующий трек" = "Next Track";
+"Предыдущий трек" = "Previous Track";
+"Адрес ссылки" = "Link address";
+"включено" = "on";
+"выключено" = "off";
 "+1 мин" = "+1 min";
 "Сброс" = "Reset";
 "Когда меняется погода" = "When the weather changes";
@@ -445,16 +456,32 @@
 "Начать" = "Start";
 "Дальше" = "Next";
 "Знакомство с Trunook" = "Getting Started with Trunook";
-"Не давать экрану гаснуть и блокироваться" = "Keep the screen from sleeping and locking";
 "Экран не будет гаснуть" = "The screen will stay awake";
-"Экран не гаснет — нажмите, чтобы вернуть как было" = "The screen stays awake — click to let it sleep again";
 "Экран снова гаснет как обычно" = "The screen sleeps as usual again";
-"Без ограничения" = "No limit";
 "Время вышло — экран снова гаснет" = "Time is up — the screen sleeps again";
-"Когда срок выходит, вырез сообщает об этом плашкой: экран, вдруг погасший сам, иначе выглядел бы поломкой." = "When the time runs out the notch says so with a chip: a screen that suddenly sleeps on its own would otherwise look like a fault.";
-"Отключать через" = "Turn off after";
-"Срок считается от включения. Поменяли его при горящей чашке — новый подхватится со следующего включения, а нынешнее доработает по прежнему." = "The countdown starts when you switch it on. Change it while the cup is lit and the new value applies from the next time — the current run finishes on the old one.";
-"Удержание не переживает перезапуск приложения — после него экран снова гаснет как обычно." = "Keeping the screen awake does not survive an app restart — afterwards the screen sleeps as usual again.";
 "Чашка кофе" = "Cup of coffee";
-"Чашка рядом с погодой в раскрытой панели: пока она включена, экран не гаснет и не блокируется. Подложка под чашкой показывает, что удержание работает." = "The cup next to the weather in the expanded panel: while it is on, the screen neither sleeps nor locks. The backdrop under the cup shows it is working.";
 "Экран не гаснет %d мин" = "The screen stays awake for %d min";
+
+/* Имена шагов для диктора: те же, что в надписи над заголовком,
+   но обычным регистром — прописные VoiceOver читает по буквам. */
+"Знакомство" = "Welcome";
+"Управление" = "Controls";
+"Доступы" = "Permissions";
+"Готово" = "Done";
+"Текущий шаг" = "Current step";
+"Вставьте текст — он поедет вверх сам" = "Paste text — it will scroll up on its own";
+
+/* Чашка кофе: срок выбирается в самой панели, здесь остался только показ. */
+"Показывать чашку" = "Show the cup";
+"Пока чашка включена, экран не гаснет и не блокируется. Срок задаётся нажатием по самой чашке — там же виден отсчёт." = "While the cup is on, the screen neither dims nor locks. The duration is set by clicking the cup itself — the countdown is there too.";
+"Когда срок выходит, вырез сообщает плашкой: погасший сам собой экран иначе выглядел бы поломкой." = "When the time runs out the notch says so with a badge: a screen that dimmed by itself would otherwise look like a fault.";
+"Удержание не переживает перезапуск приложения." = "Keeping the screen awake does not survive an app restart.";
+"Панели выреза не растут: под чёлкой ровно столько места, сколько оставила вырезка." = "Notch panels do not grow: there is exactly as much room under the notch as the cutout left.";
+
+/* Шаблоны запросов к модели. Раньше лежали здесь с настоящими
+   переносами строки вместо \n — в таком виде ключ не совпадал
+   с тем, что ищет код, и перевод не находился никогда. */
+"Исправь орфографию и пунктуацию. Верни только исправленный текст, без пояснений.\n\n{{selection}}" = "Fix spelling and punctuation. Return only the corrected text, no explanations.\n\n{{selection}}";
+"Переведи на русский. Верни только перевод.\n\n{{selection}}" = "Translate to English. Return only the translation.\n\n{{selection}}";
+"Перескажи кратко, тремя пунктами.\n\n{{selection}}" = "Summarize in three bullet points.\n\n{{selection}}";
+"Переведи на английский.\n\n{{selection}}" = "Translate to English.\n\n{{selection}}";

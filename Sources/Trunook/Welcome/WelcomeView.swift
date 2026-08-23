@@ -20,11 +20,11 @@ struct WelcomeView: View {
     let onHotKeysChanged: () -> Void
     let onFinish: () -> Void
 
-    static let size = CGSize(width: 780, height: 700)
+    static var size: CGSize { WelcomeStyle.windowSize }
 
     var body: some View {
         ZStack {
-            WelcomeBackground()
+            AuroraBackground()
             VStack(spacing: 0) {
                 header
                 Spacer(minLength: 12)
@@ -78,9 +78,9 @@ struct WelcomeView: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "globe")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: WelcomeStyle.micro, weight: .medium))
                 Text(settings.language.title)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .font(.system(size: WelcomeStyle.caption, weight: .medium, design: .rounded))
             }
             .foregroundStyle(Color.white.opacity(0.7))
             .padding(.horizontal, 10)
@@ -107,12 +107,20 @@ struct WelcomeView: View {
                     model.go(to: step)
                 } label: {
                     Capsule()
-                        .fill(isCurrent ? AnyShapeStyle(WelcomePalette.accent)
-                                        : AnyShapeStyle(Color.white.opacity(0.16)))
+                        .fill(isCurrent ? WelcomePalette.cyan
+                                        : Color.white.opacity(0.16))
                         .frame(width: isCurrent ? 26 : 12, height: 4)
                         .contentShape(Capsule().inset(by: -6))
                 }
                 .buttonStyle(.plain)
+                // Внутри кнопки одна `Capsule` — выводить имя SwiftUI не из
+                // чего, и диктор произносил «кнопка» пять раз подряд. Имя
+                // берётся из самого шага, а «этот сейчас открыт» уходит
+                // в значение и признак: меняющееся имя диктор прочёл бы
+                // как другую кнопку, а не как ту же в другом состоянии.
+                .accessibilityLabel(step.title)
+                .accessibilityValue(isCurrent ? t("Текущий шаг") : "")
+                .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
                 .animation(.easeOut(duration: 0.25), value: model.step)
             }
         }
@@ -137,10 +145,10 @@ struct WelcomeView: View {
         VStack(spacing: 22) {
             VStack(spacing: 9) {
                 Text("Trunook")
-                    .font(.system(size: 42, weight: .bold, design: .rounded))
-                    .foregroundStyle(WelcomePalette.accent)
+                    .font(.system(size: WelcomeStyle.hero, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
                 Text(t("Вырез MacBook становится центром управления"))
-                    .font(.system(size: 14.5, weight: .regular, design: .rounded))
+                    .font(.system(size: WelcomeStyle.deck, weight: .regular, design: .rounded))
                     .foregroundStyle(Color.white.opacity(0.62))
             }
             WelcomeNotchDemo()
@@ -180,13 +188,14 @@ struct WelcomeView: View {
         WelcomeCard {
             VStack(spacing: 7) {
                 Image(systemName: symbol)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: WelcomeStyle.glyph, weight: .medium))
                     .foregroundStyle(tint)
                 Text(title)
-                    .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                    .font(.system(size: WelcomeStyle.caption, weight: .medium, design: .rounded))
                     .foregroundStyle(Color.white.opacity(0.72))
             }
-            .frame(width: 88, height: 62)
+            .frame(width: WelcomeStyle.featureTile.width,
+                   height: WelcomeStyle.featureTile.height)
         }
     }
 
@@ -245,13 +254,13 @@ struct WelcomeView: View {
     private var menuHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
-                WelcomeGlyph(symbol: "command", size: 32)
+                WelcomeGlyph(symbol: "command", size: WelcomeStyle.tile)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t("Меню быстрых команд"))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                     Text(slotsHint)
-                        .font(.system(size: 12, design: .rounded))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -266,7 +275,8 @@ struct WelcomeView: View {
                     ),
                     placeholder: t("Не назначено")
                 )
-                .frame(width: 132, height: 26)
+                .frame(width: WelcomeStyle.shortcutField.width,
+                       height: WelcomeStyle.shortcutField.height)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -278,13 +288,13 @@ struct WelcomeView: View {
     private var clipboardHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
-                WelcomeGlyph(symbol: "doc.on.clipboard", size: 32)
+                WelcomeGlyph(symbol: "doc.on.clipboard", size: WelcomeStyle.tile)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t("История буфера обмена"))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                     Text(clipboardSlotsHint)
-                        .font(.system(size: 12, design: .rounded))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -299,7 +309,8 @@ struct WelcomeView: View {
                     ),
                     placeholder: t("Не назначено")
                 )
-                .frame(width: 132, height: 26)
+                .frame(width: WelcomeStyle.shortcutField.width,
+                       height: WelcomeStyle.shortcutField.height)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -310,13 +321,13 @@ struct WelcomeView: View {
     private var shelfHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
-                WelcomeGlyph(symbol: "tray.full", size: 32)
+                WelcomeGlyph(symbol: "tray.full", size: WelcomeStyle.tile)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t("Полка для файлов"))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                     Text(shelfHint)
-                        .font(.system(size: 12, design: .rounded))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -331,7 +342,8 @@ struct WelcomeView: View {
                     ),
                     placeholder: t("Не назначено")
                 )
-                .frame(width: 132, height: 26)
+                .frame(width: WelcomeStyle.shortcutField.width,
+                       height: WelcomeStyle.shortcutField.height)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -343,13 +355,13 @@ struct WelcomeView: View {
     private var timerHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
-                WelcomeGlyph(symbol: "timer", size: 32)
+                WelcomeGlyph(symbol: "timer", size: WelcomeStyle.tile)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t("Таймер и секундомер"))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                     Text(t("Пока идёт, чёлка раздвигается счётом — нажмите по нему"))
-                        .font(.system(size: 12, design: .rounded))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -364,7 +376,8 @@ struct WelcomeView: View {
                     ),
                     placeholder: t("Не назначено")
                 )
-                .frame(width: 132, height: 26)
+                .frame(width: WelcomeStyle.shortcutField.width,
+                       height: WelcomeStyle.shortcutField.height)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -378,13 +391,13 @@ struct WelcomeView: View {
     private var teleprompterHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
-                WelcomeGlyph(symbol: "text.alignleft", tint: WelcomePalette.violet, size: 32)
+                WelcomeGlyph(symbol: "text.alignleft", tint: WelcomePalette.violet, size: WelcomeStyle.tile)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t("Телесуфлер"))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                     Text(t("Текст под чёлкой — там, где камера. С оформлением и автопрокруткой: читая с середины экрана, смотришь мимо объектива"))
-                        .font(.system(size: 12, design: .rounded))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -399,7 +412,8 @@ struct WelcomeView: View {
                     ),
                     placeholder: t("Не назначено")
                 )
-                .frame(width: 132, height: 26)
+                .frame(width: WelcomeStyle.shortcutField.width,
+                       height: WelcomeStyle.shortcutField.height)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -409,13 +423,13 @@ struct WelcomeView: View {
     private var monitorHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
-                WelcomeGlyph(symbol: "gauge.with.dots.needle.67percent", size: 32)
+                WelcomeGlyph(symbol: "gauge.with.dots.needle.67percent", size: WelcomeStyle.tile)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t("Нагрузка на систему"))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                     Text(t("Процессор, память и диск. Нажмите — откроется Мониторинг системы"))
-                        .font(.system(size: 12, design: .rounded))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -430,7 +444,8 @@ struct WelcomeView: View {
                     ),
                     placeholder: t("Не назначено")
                 )
-                .frame(width: 132, height: 26)
+                .frame(width: WelcomeStyle.shortcutField.width,
+                       height: WelcomeStyle.shortcutField.height)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -463,13 +478,13 @@ struct WelcomeView: View {
     private func gesture(_ symbol: String, _ title: String, _ detail: String) -> some View {
         WelcomeCard {
             HStack(spacing: 13) {
-                WelcomeGlyph(symbol: symbol, size: 32)
+                WelcomeGlyph(symbol: symbol, size: WelcomeStyle.tile)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                     Text(detail)
-                        .font(.system(size: 12, design: .rounded))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -498,7 +513,7 @@ struct WelcomeView: View {
                     launchRow
                     ollamaRow
                     Text(t("Доступ выдаётся один раз и переживает обновления приложения. Отказ система запоминает — вернуть его можно только в Системных настройках."))
-                        .font(.system(size: 11.5, design: .rounded))
+                        .font(.system(size: WelcomeStyle.caption, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.4))
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -519,15 +534,15 @@ struct WelcomeView: View {
         return WelcomeCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 13) {
-                    WelcomeGlyph(symbol: "cloud.sun.fill", tint: WelcomePalette.cyan, size: 32)
+                    WelcomeGlyph(symbol: "cloud.sun.fill", tint: WelcomePalette.cyan, size: WelcomeStyle.tile)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(t("Погода"))
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                             .foregroundStyle(.white)
                         Text(byPlace
                              ? t("По названному городу — доступ к геопозиции не нужен вовсе")
                              : t("По геопозиции. Не хотите её отдавать — назовите город"))
-                            .font(.system(size: 12, design: .rounded))
+                            .font(.system(size: WelcomeStyle.detail, design: .rounded))
                             .foregroundStyle(Color.white.opacity(0.55))
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -554,7 +569,7 @@ struct WelcomeView: View {
                 Image(systemName: "mappin.circle.fill")
                     .foregroundStyle(WelcomePalette.mint)
                 Text(place.title)
-                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .font(.system(size: WelcomeStyle.body, weight: .medium, design: .rounded))
                     .foregroundStyle(.white)
                 Spacer(minLength: 8)
                 Button(t("Сменить")) {
@@ -567,7 +582,7 @@ struct WelcomeView: View {
             HStack(spacing: 8) {
                 TextField(t("Название города"), text: $placeSearch.query)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12.5, design: .rounded))
+                    .font(.system(size: WelcomeStyle.body, design: .rounded))
                     // По нажатию Enter, а не по каждой букве: иначе запрос
                     // уходил бы на каждое нажатие клавиши.
                     .onSubmit { placeSearch.search() }
@@ -578,7 +593,7 @@ struct WelcomeView: View {
 
             if let message = placeSearch.message {
                 Text(message)
-                    .font(.system(size: 11.5, design: .rounded))
+                    .font(.system(size: WelcomeStyle.caption, design: .rounded))
                     .foregroundStyle(Color.white.opacity(0.5))
             }
 
@@ -592,10 +607,10 @@ struct WelcomeView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "mappin")
-                            .font(.system(size: 11))
+                            .font(.system(size: WelcomeStyle.caption))
                             .foregroundStyle(Color.white.opacity(0.45))
                         Text(found.title)
-                            .font(.system(size: 12, design: .rounded))
+                            .font(.system(size: WelcomeStyle.detail, design: .rounded))
                             .foregroundStyle(Color.white.opacity(0.8))
                         Spacer(minLength: 8)
                     }
@@ -615,17 +630,17 @@ struct WelcomeView: View {
                 WelcomeGlyph(
                     symbol: permission.icon,
                     tint: state == .granted ? WelcomePalette.mint : WelcomePalette.cyan,
-                    size: 32
+                    size: WelcomeStyle.tile
                 )
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) {
                         Text(permission.title)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                             .foregroundStyle(.white)
                         stateBadge(state)
                     }
                     Text(permission.explanation)
-                        .font(.system(size: 12, design: .rounded))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -634,7 +649,7 @@ struct WelcomeView: View {
                 // а надпись «Выдан» второй раз повторяла бы значок состояния.
                 if state == .granted {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold))
                         .foregroundStyle(WelcomePalette.mint)
                         .padding(.trailing, 8)
                 } else {
@@ -660,7 +675,7 @@ struct WelcomeView: View {
         return HStack(spacing: 4) {
             Circle().fill(tint).frame(width: 5, height: 5)
             Text(state.label)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(.system(size: WelcomeStyle.micro, weight: .medium, design: .monospaced))
                 .foregroundStyle(tint)
         }
     }
@@ -668,18 +683,21 @@ struct WelcomeView: View {
     private var launchRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
-                WelcomeGlyph(symbol: "power", tint: WelcomePalette.violet, size: 32)
+                WelcomeGlyph(symbol: "power", tint: WelcomePalette.violet, size: WelcomeStyle.tile)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t("Запускать при входе в систему"))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                     Text(t("Вырез должен быть на месте с первой секунды — иначе о нём забываешь"))
-                        .font(.system(size: 12, design: .rounded))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
-                Toggle("", isOn: Binding(
+                // Подпись скрыта визуально — слева уже стоит своя строка, —
+                // но в дереве доступности остаётся: без неё выключатель
+                // объявлялся безымянным.
+                Toggle(t("Запускать при входе в систему"), isOn: Binding(
                     get: { launchAtLogin.isEnabled },
                     set: { launchAtLogin.isEnabled = $0 }
                 ))
@@ -699,13 +717,13 @@ struct WelcomeView: View {
     private var ollamaRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
-                WelcomeGlyph(symbol: "sparkles", tint: WelcomePalette.mint, size: 32)
+                WelcomeGlyph(symbol: "sparkles", tint: WelcomePalette.mint, size: WelcomeStyle.tile)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t("Запросы к модели — через Ollama"))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                     Text(t("Отдельная бесплатная программа: держит модель на вашем компьютере, наружу ничего не уходит. Остальные команды работают и без неё."))
-                        .font(.system(size: 12, design: .rounded))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -728,23 +746,22 @@ struct WelcomeView: View {
             ZStack {
                 Circle()
                     .fill(WelcomePalette.mint.opacity(0.14))
-                    .frame(width: 92, height: 92)
+                    .frame(width: WelcomeStyle.markWell, height: WelcomeStyle.markWell)
                     .overlay(Circle().strokeBorder(WelcomePalette.mint.opacity(0.35), lineWidth: 1))
                 Image(systemName: "checkmark")
-                    .font(.system(size: 36, weight: .semibold))
+                    .font(.system(size: WelcomeStyle.mark, weight: .semibold))
                     .foregroundStyle(WelcomePalette.mint)
             }
-            .shadow(color: WelcomePalette.mint.opacity(0.3), radius: 24)
 
             VStack(spacing: 8) {
                 Text(t("Всё готово"))
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .font(.system(size: WelcomeStyle.finale, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                 Text(model.pendingCount == 0
                      ? t("Доступы выданы. Наведите курсор на вырез — и он раскроется.")
                      : tf("Осталось невыданных доступов: %d. ", model.pendingCount)
                        + t("Их можно выдать позже — в настройках или на прошлом шаге."))
-                    .font(.system(size: 13.5, design: .rounded))
+                    .font(.system(size: WelcomeStyle.title, design: .rounded))
                     .foregroundStyle(Color.white.opacity(0.6))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -764,18 +781,18 @@ struct WelcomeView: View {
         WelcomeCard {
             VStack(alignment: .leading, spacing: 6) {
                 Image(systemName: symbol)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: WelcomeStyle.glyph, weight: .medium))
                     .foregroundStyle(WelcomePalette.cyan)
                 Text(title)
-                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    .font(.system(size: WelcomeStyle.body, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                 Text(detail)
-                    .font(.system(size: 11.5, design: .rounded))
+                    .font(.system(size: WelcomeStyle.caption, design: .rounded))
                     .foregroundStyle(Color.white.opacity(0.5))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(14)
-            .frame(width: 216, alignment: .leading)
+            .frame(width: WelcomeStyle.hintCardWidth, alignment: .leading)
         }
     }
 
@@ -784,10 +801,10 @@ struct WelcomeView: View {
     private func stepTitle(_ title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
-                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .font(.system(size: WelcomeStyle.chapter, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
             Text(subtitle)
-                .font(.system(size: 13, design: .rounded))
+                .font(.system(size: WelcomeStyle.title, design: .rounded))
                 .foregroundStyle(Color.white.opacity(0.55))
                 .fixedSize(horizontal: false, vertical: true)
         }

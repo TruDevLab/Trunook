@@ -22,6 +22,21 @@ final class WelcomeModel: ObservableObject {
             case .done: return t("ГОТОВО")
             }
         }
+
+        /// То же имя обычным регистром — для диктора.
+        ///
+        /// Не `eyebrow`: тот набран прописными, и VoiceOver читает такие
+        /// строки по буквам, «эс-о-че-е-те-а-эн-и-я». Глазу разрядка
+        /// и капитель нужны, уху — нет.
+        var title: String {
+            switch self {
+            case .intro: return t("Знакомство")
+            case .gestures: return t("Управление")
+            case .shortcuts: return t("Сочетания клавиш")
+            case .permissions: return t("Доступы")
+            case .done: return t("Готово")
+            }
+        }
     }
 
     @Published var step: Step = .intro

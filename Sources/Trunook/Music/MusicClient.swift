@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 import TrunookXPC
 
 /// Клиент XPC-хелпера. Вся работа с приватным MediaRemote вынесена в отдельный
@@ -7,6 +8,20 @@ import TrunookXPC
 final class MusicClient: NSObject, ObservableObject, TrunookHelperClientProtocol {
     @Published private(set) var nowPlaying: NowPlaying?
     @Published private(set) var status: String = "не подключён"
+
+    /// Преобладающий цвет обложки — им красится полоса воспроизведения.
+    /// `nil` — обложки нет или она серая.
+    ///
+    /// Считается здесь, а не в теле полосы, и причина не в скорости самой
+    /// по себе. Полоса перерисовывается тридцать раз в секунду, потому что
+    /// движется; обложка за это время не меняется ни разу. Разбор картинки
+    /// в теле вида означал бы двести пятьдесят шесть пикселей на каждый кадр
+    /// ради ответа, известного с начала трека.
+    @Published private(set) var artworkTint: Color?
+
+    /// Обложка, по которой посчитан `artworkTint`. Хранится, чтобы не разбирать
+    /// одну и ту же картинку дважды.
+    private var tintSource: Data?
 
     /// Срабатывает при смене трека, но не при первом чтении: показывать
     /// плашку о «новом» треке сразу после запуска приложения незачем.
@@ -122,6 +137,20 @@ final class MusicClient: NSObject, ObservableObject, TrunookHelperClientProtocol
 
     // MARK: - Обратный канал от хелпера
 
+    /// Пересчитать цвет обложки.
+    ///
+    /// Только когда обложка действительно другая. Сравнение по самим байтам,
+    /// а не по признаку «сменился трек»: у альбома обложка одна на все треки,
+    /// и разбирать её заново на каждой песне незачем. Обратный случай тоже
+    /// бывает — плеер присылает обложку не сразу, а через секунду после
+    /// названия, и тогда трек тот же, а картинка новая.
+    private func updateTint(for track: NowPlaying?, isNewTrack: Bool) {
+        let artwork = track?.artwork
+        guard artwork != tintSource || (isNewTrack && artwork == nil) else { return }
+        tintSource = artwork
+        artworkTint = ArtworkTint.color(from: artwork)
+    }
+
     func nowPlayingDidChange(_ payload: Data?) {
         // Хелпер прислал свежие сведения по собственному почину — считаем их
         // новее всех запросов, отправленных до этого момента.
@@ -151,6 +180,7 @@ final class MusicClient: NSObject, ObservableObject, TrunookHelperClientProtocol
 
             self.nowPlaying = merged
             self.status = merged == nil ? "ничего не играет" : "подключён"
+            self.updateTint(for: merged, isNewTrack: isNewTrack)
 
             if let merged, isNewTrack, self.hasLoadedOnce, !merged.isEmpty {
                 DebugLog.write(

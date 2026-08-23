@@ -16,6 +16,21 @@ final class WakeGuard: ObservableObject {
     /// Держим ли экран прямо сейчас.
     @Published private(set) var isOn = false
 
+    /// До какого момента держим. `nil` — без ограничения либо выключено.
+    ///
+    /// Наружу нужен потому, что срок теперь выбирают прямо в вырезе,
+    /// а выбрав — хотят видеть, сколько осталось. Раньше срок жил только
+    /// в настройках, и знать о нём было неоткуда: чашка горела одинаково
+    /// и первую минуту, и последнюю.
+    @Published private(set) var endsAt: Date?
+
+    /// Срок, с которым включили в этот раз, в минутах. Ноль — без ограничения.
+    ///
+    /// Отдельно от `limitMinutes`: тот отвечает, что предложено по умолчанию,
+    /// а этот — с чем чашка горит сейчас. Разойтись они могут с того момента,
+    /// как срок стало можно выбрать на месте.
+    @Published private(set) var activeLimitMinutes = 0
+
     /// Срок вышел, и удержание снялось само. Отдельно от обычного выключения:
     /// человек этого не нажимал, и не сказать ему значит оставить его гадать,
     /// почему экран вдруг снова гаснет.
@@ -57,13 +72,23 @@ final class WakeGuard: ObservableObject {
         release()
     }
 
-    @discardableResult
-    func toggle() -> Bool {
-        isOn ? disable() : enable()
-        return isOn
+    /// Включить или переставить срок, не выключая.
+    ///
+    /// Одна точка на оба случая: панель выбора открывают и при погасшей
+    /// чашке, и при горящей, а требовать от неё разбираться, что именно
+    /// сейчас происходит, значило бы держать это правило в двух местах.
+    func setLimit(minutes: Int) {
+        guard isOn else {
+            enable(minutes: minutes)
+            return
+        }
+        scheduleLimit(minutes: minutes)
+        DebugLog.write("бодрость: срок переставлен"
+                       + (minutes > 0 ? " на \(minutes) мин" : " на без ограничения"))
     }
 
-    func enable() {
+    /// - Parameter minutes: срок этого включения. `nil` — взять из настроек.
+    func enable(minutes: Int? = nil) {
         guard !isOn else { return }
         var identifier = IOPMAssertionID(0)
         let status = IOPMAssertionCreateWithName(
@@ -80,21 +105,20 @@ final class WakeGuard: ObservableObject {
         }
         assertion = identifier
         isOn = true
-        scheduleLimit()
+        let limit = minutes ?? limitMinutes
+        scheduleLimit(minutes: limit)
         DebugLog.write("бодрость: экран удерживается"
-                       + (limitMinutes > 0 ? ", срок \(limitMinutes) мин" : ", без ограничения"))
+                       + (limit > 0 ? ", срок \(limit) мин" : ", без ограничения"))
     }
 
     /// Заводит будильник на снятие удержания.
-    ///
-    /// Срок читается в момент включения, а не хранится: человек может поменять
-    /// его в настройках, пока чашка горит, и брать старое значение было бы
-    /// враньём. Заново заведённая чашка возьмёт новый срок.
-    private func scheduleLimit() {
+    private func scheduleLimit(minutes: Int) {
         limitTimer?.invalidate()
         limitTimer = nil
-        let minutes = limitMinutes
+        activeLimitMinutes = minutes
+        endsAt = nil
         guard minutes > 0 else { return }
+        endsAt = Date().addingTimeInterval(TimeInterval(minutes) * 60)
 
         let timer = Timer(timeInterval: TimeInterval(minutes) * 60, repeats: false) { [weak self] _ in
             self?.expire()
@@ -114,6 +138,8 @@ final class WakeGuard: ObservableObject {
         release()
         isOn = false
         limitTimer = nil
+        endsAt = nil
+        activeLimitMinutes = 0
         DebugLog.write("бодрость: срок вышел, экран отпущен")
         onExpired?()
     }
@@ -122,6 +148,8 @@ final class WakeGuard: ObservableObject {
         guard isOn else { return }
         limitTimer?.invalidate()
         limitTimer = nil
+        endsAt = nil
+        activeLimitMinutes = 0
         release()
         isOn = false
         DebugLog.write("бодрость: экран отпущен")

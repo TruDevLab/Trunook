@@ -14,6 +14,10 @@ final class AssistantSession: ObservableObject {
     /// Открыто ли поле для встречного вопроса.
     @Published var isComposing = false
     @Published var draft = ""
+    /// Поле ввода в фокусе. Живёт здесь, а не в теле панели: `@State`
+    /// в этом тулчейне недоступен — по той же причине так устроены
+    /// `HoverTracker` и `NotchHintTracker`.
+    @Published var isDraftFocused = false
 
     /// Куда вставлять ответ.
     ///
