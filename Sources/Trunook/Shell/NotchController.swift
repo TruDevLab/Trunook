@@ -26,6 +26,13 @@ final class NotchController {
     /// Текст телесуфлера. У контроллера, а не у окна: телесуфлер живёт
     /// накладкой в вырезе — у самой камеры, — и своего окна у него нет.
     let teleprompter = TeleprompterStore()
+    let notes = NotesService()
+    /// Набранное в панели модели. Живёт у контроллера, а не в панели:
+    /// панель исчезает вместе с накладкой, а черновик переживать её обязан.
+    let draft = NoteDraft()
+    /// Подтверждение внутри панели. Обычные плашки событий из-под накладки
+    /// не видны: накладка важнее плашки по расчёту состояния.
+    let flash = PanelFlash()
     /// Удержание экрана от гашения — чашка кофе в раскрытой панели.
     let wake: WakeGuard
 
@@ -76,6 +83,7 @@ final class NotchController {
     }
 
     func start() {
+        notes.start()
         installShelf()
         installHost()
         installInput()
@@ -335,6 +343,14 @@ final class NotchController {
             }
         }
 
+        // Создание заметки. Плитки в меню функций у заметок нет: они часть
+        // разговора с моделью, и второй способ записать — клавиша.
+        if settings.notesEnabled, let notesKey = settings.notesHotKey {
+            HotKeyCenter.shared.register(notesKey, name: "новая заметка") { [weak self] in
+                self?.toggleNoteComposer()
+            }
+        }
+
         // У телесуфлера выключателя нет: он ничего не делает, пока окно
         // закрыто, и выключать в нём нечего.
         if let teleprompterKey = settings.teleprompterHotKey {
@@ -542,8 +558,10 @@ final class NotchController {
             clipboardRows: clipboard.entries.count,
             assistantAnswer: assistant.answer,
             assistantIsStreaming: assistant.isStreaming,
+            assistantMode: draft.mode,
             shelfCount: shelf.items.count,
-            hubCount: HubEntry.count
+            hubCount: HubEntry.count,
+            notesRows: notes.notes.count
         ).resolve()
     }
 
@@ -651,15 +669,100 @@ final class NotchController {
         router.set(.assistant)
     }
 
-    /// Кнопка «спросить» на главной панели. В отличие от команды здесь нет
-    /// ни промта, ни выделенного текста — только пустое поле и курсор в нём.
+    /// Кнопка на главной панели. Открывает панель модели и заметок:
+    /// пустое поле и курсор в нём.
+    ///
+    /// Работает и с выключенной Ollama — тогда это просто поле для заметки.
+    /// Панель прячет у себя всё, что без модели не имеет смысла.
     func askAssistant() {
-        guard settings.ollamaEnabled else { return }
+        guard settings.ollamaEnabled || settings.notesEnabled else { return }
+        // Без модели разговаривать не с кем — панель открывается сразу
+        // заметкой, иначе человек упёрся бы в пустую область ответа.
+        if !settings.ollamaEnabled { draft.setMode(.note) }
         assistant.ask(target: NSWorkspace.shared.frontmostApplication)
         router.set(.assistant)
-        // Поле ввода требует клавиатуры, а панель по умолчанию фокус
-        // не забирает: забираем явно, как и для встречного вопроса.
-        composeFollowUp()
+        takeKeyboard()
+    }
+
+    /// Поле ввода требует клавиатуры, а вырез по умолчанию фокус не забирает:
+    /// на этом держится «выделил текст, спросил у модели, вставил обратно».
+    /// Забираем явно — и возвращаем при закрытии.
+    private func takeKeyboard() {
+        NSApp.activate(ignoringOtherApps: true)
+        host.makeKey()
+        // После того как окно стало ключевым: до этого первого отклика
+        // назначать некому. Строка вопроса забирает фокус сама при появлении,
+        // а полю заметки его надо отдать руками.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.draft.mode == .note else { return }
+            self.draft.focusNote()
+        }
+    }
+
+    /// Сменить режим панели.
+    ///
+    /// Фокус переезжает вместе с режимом: поле, в которое нельзя печатать
+    /// сразу, — это лишний щелчок на каждое переключение.
+    private func selectMode(_ mode: NotePanelMode) {
+        draft.setMode(mode)
+        flash.clear()
+        takeKeyboard()
+    }
+
+    /// Набранное уходит модели.
+    ///
+    /// Заметки в контекст кладутся только при включённом переключателе
+    /// и только в первую реплику разговора: дальше они уже в переписке.
+    private func sendDraft() {
+        let text = draft.question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, settings.ollamaEnabled else { return }
+
+        var context: String?
+        if assistant.usesNotes, settings.notesEnabled {
+            context = notes.contextText()
+            if context == nil {
+                // Заметок нет вовсе — сказать об этом честнее, чем задать
+                // вопрос по пустому архиву и выдать общий ответ за найденный.
+                activities.present(.command(text: t("Заметок пока нет"), state: .failed))
+                return
+            }
+        }
+        assistant.send(text, notesContext: context)
+        draft.clearQuestion()
+    }
+
+    /// Набранное уходит в заметки. Открытая на правку — переписывается,
+    /// новая — заводится.
+    private func saveNote() {
+        guard settings.notesEnabled else { return }
+        let wasEditing = draft.editingID != nil
+        guard let saved = notes.save(draft.attributed, origin: .typed, editing: draft.editingID)
+        else { return }
+        // Подтверждение внутри панели, а не плашкой в вырезе: плашку из-под
+        // открытой накладки не видно, и сохранение выглядело как несработавшее.
+        flash.show(wasEditing ? t("Заметка обновлена") : t("Записано в заметки"))
+        DebugLog.write("заметки: сохранено из панели — \(saved.id)")
+        draft.clearNote()
+    }
+
+    /// Ответ модели уходит в заметки — без разметки, тем же текстом,
+    /// что виден на экране. Звёздочек человек не видел, и в заметке
+    /// им взяться неоткуда.
+    private func saveAnswer() {
+        guard settings.notesEnabled else { return }
+        let text = MarkdownRender.plain(assistant.answer)
+        guard !text.isEmpty else { return }
+        let attributed = NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: Note.bodyFontSize),
+            .foregroundColor: NSColor.white,
+        ])
+        guard notes.save(attributed, origin: .assistant) != nil else { return }
+        flash.show(t("Ответ в заметках"))
+    }
+
+    private func toggleNotesSearch() {
+        assistant.usesNotes.toggle()
+        DebugLog.write("модель: поиск по заметкам — \(assistant.usesNotes)")
     }
 
     private func copyAnswer() {
@@ -674,24 +777,106 @@ final class NotchController {
         }
     }
 
-    /// Встречный вопрос требует клавиатуры, а панель по умолчанию фокус
-    /// не забирает. Забираем явно — и возвращаем его обратно при закрытии.
-    private func composeFollowUp() {
-        assistant.isComposing = true
-        NSApp.activate(ignoringOtherApps: true)
-        host.makeKey()
-    }
-
     func closeAssistant() {
         let target = assistant.target
-        let tookFocus = assistant.isComposing
         assistant.reset()
+        // Набранное остаётся на диске и вернётся при следующем открытии,
+        // а вот правка заметки — нет: сохранять вслепую в запись, про которую
+        // уже забыли, что её открывали, нельзя.
+        draft.saveNow()
+        draft.endEditing()
+        flash.clear()
         router.close()
-        // Фокус возвращаем только если сами его забирали: без этого
-        // безобидное закрытие панели дёргало бы чужие окна.
-        if tookFocus, let target, !target.isActive {
+        // Клавиатуру панель забирает всегда — значит и возвращать её надо
+        // всегда, иначе человек остаётся без фокуса в чужом окне.
+        if let target, !target.isActive {
             target.activate()
         }
+    }
+
+    // MARK: - Заметки
+
+    func openNotes() {
+        guard settings.notesEnabled else { return }
+        router.set(.notes)
+        takeKeyboard()
+    }
+
+    /// Клавиша ведёт к **созданию** заметки, а не к списку.
+    ///
+    /// Записывают чаще, чем перечитывают: мысль приходит сама, а за списком
+    /// идут нарочно. Список открывается из этой же панели одной кнопкой,
+    /// а вот запись на бегу должна быть в одно нажатие.
+    private func toggleNoteComposer() {
+        guard settings.notesEnabled else { return }
+        if router.current == .assistant, draft.mode == .note {
+            closeAssistant()
+            return
+        }
+        openNoteComposer()
+    }
+
+    /// Новая заметка: панель в режиме заметки, привязка к правившейся записи
+    /// сброшена.
+    private func openNoteComposer() {
+        guard settings.notesEnabled else { return }
+        draft.startNewNote()
+        assistant.ask(target: NSWorkspace.shared.frontmostApplication)
+        router.set(.assistant)
+        takeKeyboard()
+    }
+
+    func debugToggleNotes() {
+        guard settings.notesEnabled else { return }
+        router.toggle(.notes)
+    }
+
+    func debugNoteComposer() { toggleNoteComposer() }
+
+    func debugSaveNote() { saveNote() }
+
+    /// Свежая заметка — на правку. Проверяет, что режим переключается сам:
+    /// заметка, открытая в разговоре, показывалась бы поверх чужого ответа
+    /// и с однострочным полем.
+    func debugEditNewestNote() {
+        guard let note = notes.notes.first else {
+            DebugLog.write("заметки: пусто, сперва notesFill")
+            return
+        }
+        openNote(note)
+        DebugLog.write("заметки: на правку \(note.id), режим \(draft.mode.rawValue)")
+    }
+
+    /// Заметка открывается на правку там же, где её набирали, — в панели
+    /// модели. Отдельного окна правки нет: поле ввода уже есть.
+    private func openNote(_ note: Note) {
+        draft.load(note)
+        router.set(.assistant)
+        takeKeyboard()
+    }
+
+    private func exportNotes() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = t("Выгрузить")
+        panel.message = t("Куда сложить заметки")
+
+        // Панель выбора отбирает фокус у выреза, и накладка закрылась бы
+        // щелчком мимо ещё до того, как человек увидит окно.
+        router.close()
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+
+        let result = notes.exportAll(to: folder)
+        activities.present(.command(
+            text: result.failed == 0
+                ? tf("Выгружено заметок: %d", result.written)
+                : tf("Выгружено %d, не вышло %d", result.written, result.failed),
+            state: result.failed == 0 ? .done : .failed
+        ))
     }
 
     // MARK: - Буфер обмена
@@ -1051,6 +1236,9 @@ final class NotchController {
             timer: timer,
             monitor: monitor,
             teleprompter: teleprompter,
+            notes: notes,
+            draft: draft,
+            flash: flash,
             wake: wake,
             settings: settings,
             metrics: metrics,
@@ -1079,9 +1267,17 @@ final class NotchController {
             onClearClipboard: { [weak self] in self?.clipboard.clear() },
             onCopyAnswer: { [weak self] in self?.copyAnswer() },
             onPasteAnswer: { [weak self] in self?.pasteAnswer() },
-            onComposeFollowUp: { [weak self] in self?.composeFollowUp() },
-            onSendFollowUp: { [weak self] text in self?.assistant.follow(up: text) },
+            onSendDraft: { [weak self] in self?.sendDraft() },
+            onSaveDraft: { [weak self] in self?.saveNote() },
+            onSelectMode: { [weak self] mode in self?.selectMode(mode) },
+            onNewNote: { [weak self] in self?.openNoteComposer() },
+            onSaveAnswer: { [weak self] in self?.saveAnswer() },
+            onToggleNotesSearch: { [weak self] in self?.toggleNotesSearch() },
             onCloseAssistant: { [weak self] in self?.closeAssistant() },
+            onOpenNotes: { [weak self] in self?.openNotes() },
+            onOpenNote: { [weak self] note in self?.openNote(note) },
+            onDeleteNote: { [weak self] note in self?.notes.delete(note) },
+            onExportNotes: { [weak self] in self?.exportNotes() },
             onRemoveFromShelf: { [weak self] item in self?.removeFromShelf(item) },
             onOpenShelfItem: { [weak self] item in self?.openShelfItem(item) },
             onRevealShelfItem: { [weak self] item in self?.revealShelfItem(item) },
@@ -1197,6 +1393,51 @@ final class NotchController {
     /// до Carbon не доходят — Универсальный доступ выдан только самому
     /// приложению, а не процессу, который их шлёт.
     func debugToggleClipboard() { router.toggle(.clipboard) }
+
+    /// Набивает заметками для проверки списка и поиска.
+    ///
+    /// Тексты нарочно разные и по-русски: поиск складывает регистр своей
+    /// колонкой, и проверять его на латинице значит не проверять вовсе.
+    func debugFillNotes() {
+        let samples = [
+            "Купить билеты до Владивостока\nОбратно с пересадкой в Хабаровске",
+            "Созвон в четверг, обсудить смету",
+            "ПРИВЕТ, Мир — проба регистра",
+            "Скидка 50% до пятницы",
+            "Отпуск: что взять с собой",
+        ]
+        for (index, text) in samples.enumerated() {
+            let attributed = NSAttributedString(string: text, attributes: [
+                .font: NSFont.systemFont(ofSize: Note.bodyFontSize),
+                .foregroundColor: NSColor.white,
+            ])
+            notes.save(
+                attributed,
+                origin: index == 1 ? .assistant : .typed,
+                now: Date().addingTimeInterval(-Double(index) * 3_600)
+            )
+        }
+        DebugLog.write("заметки: набито образцов \(samples.count), всего \(notes.total)")
+        openNotes()
+    }
+
+    /// Вопрос по заметкам целиком из сессии: переключатель и отправка —
+    /// это нажатия, а их отсюда нет.
+    func debugAskNotes() {
+        guard settings.ollamaEnabled else {
+            DebugLog.write("заметки: Ollama выключена, спрашивать нечем")
+            return
+        }
+        guard let context = notes.contextText() else {
+            DebugLog.write("заметки: пусто, сперва notesFill")
+            return
+        }
+        assistant.usesNotes = true
+        assistant.ask(target: NSWorkspace.shared.frontmostApplication)
+        router.set(.assistant)
+        assistant.send(t("О чём мои заметки? Перечисли коротко."), notesContext: context)
+        DebugLog.write("заметки: вопрос по контексту в \(context.count) симв.")
+    }
 
     func debugUseClipboardSlot(_ index: Int) {
         guard let entry = clipboard.entry(atSlot: index) else {

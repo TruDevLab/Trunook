@@ -367,6 +367,40 @@ final class Settings: ObservableObject {
         set { store(newValue, "teleprompterSpeed") }
     }
 
+    // MARK: - Заметки
+
+    /// Заметки живут в панели модели и без неё: набрать и сохранить можно
+    /// с выключенной Ollama. Поэтому выключатель свой, а не общий с Ollama.
+    var notesEnabled: Bool {
+        get { flag("notesEnabled", default: true) }
+        set { store(newValue, "notesEnabled") }
+    }
+
+    var notesHotKey: HotKeySpec? {
+        get { hotKey("notesHotKey", default: .notes) }
+        set { storeHotKey(newValue, "notesHotKey") }
+    }
+
+    /// Имя заметке придумывает модель.
+    ///
+    /// Отдельно от `ollamaEnabled`: модель может быть нужна для команд
+    /// и вопросов, а тратить её на именование каждой заметки — нет.
+    var notesTitleByModel: Bool {
+        get { flag("notesTitleByModel", default: true) }
+        set { store(newValue, "notesTitleByModel") }
+    }
+
+    /// Сколько символов заметок уходит в контекст модели при поиске по ним.
+    ///
+    /// В символах, а не в токенах: токенов не сосчитать без самой модели,
+    /// а разные модели считают их по-разному. Для кириллицы 24 000 символов —
+    /// это примерно 10 000 токенов, и в окно любой ходовой модели такое
+    /// влезает с запасом.
+    var notesContextLimit: Int {
+        get { defaults.object(forKey: "notesContextLimit") as? Int ?? 24_000 }
+        set { store(max(2_000, newValue), "notesContextLimit") }
+    }
+
     // MARK: - Погода
 
     var weatherSource: WeatherSource {

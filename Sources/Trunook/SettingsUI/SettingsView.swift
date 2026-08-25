@@ -6,14 +6,16 @@ import SwiftUI
 /// он реализован макросом, а плагин SwiftUI-макросов поставляется с Xcode.
 final class SettingsSelection: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case general, commands, clipboard, shelf, timer, monitor, teleprompter, calendar, weather, battery, info
+        case general, commands, model, notes, clipboard, shelf, timer, monitor, teleprompter, calendar, weather, battery, info
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .general: return t("Общие")
             case .commands: return t("Команды")
+            case .model: return t("Модель")
             case .clipboard: return t("Буфер")
+            case .notes: return t("Заметки")
             case .shelf: return t("Полка")
             case .timer: return t("Таймер")
             case .monitor: return t("Нагрузка")
@@ -29,7 +31,9 @@ final class SettingsSelection: ObservableObject {
             switch self {
             case .general: return "gearshape.fill"
             case .commands: return "square.grid.2x2.fill"
+            case .model: return "sparkles"
             case .clipboard: return "doc.on.clipboard.fill"
+            case .notes: return "list.bullet.rectangle"
             case .shelf: return "tray.full.fill"
             case .timer: return "timer"
             case .monitor: return "gauge.with.dots.needle.67percent"
@@ -47,7 +51,9 @@ final class SettingsSelection: ObservableObject {
             switch self {
             case .general: return Palette.neutral
             case .commands: return Palette.commands
+            case .model: return Palette.assistant
             case .clipboard: return Palette.clipboard
+            case .notes: return Palette.assistant
             case .shelf: return Palette.shelf
             case .timer: return Palette.timer
             case .monitor: return Palette.monitor
@@ -73,6 +79,8 @@ struct SettingsView: View {
     @ObservedObject var browsers: BrowserList
     @ObservedObject var clipboard: ClipboardService
     @ObservedObject var weather: WeatherService
+    /// Заметки: их число показывается в разделе, а очистка идёт через службу.
+    @ObservedObject var notes: NotesService
     /// Поиск города. Живёт снаружи, а не в теле вида: `@State` в этом SDK
     /// недоступен, а полю ввода и списку найденного где-то держаться надо.
     @ObservedObject var placeSearch: WeatherPlaceSearch
@@ -198,7 +206,9 @@ struct SettingsView: View {
                 case .teleprompter: teleprompterSection
                 case .general: generalSection
                 case .commands: commandsSection
+                case .model: modelSection
                 case .clipboard: clipboardSection
+                case .notes: notesSection
                 case .shelf: shelfSection
                 case .calendar: calendarSection
                 case .weather: weatherSection
@@ -332,6 +342,79 @@ struct SettingsView: View {
                 }
 
         }
+    }
+
+    private var notesSection: some View {
+        Group {
+            section(t("Заметки"), icon: "list.bullet.rectangle") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Заметки"), isOn: Binding(
+                        get: { settings.notesEnabled },
+                        set: { settings.notesEnabled = $0; onHotKeysChanged() }
+                    ))
+                    hint(t("Заметки живут в панели модели: набранное можно отправить ей вопросом или сохранить записью. Работают и с выключенной Ollama — тогда имя заметке ставится из даты и первой строки."))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(t("Новая заметка"))
+                        Spacer()
+                        HotKeyRecorder(spec: Binding(
+                            get: { settings.notesHotKey },
+                            set: { settings.notesHotKey = $0; onHotKeysChanged() }
+                        ))
+                        .frame(width: SettingsStyle.hotKeyField.width,
+                               height: SettingsStyle.hotKeyField.height)
+                    }
+                    .disabled(!settings.notesEnabled)
+                    hint(t("Клавиша открывает пустую заметку — записывают чаще, чем перечитывают. Список открывается из той же панели одной кнопкой."))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Имя заметке придумывает модель"), isOn: settings.binding(\.notesTitleByModel))
+                        .disabled(!settings.notesEnabled || !settings.ollamaEnabled)
+                    hint(t("Имя ставится дважды: сразу — из даты и первой строки, потом модель переписывает его фоном. Панель при этом закрывается сразу и модель не ждёт."))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker(t("Заметок в контекст модели"), selection: settings.binding(\.notesContextLimit)) {
+                        ForEach([8_000, 16_000, 24_000, 48_000, 96_000], id: \.self) { value in
+                            Text(tf("%d тыс. знаков", value / 1_000)).tag(value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+                    .disabled(!settings.notesEnabled || !settings.ollamaEnabled)
+                    hint(t("Сколько заметок уходит модели при поиске по ним. Что не влезло — названо в самом запросе, чтобы неполный ответ не выглядел неверным. Больше знаков — больше памяти под модель."))
+                }
+            }
+
+            section(t("Что с ними делать"), icon: "square.and.arrow.up") {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(tf("Заметок сейчас: %d", notes.total))
+                        Spacer()
+                        Button(t("Очистить все"), role: .destructive, action: clearNotes)
+                            .disabled(notes.total == 0)
+                    }
+                    hint(tf("Хранятся в %@. Выгрузка в Markdown — кнопкой в самом списке заметок.", NotesStore.defaultURL.path))
+                }
+            }
+        }
+    }
+
+    /// Очистка спрашивает подтверждение: это единственный способ потерять
+    /// все заметки разом, а мимо кнопки в настройках попадают так же,
+    /// как и везде.
+    private func clearNotes() {
+        let alert = NSAlert()
+        alert.messageText = t("Удалить все заметки?")
+        alert.informativeText = t("Вернуть их будет нельзя. Выгрузите их в папку, если они ещё пригодятся.")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: t("Удалить"))
+        alert.addButton(withTitle: t("Отмена"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        notes.clearAll()
     }
 
     private var teleprompterSection: some View {
@@ -825,10 +908,33 @@ struct SettingsView: View {
                     }
                     hint(t("Нажмите поле и задайте сочетание. Delete снимает, Esc отменяет. Без модификаторов не принимается: перехватывало бы обычный набор."))
                 }
+
+                // Про подстановку сказано здесь, а не в разделе модели:
+                // `{{selection}}` — свойство слота команды, а не самой модели,
+                // и человек ищет его там, где заполняет слот.
+                hint(t("В слоте с запросом к модели {{selection}} — место подстановки выделенного текста, а ответ кладётся в буфер обмена. Саму модель настраивает раздел «Модель»."))
             }
 
+            ForEach(settings.quickCommands) { command in
+                commandEditor(command)
+            }
+        }
+    }
+
+    /// Настройки модели — своим разделом, а не внутри команд.
+    ///
+    /// Внутри команд они и лежали, пока модель была нужна только им. Теперь
+    /// на ней держатся ещё и заметки: имя записи, поиск по всему архиву,
+    /// разговор в панели. Настройка, спрятанная в разделе одной из функций,
+    /// выглядит её частью — и человек, у которого не работают заметки, ищет
+    /// причину где угодно, кроме раздела «Команды».
+    private var modelSection: some View {
+        Group {
             section(t("Запросы к модели"), icon: "sparkles") {
-                Toggle(t("Использовать Ollama"), isOn: settings.binding(\.ollamaEnabled))
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Использовать Ollama"), isOn: settings.binding(\.ollamaEnabled))
+                    hint(t("Модель работает на вашем же компьютере. От неё зависят быстрые команды с запросом, разговор в вырезе, имена заметок и поиск по ним."))
+                }
 
                 if settings.ollamaEnabled {
                     TextField(tf("Адрес (по умолчанию %@)", Settings.defaultOllamaURL),
@@ -878,13 +984,9 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.menu)
 
-                        hint(t("Ответ кладётся в буфер обмена. {{selection}} — место подстановки выделенного текста. Модель стоит держать загруженной: загрузка занимает около минуты, а модель поменьше отвечает быстрее."))
+                        hint(t("Загрузка модели в память занимает около минуты, и первый запрос после простоя платит за неё целиком. Модель поменьше отвечает быстрее."))
                     }
                 }
-            }
-
-            ForEach(settings.quickCommands) { command in
-                commandEditor(command)
             }
         }
     }
@@ -1266,7 +1368,7 @@ struct SettingsView: View {
                             .foregroundStyle(SettingsStyle.secondary)
                             .textSelection(.enabled)
                     }
-                    hint(t("Вырез MacBook как центр управления: музыка, встречи, команды, ответ модели, буфер, полка, таймер, нагрузка и телесуфлер."))
+                    hint(t("Вырез MacBook как центр управления: музыка, встречи, команды, модель с заметками, буфер, полка, таймер, нагрузка и телесуфлер."))
                 }
             }
 
@@ -1283,6 +1385,7 @@ struct SettingsView: View {
             section(t("Что уходит наружу"), icon: "lock") {
                 info(t("Погода"), t("Координаты, округлённые до километра, уходят на open-meteo.com. Это единственное обращение в интернет."))
                 info(t("Модель"), t("Запросы идут в Ollama на вашем же компьютере. Наружу не уходит ничего."))
+                info(t("Заметки"), t("Лежат в файле приложения. При поиске по ним текст уходит той же Ollama на вашем компьютере — и больше никуда."))
                 info(t("Буфер и полка"), t("Хранятся только у вас: история — в файле приложения, полка — ссылками на ваши же файлы."))
                 info(t("Телесуфлер"), t("Текст лежит в файле приложения, в формате RTF. Наружу не уходит ничего."))
             }

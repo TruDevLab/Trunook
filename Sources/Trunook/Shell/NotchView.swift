@@ -30,18 +30,20 @@ final class NotchState: ObservableObject {
         case monitor
         case teleprompter
         case caffeine
+        case notes
 
         /// Закрывается ли накладка тем, что курсор ушёл за её границы.
         ///
-        /// Полка, ответ модели и телесуфлер — нет, и по одной причине: с ними
-        /// работают руками. С полки тащат файлы наружу, у модели читают длинный
-        /// ответ и печатают встречный вопрос, в телесуфлер набирают речь, —
-        /// курсор при этом заведомо уходит, и закрытие по уходу отнимало бы
-        /// панель ровно в тот момент, ради которого она открыта.
+        /// Полка, панель модели, телесуфлер и список заметок — нет, и по одной
+        /// причине: с ними работают руками. С полки тащат файлы наружу,
+        /// у модели читают длинный ответ и набирают вопрос, в телесуфлер
+        /// набирают речь, в списке заметок печатают в поиск, — курсор при этом
+        /// заведомо уходит, и закрытие по уходу отнимало бы панель ровно
+        /// в тот момент, ради которого она открыта.
         var closesOnCursorExit: Bool {
             switch self {
             case .commands, .clipboard, .hub, .timer, .monitor, .caffeine: return true
-            case .shelf, .assistant, .teleprompter: return false
+            case .shelf, .assistant, .teleprompter, .notes: return false
             }
         }
 
@@ -65,6 +67,7 @@ final class NotchState: ObservableObject {
     var isTimerOpen: Bool { overlay == .timer }
     var isMonitorOpen: Bool { overlay == .monitor }
     var isTeleprompterOpen: Bool { overlay == .teleprompter }
+    var isNotesOpen: Bool { overlay == .notes }
     var isCaffeineOpen: Bool { overlay == .caffeine }
 
     /// Файлы ведут над зоной приёма прямо сейчас. Держится отдельно
@@ -119,6 +122,13 @@ struct NotchView: View {
     @ObservedObject var monitor: MonitorService
     /// Телесуфлер: текст, оформление и автопрокрутка.
     @ObservedObject var teleprompter: TeleprompterStore
+    /// Заметки: список, поиск и их число.
+    @ObservedObject var notes: NotesService
+    /// Набранное в панели модели — вопрос ей или будущая заметка.
+    @ObservedObject var draft: NoteDraft
+    /// Короткое подтверждение внутри панели: обычные плашки из-под накладки
+    /// не видны вовсе.
+    @ObservedObject var flash: PanelFlash
     /// Держим ли экран от гашения. Наблюдается: подложка под чашкой —
     /// единственное, чем это состояние показано.
     @ObservedObject var wake: WakeGuard
@@ -154,9 +164,23 @@ struct NotchView: View {
     let onClearClipboard: () -> Void
     let onCopyAnswer: () -> Void
     let onPasteAnswer: () -> Void
-    let onComposeFollowUp: () -> Void
-    let onSendFollowUp: (String) -> Void
+    /// Отправить набранное модели.
+    let onSendDraft: () -> Void
+    /// Сохранить набранное заметкой — или переписать ту, что открыта на правку.
+    let onSaveDraft: () -> Void
+    /// Переключить режим панели: разговор или заметка.
+    let onSelectMode: (NotePanelMode) -> Void
+    /// Начать новую заметку — из списка.
+    let onNewNote: () -> Void
+    /// Сохранить заметкой ответ модели.
+    let onSaveAnswer: () -> Void
+    /// Переключить поиск по заметкам.
+    let onToggleNotesSearch: () -> Void
     let onCloseAssistant: () -> Void
+    let onOpenNotes: () -> Void
+    let onOpenNote: (Note) -> Void
+    let onDeleteNote: (Note) -> Void
+    let onExportNotes: () -> Void
     let onRemoveFromShelf: (ShelfItem) -> Void
     let onOpenShelfItem: (ShelfItem) -> Void
     let onRevealShelfItem: (ShelfItem) -> Void
@@ -217,6 +241,19 @@ struct NotchView: View {
         }
     }
 
+    /// Что обещает кнопка в правом крыле раскрытой панели.
+    ///
+    /// Обещает разное, потому что и открывает разное: с моделью это разговор
+    /// и заметки разом, без неё — только заметки. Общая формулировка вроде
+    /// «Спросить модель» с выключенной Ollama была бы прямой неправдой.
+    private var askHint: String {
+        switch (settings.ollamaEnabled, settings.notesEnabled) {
+        case (true, true): return t("Модель и заметки")
+        case (true, false): return t("Спросить модель")
+        default: return t("Записать заметку")
+        }
+    }
+
     private var content: NotchContent { snapshot().content }
     private var presentation: NotchPresentation { snapshot().presentation }
 
@@ -239,7 +276,7 @@ struct NotchView: View {
             bottomRadius: {
                 switch presentation {
                 case .expanded, .commands, .clipboard, .assistant, .shelf, .hub, .timer,
-                     .monitor, .teleprompter, .caffeine:
+                     .monitor, .teleprompter, .caffeine, .notes:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
                 case .swiping: return 14
@@ -312,6 +349,15 @@ struct NotchView: View {
         .offset(x: state.tremble.width, y: state.tremble.height)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(shapeAnimation, value: presentation)
+        // Размер меняется не только при смене состояния: панель модели
+        // и панель заметки — одна и та же накладка `.assistant` разной
+        // высоты, и переключение режима меняло её рывком, без всякого
+        // перехода. Той же пружиной, что и смена состояния: два разных
+        // движения в одном месте читались бы как сбой.
+        //
+        // Заодно перестал дёргаться и конец потока: панель, садящаяся
+        // по содержимому после ответа, тоже меняла высоту скачком.
+        .animation(shapeAnimation, value: size)
         .animation(.easeOut(duration: 0.12), value: state.swipe)
     }
 
@@ -364,12 +410,30 @@ struct NotchView: View {
         case .assistant:
             AssistantPanel(
                 session: assistant,
+                draft: draft,
+                flash: flash,
                 metrics: metrics,
+                modelEnabled: settings.ollamaEnabled,
+                notesEnabled: settings.notesEnabled,
+                onSend: onSendDraft,
+                onSaveNote: onSaveDraft,
                 onCopy: onCopyAnswer,
                 onPaste: onPasteAnswer,
-                onCompose: onComposeFollowUp,
-                onSend: onSendFollowUp,
+                onSaveAnswer: onSaveAnswer,
+                onOpenNotes: onOpenNotes,
+                onToggleNotesSearch: onToggleNotesSearch,
+                onSelectMode: onSelectMode,
                 onClose: onCloseAssistant
+            )
+        case .notes:
+            NotesPanel(
+                notes: notes,
+                metrics: metrics,
+                onOpen: onOpenNote,
+                onDelete: onDeleteNote,
+                onExportAll: onExportNotes,
+                onNewNote: onNewNote,
+                onClose: onCloseOverlay
             )
         case .clipboard:
             ClipboardPanel(
@@ -476,7 +540,11 @@ struct NotchView: View {
                 onCopyLink: onCopyLink,
                 onOpenItem: onOpenItem,
                 onOpenHub: onOpenHub,
-                onAsk: settings.ollamaEnabled ? onAskAssistant : nil,
+                // Панель модели открывается и без модели: заметки в ней
+                // работают сами по себе. Пропадает кнопка только если
+                // выключено и то и другое.
+                onAsk: (settings.ollamaEnabled || settings.notesEnabled) ? onAskAssistant : nil,
+                askHint: askHint,
                 weather: settings.weatherEnabled ? weather.current : nil,
                 isAwake: wake.isOn,
                 onOpenAwake: settings.caffeineEnabled ? onOpenAwake : nil
@@ -498,9 +566,12 @@ private struct ExpandedPanel: View {
     let onCopyLink: (URL) -> Void
     let onOpenItem: (CalendarItem) -> Void
     let onOpenHub: () -> Void
-    /// Спросить модель. nil — Ollama выключена в настройках, и кнопки нет:
+    /// Открыть панель модели и заметок. nil — выключены обе, и кнопки нет:
     /// кнопка, которая ничего не делает, хуже её отсутствия.
     let onAsk: (() -> Void)?
+    /// Что кнопка обещает: она открывает разное в зависимости от того,
+    /// что включено.
+    let askHint: String
     /// Погода живёт в полосе аппаратного выреза справа: там пусто, и панель
     /// от неё не растёт.
     let weather: WeatherService.Snapshot?
@@ -538,7 +609,7 @@ private struct ExpandedPanel: View {
         } trailing: {
             HStack(spacing: 2) {
                 if let onAsk {
-                    NotchPanelButton(symbol: "sparkles", hint: t("Спросить модель"), action: onAsk)
+                    NotchPanelButton(symbol: "sparkles", hint: askHint, action: onAsk)
                 }
                 NotchPanelButton(symbol: "gearshape", hint: t("Настройки"), action: onOpenSettings)
             }

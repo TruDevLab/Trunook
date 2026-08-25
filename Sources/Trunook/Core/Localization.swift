@@ -32,6 +32,21 @@ enum Language: String, CaseIterable, Identifiable {
         case .zh: return "zh-Hans"
         }
     }
+
+    /// Язык для того, что переводит не наша таблица, а система: названия
+    /// месяцев, порядок частей даты, разделители.
+    ///
+    /// Нужен потому, что язык интерфейса и язык системы расходятся: человек
+    /// с русской системой мог поставить приложению английский, и дата
+    /// «25 августа» в английском окне читалась бы как недоделка.
+    var locale: Locale {
+        switch self {
+        case .system: return .current
+        case .ru: return Locale(identifier: "ru_RU")
+        case .en: return Locale(identifier: "en_US")
+        case .zh: return Locale(identifier: "zh_Hans")
+        }
+    }
 }
 
 /// Перевод интерфейса.

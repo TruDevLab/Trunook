@@ -43,13 +43,14 @@ final class OllamaClient {
     @discardableResult
     func stream(
         messages: [ChatMessage],
+        contextWindow: Int? = nil,
         onToken: @escaping (String) -> Void,
         onFinish: @escaping (Result<String, Error>) -> Void
     ) -> Task<Void, Never> {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let request = try self.chatRequest(messages: messages)
+                let request = try self.chatRequest(messages: messages, contextWindow: contextWindow)
                 let (bytes, response) = try await self.session.bytes(for: request)
 
                 if let http = response as? HTTPURLResponse, http.statusCode != 200 {
@@ -85,21 +86,56 @@ final class OllamaClient {
         }
     }
 
-    private func chatRequest(messages: [ChatMessage]) throws -> URLRequest {
+    private func chatRequest(messages: [ChatMessage], contextWindow: Int?) throws -> URLRequest {
         guard let base = baseURL, let url = URL(string: "/api/chat", relativeTo: base) else {
             throw OllamaError.badURL
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var options: [String: Any] = ["num_predict": Self.answerTokens]
+        // Просим окно контекста явно — иначе длинный промт молча обрежется.
+        // Подробности у `contextWindow(forCharacters:)`.
+        if let contextWindow { options["num_ctx"] = contextWindow }
+
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "model": settings.ollamaModel,
             "messages": messages.map { ["role": $0.role, "content": $0.content] },
             "stream": true,
             "keep_alive": settings.ollamaKeepAlive,
-            "options": ["num_predict": 2048],
+            "options": options,
         ])
         return request
+    }
+
+    // MARK: - Окно контекста
+
+    /// Потолок длины ответа. Без него модель на неудачном промте способна
+    /// генерировать до упора, и запрос просто зависает.
+    static let answerTokens = 2048
+
+    /// Сколько контекста просить у модели под промт такой длины.
+    ///
+    /// Просить приходится **явно**, и это главная ловушка всей затеи
+    /// с заметками. У модели в её файле параметра `num_ctx` обычно нет —
+    /// проверено на `gemma3:4b`, там заданы только `temperature`, `top_k`,
+    /// `top_p` и `stop`, — и Ollama берёт своё умолчание около четырёх тысяч
+    /// токенов. Всё, что длиннее, она **молча отрезает**: ни ошибки,
+    /// ни предупреждения. Модель отвечает по огрызку промта, и выглядит это
+    /// как выдумка модели, а не как потеря данных.
+    ///
+    /// Два символа на токен — заведомо щедрая оценка: для кириллицы выходит
+    /// около двух с половиной, для латиницы вчетверо больше. Ошибка здесь
+    /// стоит памяти, а недооценка — тихо испорченного ответа.
+    ///
+    /// Ступенями, а не точным числом: Ollama выделяет память под контекст
+    /// целиком, и дёргать её произвольными размерами на каждый вопрос значит
+    /// заставлять перезагружать модель.
+    static func contextWindow(forCharacters count: Int) -> Int {
+        let needed = count / 2 + answerTokens + 1024
+        let ladder = [4096, 8192, 16_384, 32_768, 65_536, 131_072]
+        return ladder.first { $0 >= needed } ?? 131_072
     }
 
     func generate(prompt: String, completion: @escaping (Result<String, Error>) -> Void) {
@@ -120,11 +156,7 @@ final class OllamaClient {
             // команды, которая называется быстрой, это неприемлемо: держим
             // модель в памяти между вызовами.
             "keep_alive": settings.ollamaKeepAlive,
-            "options": [
-                // Потолок длины ответа. Без него модель на неудачном промте
-                // способна генерировать до упора, и команда просто зависает.
-                "num_predict": 2048,
-            ],
+            "options": ["num_predict": Self.answerTokens],
         ])
 
         session.dataTask(with: request) { data, response, error in

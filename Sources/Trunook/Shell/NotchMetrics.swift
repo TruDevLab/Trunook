@@ -67,7 +67,16 @@ struct NotchMetrics: Equatable {
         // выписанный здесь заново, он разошёлся с ней на поле подложки.
         let panel = expanded(extraHeight: NotchContent.maxExtraHeight)
         let commands = CommandsPanel.height(notchHeight: notchHeight, hasBackRow: true)
-        let assistant = AssistantPanel.height(notchHeight: notchHeight)
+        // Потолок по обоим режимам: в разговоре высоту задаёт область
+        // ответа, в заметке — высокое поле, и заранее не сказать, какой
+        // из них выше на этой машине.
+        let assistant = NotePanelMode.allCases
+            .map { AssistantPanel.height(notchHeight: notchHeight, notchWidth: notchWidth, mode: $0) }
+            .max() ?? 0
+        let notes = NotesPanel.height(
+            notchHeight: notchHeight,
+            rows: NotesPanel.visibleRows
+        )
         let clipboard = ClipboardPanel.height(
             notchHeight: notchHeight,
             rows: ClipboardPanel.visibleRows
@@ -88,7 +97,8 @@ struct NotchMetrics: Equatable {
                 TimerChipView.width(metrics: self, showsHours: true),
                 CommandsPanel.width,
                 ClipboardPanel.width(notchWidth: notchWidth),
-                AssistantPanel.width,
+                AssistantPanel.width(notchWidth: notchWidth),
+                NotesPanel.width(notchWidth: notchWidth),
                 ShelfPanel.width,
                 HubPanel.width,
                 TeleprompterPanel.width(notchWidth: notchWidth),
@@ -99,8 +109,10 @@ struct NotchMetrics: Equatable {
             // без запаса она пропала бы ровно там, где нужнее всего, —
             // под самой высокой панелью, телесуфлером с его шестью значками
             // оформления.
-            height: max(panel.height, commands, clipboard, assistant, shelf, hub, teleprompter, caffeine)
-                + NotchHintLayout.reserved
+            height: max(
+                panel.height, commands, clipboard, assistant, shelf, hub,
+                teleprompter, caffeine, notes
+            ) + NotchHintLayout.reserved
         )
     }
 }

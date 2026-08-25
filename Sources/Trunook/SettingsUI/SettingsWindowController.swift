@@ -23,6 +23,7 @@ final class SettingsWindowController {
         calendar: CalendarService,
         clipboard: ClipboardService,
         weather: WeatherService,
+        notes: NotesService,
         onHotKeysChanged: @escaping () -> Void,
         onLayoutChanged: @escaping () -> Void,
         onOpenWelcome: @escaping () -> Void
@@ -61,6 +62,7 @@ final class SettingsWindowController {
             browsers: browsers,
             clipboard: clipboard,
             weather: weather,
+            notes: notes,
             placeSearch: placeSearch,
             onHotKeysChanged: onHotKeysChanged,
             onLayoutChanged: onLayoutChanged,

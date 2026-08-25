@@ -156,13 +156,17 @@ struct WelcomeView: View {
         }
     }
 
-    /// Два ряда, шесть и пять.
+    /// Два ряда, семь и шесть.
     ///
-    /// Ряд длиннее шести брать нельзя: содержимое, которое шире окна,
+    /// Длина ряда — не вкусовщина, а расчёт: содержимое, которое шире окна,
     /// раздвигает его, и обрезаются **оба** края разом — заголовок слева,
     /// кнопки справа. На восьми плитках по 96 точек это уже ловили.
-    /// Шесть по 88 с зазорами дают 578 точек при окне 780 — запас есть.
+    /// Семь по 88 с зазорами дают 676 точек при окне 780 — запас есть,
+    /// и его держит проверка `рядыПлитокПомещаютсяВОкно`.
     /// Третий ряд не заводить: под ним ещё демонстрация выреза и заголовок.
+    ///
+    /// Заметки стоят рядом с моделью намеренно: это одна и та же панель,
+    /// и порознь они читались бы как две разные функции.
     private var featureRow: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
@@ -171,6 +175,7 @@ struct WelcomeView: View {
                 feature("square.grid.2x2.fill", t("Команды"), WelcomePalette.mint)
                 feature("video.fill", t("Встречи"), WelcomePalette.violet)
                 feature("sparkles", t("Модель"), WelcomePalette.violet)
+                feature("list.bullet.rectangle", t("Заметки"), WelcomePalette.violet)
                 feature("doc.on.clipboard.fill", t("Буфер"), WelcomePalette.cyan)
             }
             HStack(spacing: 10) {
@@ -183,6 +188,9 @@ struct WelcomeView: View {
             }
         }
     }
+
+    /// Сколько плиток в самом длинном ряду — для проверки ширины.
+    static let widestFeatureRow = 7
 
     private func feature(_ symbol: String, _ title: String, _ tint: Color) -> some View {
         WelcomeCard {
@@ -243,6 +251,7 @@ struct WelcomeView: View {
                     timerHotKeyRow
                     monitorHotKeyRow
                     teleprompterHotKeyRow
+                    notesHotKeyRow
                 }
             }
         }
@@ -371,6 +380,50 @@ struct WelcomeView: View {
                         get: { settings.timerHotKey },
                         set: { spec in
                             settings.timerHotKey = spec
+                            onHotKeysChanged()
+                        }
+                    ),
+                    placeholder: t("Не назначено")
+                )
+                .frame(width: WelcomeStyle.shortcutField.width,
+                       height: WelcomeStyle.shortcutField.height)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+    }
+
+    /// Заметки: единственная функция, у которой нет плитки в меню функций,
+    /// — значит клавиша тут не удобство, а единственный способ записать
+    /// мысль, не трогая мышь.
+    ///
+    /// Название и пояснение говорят про **ИИ**, а не про «заметки» вообще:
+    /// заметки есть у всех, а имя записи, которое придумывает модель,
+    /// и поиск по всему архиву её же силами — то, чего от заметок в вырезе
+    /// никто не ждёт, и не сказать об этом значит не сказать ничего.
+    private var notesHotKeyRow: some View {
+        WelcomeCard {
+            HStack(spacing: 13) {
+                WelcomeGlyph(
+                    symbol: "square.and.pencil",
+                    tint: WelcomePalette.violet,
+                    size: WelcomeStyle.tile
+                )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Новая заметка с ИИ"))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(t("Клавиша открывает пустую заметку. Название ей придумает модель, а потом у неё же можно спросить по всем заметкам разом — ответит по вашим записям, а не по общим знаниям"))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                HotKeyRecorder(
+                    spec: Binding(
+                        get: { settings.notesHotKey },
+                        set: { spec in
+                            settings.notesHotKey = spec
                             onHotKeysChanged()
                         }
                     ),

@@ -102,6 +102,11 @@ struct HotKeySpec: Codable, Equatable, Hashable {
     /// с той же буквы в обоих языках.
     static let teleprompter = HotKeySpec(keyCode: UInt32(kVK_ANSI_P), modifiers: own)
 
+    /// ⌃⌥Z — список заметок. Не ⌃⌥N, как просилось бы от слова «note»:
+    /// её занимает раскрытая панель, и отбирать её у единственного способа
+    /// добраться до главного экрана с клавиатуры нельзя.
+    static let notes = HotKeySpec(keyCode: UInt32(kVK_ANSI_Z), modifiers: own)
+
     /// Цифра для номерной строки истории буфера.
     static func clipboardSlot(_ index: Int, modifiers: UInt32) -> HotKeySpec? {
         guard digits.indices.contains(index) else { return nil }

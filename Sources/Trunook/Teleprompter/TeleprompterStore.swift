@@ -40,9 +40,12 @@ final class TeleprompterStore: ObservableObject {
 
     private let settings: Settings
 
-    /// Поле ввода. Слабая ссылка: окном владеет контроллер, и переживать
-    /// его хранилищу незачем.
-    private weak var textView: NSTextView?
+    /// Правка оформления. Общая с панелью модели: два набора правил
+    /// оформления разошлись бы при первой же правке.
+    let editor = RichTextEditor(style: .teleprompter)
+
+    /// Само поле — у редактора. Здесь оно нужно прокрутке и записи на диск.
+    private var textView: NSTextView? { editor.view }
 
     private var scrollTimer: Timer?
     /// Недобранная за тик доля точки. Без неё медленная скорость округлялась
@@ -79,6 +82,10 @@ final class TeleprompterStore: ObservableObject {
 
     init(settings: Settings = .shared) {
         self.settings = settings
+        editor.onEdit = { [weak self] in
+            self?.refreshEmptiness()
+            self?.scheduleSave()
+        }
     }
 
     var speed: Int {
@@ -91,21 +98,28 @@ final class TeleprompterStore: ObservableObject {
 
     // MARK: - Поле ввода
 
-    /// Поле готово — забираем его себе и кладём в него сохранённый текст.
+    /// Поле готово — отдаём его редактору и кладём сохранённый текст.
     func attach(_ view: NSTextView) {
-        textView = view
-        view.textStorage?.setAttributedString(loadFromDisk())
-        view.setSelectedRange(NSRange(location: 0, length: 0))
-        // Отмена начинается с этого момента: восстановление текста с диска —
-        // не правка человека, и откатывать её ему незачем.
-        view.undoManager?.removeAllActions()
+        editor.attach(view)
+        editor.setAttributed(loadFromDisk())
         refreshEmptiness()
     }
 
     func detach() {
         stopScrolling()
         saveNow()
-        textView = nil
+        editor.detach()
+    }
+
+    /// В суфлер вставили чужой текст.
+    ///
+    /// Речь в него как раз и вставляют — из документа, из письма, из чата, —
+    /// и приходит она со своим цветом. Чёрный на чёрной панели не виден,
+    /// а поменять его нечем: кнопки цвета здесь нет.
+    func didPaste() {
+        editor.normalizeColors()
+        refreshEmptiness()
+        scheduleSave()
     }
 
     /// Текст поменялся. Зовётся делегатом поля на каждой правке.
@@ -115,72 +129,24 @@ final class TeleprompterStore: ObservableObject {
     }
 
     private func refreshEmptiness() {
-        let empty = (textView?.textStorage?.length ?? 0) == 0
+        let empty = editor.isEmpty
         guard empty != isEmpty else { return }
         isEmpty = empty
     }
 
     // MARK: - Оформление
 
-    /// Заголовок — крупнее и жирнее, обычный текст — обратно.
+    /// Оформление целиком лежит в `RichTextEditor` — здесь только
+    /// переадресация.
     ///
-    /// Абзацем целиком, а не выделением: заголовок — это свойство строки,
-    /// и половина строки заголовком не бывает. Достаточно поставить курсор
-    /// в строку, выделять её не нужно.
-    func toggleHeading() {
-        edit { storage, _, view in
-            let range = (view.string as NSString).paragraphRange(for: view.selectedRange())
-            guard range.length > 0 else { return }
-            let isHeading = Self.fontSize(in: storage, at: range.location) >= Self.headingFontSize
-            let font = isHeading
-                ? NSFont.systemFont(ofSize: Self.bodyFontSize)
-                : NSFont.boldSystemFont(ofSize: Self.headingFontSize)
-            storage.addAttribute(.font, value: font, range: range)
-        }
-    }
-
-    func toggleBold() { toggleTrait(.bold) }
-    func toggleItalic() { toggleTrait(.italic) }
-
-    /// Подчёркивание — своим свойством, а не начертанием шрифта: у системного
-    /// шрифта подчёркнутого начертания нет вовсе.
-    func toggleUnderline() {
-        edit { storage, range, _ in
-            let existing = storage.attribute(.underlineStyle, at: range.location, effectiveRange: nil)
-            let isUnderlined = (existing as? Int ?? 0) != 0
-            if isUnderlined {
-                storage.removeAttribute(.underlineStyle, range: range)
-            } else {
-                storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
-            }
-        }
-    }
-
-    /// Ссылка на выделенном тексте. Пустое выделение снимает ссылку —
-    /// иначе снять её было бы нечем.
-    func applyLink(_ address: String) {
-        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        edit { storage, range, _ in
-            guard !trimmed.isEmpty, let url = Self.url(from: trimmed) else {
-                storage.removeAttribute(.link, range: range)
-                storage.removeAttribute(.underlineStyle, range: range)
-                return
-            }
-            storage.addAttribute(.link, value: url, range: range)
-            // Подчёркивание ставим сами: без него ссылка в чёрной панели
-            // отличается от текста только оттенком, а его на репетиции
-            // не разглядеть.
-            storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
-            storage.addAttribute(.foregroundColor, value: NSColor(Palette.teleprompter), range: range)
-        }
-    }
-
-    /// Адрес без схемы — всё ещё адрес: «trunook.ru» человек напишет чаще,
-    /// чем «https://trunook.ru».
-    private static func url(from text: String) -> URL? {
-        if let url = URL(string: text), url.scheme != nil { return url }
-        return URL(string: "https://" + text)
-    }
+    /// Кнопки панели зовут телесуфлер, а не редактор напрямую, и это
+    /// нарочно: панель знает про свой телесуфлер, а про то, что правки
+    /// общие с панелью модели, ей знать незачем.
+    func toggleHeading() { editor.toggleHeading() }
+    func toggleBold() { editor.toggleBold() }
+    func toggleItalic() { editor.toggleItalic() }
+    func toggleUnderline() { editor.toggleUnderline() }
+    func applyLink(_ address: String) { editor.applyLink(address) }
 
     /// Спросить адрес ссылки строкой панели.
     func askForLink() {
@@ -214,90 +180,19 @@ final class TeleprompterStore: ObservableObject {
         clear()
     }
 
-    /// Палитра эмодзи — системная. Своей у приложения нет и быть не должно:
-    /// человек уже умеет пользоваться этой.
-    func showEmojiPalette() {
-        focusText()
-        NSApp.orderFrontCharacterPalette(nil)
-    }
+    func showEmojiPalette() { editor.showEmojiPalette() }
 
-    private func toggleTrait(_ trait: NSFontDescriptor.SymbolicTraits) {
-        edit { storage, range, _ in
-            let manager = NSFontManager.shared
-            // Смотрим на начало выделения: если оно уже такое, снимаем —
-            // так же ведут себя ⌘B и ⌘I во всех текстовых редакторах.
-            let current = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-            let base = current ?? NSFont.systemFont(ofSize: Self.bodyFontSize)
-            let isOn = base.fontDescriptor.symbolicTraits.contains(trait)
-            let change: NSFontTraitMask = trait == .bold
-                ? (isOn ? .unboldFontMask : .boldFontMask)
-                : (isOn ? .unitalicFontMask : .italicFontMask)
-
-            storage.enumerateAttribute(.font, in: range) { value, subrange, _ in
-                let font = value as? NSFont ?? NSFont.systemFont(ofSize: Self.bodyFontSize)
-                storage.addAttribute(.font, value: manager.convert(font, toHaveTrait: change), range: subrange)
-            }
-        }
-    }
-
-    /// Общая обвязка правок: взять поле, отбить правку в отмену, вернуть
-    /// фокус и сохранить.
-    ///
-    /// Фокус возвращается непременно: кнопки оформления живут в SwiftUI,
-    /// нажатие по ним уводит первого отвечающего из поля, и без возврата
-    /// следующая правка пришлась бы в пустоту — а выглядело бы это как
-    /// «кнопка сработала один раз».
-    private func edit(_ change: (NSTextStorage, NSRange, NSTextView) -> Void) {
-        guard let view = textView, let storage = view.textStorage else { return }
-        var range = view.selectedRange()
-        // Пустое выделение — работаем со словом под курсором: оформлять
-        // нечего, а промолчать в ответ на нажатие кнопки нельзя.
-        if range.length == 0 {
-            range = (view.string as NSString).paragraphRange(for: range)
-        }
-        guard range.length > 0, NSMaxRange(range) <= storage.length else {
-            focusText()
-            return
-        }
-
-        view.shouldChangeText(in: range, replacementString: nil)
-        storage.beginEditing()
-        change(storage, range, view)
-        storage.endEditing()
-        view.didChangeText()
-
-        view.setSelectedRange(range)
-        focusText()
-        scheduleSave()
-    }
-
-    private static func fontSize(in storage: NSTextStorage, at location: Int) -> CGFloat {
-        guard location < storage.length,
-              let font = storage.attribute(.font, at: location, effectiveRange: nil) as? NSFont
-        else { return bodyFontSize }
-        return font.pointSize
-    }
-
-    private func focusText() {
-        guard let view = textView else { return }
-        view.window?.makeFirstResponder(view)
-    }
+    private func focusText() { editor.focus() }
 
     // MARK: - Очистка
 
     /// Единственный способ потерять текст — и потому спрашивает подтверждения.
     /// Речь набирают один раз, а нажимают мимо регулярно.
     func clear() {
-        guard let view = textView, let storage = view.textStorage else { return }
         stopScrolling()
-        let all = NSRange(location: 0, length: storage.length)
-        view.shouldChangeText(in: all, replacementString: "")
-        storage.setAttributedString(NSAttributedString(string: ""))
-        view.didChangeText()
-        applyDefaultTyping(to: view)
+        editor.clear()
         refreshEmptiness()
         saveNow()
-        focusText()
         DebugLog.write("телесуфлер: текст очищен")
     }
 
@@ -406,13 +301,5 @@ final class TeleprompterStore: ObservableObject {
             // Промолчать нельзя: человек считает, что речь сохранена.
             DebugLog.write("телесуфлер: не сохранить — \(error.localizedDescription)")
         }
-    }
-
-    /// Оформление, с которым начинается набор в пустом поле.
-    func applyDefaultTyping(to view: NSTextView) {
-        view.typingAttributes = [
-            .font: NSFont.systemFont(ofSize: Self.bodyFontSize),
-            .foregroundColor: NSColor.white,
-        ]
     }
 }

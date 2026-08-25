@@ -34,6 +34,8 @@ enum NotchPresentation: Equatable {
     case teleprompter
     /// Выбор срока для чашки кофе.
     case caffeine
+    /// Список заметок.
+    case notes
 }
 
 enum SwipeDirection: Equatable {
@@ -65,10 +67,15 @@ struct NotchContent: Equatable {
     /// Ответ модели и идёт ли он прямо сейчас — от них зависит высота панели.
     var assistantAnswer = ""
     var assistantIsStreaming = false
+    /// Чем занята панель: разговором или заметкой. От режима зависит вся
+    /// её вёрстка, а значит и высота.
+    var assistantMode: NotePanelMode = .model
     /// Сколько файлов лежит на полке.
     var shelfCount = 0
     /// Сколько плиток показывает меню всех функций.
     var hubCount = 0
+    /// Сколько строк показывает список заметок — с учётом поиска.
+    var notesRows = 0
 
     /// Сколько задач реально попадёт в панель.
     var visibleTasks: Int { min(taskCount, NotchMetrics.maxVisibleTasks) }
@@ -183,11 +190,21 @@ enum NotchSizing {
             )
         case .assistant:
             return CGSize(
-                width: AssistantPanel.width,
+                width: AssistantPanel.width(notchWidth: metrics.notchWidth),
                 height: AssistantPanel.height(
                     notchHeight: metrics.notchHeight,
+                    notchWidth: metrics.notchWidth,
+                    mode: content.assistantMode,
                     answer: content.assistantAnswer,
                     isStreaming: content.assistantIsStreaming
+                )
+            )
+        case .notes:
+            return CGSize(
+                width: NotesPanel.width(notchWidth: metrics.notchWidth),
+                height: NotesPanel.height(
+                    notchHeight: metrics.notchHeight,
+                    rows: content.notesRows
                 )
             )
         case .clipboard:

@@ -56,6 +56,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.teleprompterScroll", #selector(scrollTeleprompter)),
             ("com.trunook.debug.teleprompterPrompt", #selector(promptTeleprompter)),
             ("com.trunook.debug.caffeine", #selector(toggleCaffeine)),
+            ("com.trunook.debug.notes", #selector(showNotes)),
+            ("com.trunook.debug.notesFill", #selector(fillNotes)),
+            ("com.trunook.debug.notesAsk", #selector(askNotes)),
+            ("com.trunook.debug.noteNew", #selector(newNote)),
+            ("com.trunook.debug.noteEdit", #selector(editNote)),
+            ("com.trunook.debug.noteSave", #selector(saveNote)),
             ("com.trunook.debug.caffeineExpire", #selector(expireCaffeine)),
             ("com.trunook.debug.timerRun", #selector(runTimer)),
             ("com.trunook.debug.hub", #selector(showHub)),
@@ -207,6 +213,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// из отладочной сессии не снять — «Ответить» нажимают мышью.
     @objc private func testAsk() {
         controller.askAssistant()
+    }
+
+    /// Список заметок: поиск, строки, пустое состояние.
+    @objc private func showNotes() {
+        controller.debugToggleNotes()
+    }
+
+    /// Набить заметками — иначе список нечем показать, а сохранить из панели
+    /// можно только нажатием, которого из сессии нет.
+    @objc private func fillNotes() {
+        controller.debugFillNotes()
+    }
+
+    /// Открыть свежую заметку на правку — то же, что нажатие по строке
+    /// списка. Нажать её из сессии нечем, а именно на ней ловили ошибку:
+    /// заметка из ответа модели открывалась как ответ, а не как заметка.
+    @objc private func editNote() {
+        controller.debugEditNewestNote()
+    }
+
+    /// Сохранить набранное заметкой — то же, что главная кнопка панели.
+    /// Ею же проверяется подтверждение: плашки событий из-под накладки
+    /// не видно, и без своего подтверждения сохранение выглядит
+    /// несработавшим.
+    @objc private func saveNote() {
+        controller.debugSaveNote()
+    }
+
+    /// Создание заметки — то же, что делает сочетание клавиш.
+    @objc private func newNote() {
+        controller.debugNoteComposer()
+    }
+
+    /// Вопрос по заметкам: включает переключатель и шлёт запрос с их
+    /// контекстом. Нажать кнопку из сессии нечем.
+    @objc private func askNotes() {
+        controller.debugAskNotes()
     }
 
     /// Снимок открытого окна знакомства в ~/Library/Logs/Trunook-welcome.png.
@@ -385,6 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             calendar: controller.calendar,
             clipboard: controller.clipboard,
             weather: controller.weather,
+            notes: controller.notes,
             onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() },
             onLayoutChanged: { [weak self] in self?.controller.relayout() },
             onOpenWelcome: { [weak self] in self?.openWelcome() }

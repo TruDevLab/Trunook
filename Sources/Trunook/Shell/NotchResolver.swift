@@ -47,8 +47,10 @@ struct NotchInputs: Equatable {
     var clipboardRows = 0
     var assistantAnswer = ""
     var assistantIsStreaming = false
+    var assistantMode: NotePanelMode = .model
     var shelfCount = 0
     var hubCount = 0
+    var notesRows = 0
 
     /// С какой доли жеста остров начинает расходиться в бока.
     static let swipingEnterProgress: Double = 0.15
@@ -73,6 +75,7 @@ struct NotchInputs: Equatable {
         case .monitor: return .monitor
         case .teleprompter: return .teleprompter
         case .caffeine: return .caffeine
+        case .notes: return .notes
         case nil: break
         }
         // Остров расходится в бока не после срабатывания, а по ходу жеста:
@@ -101,8 +104,10 @@ struct NotchInputs: Equatable {
             clipboardRows: clipboardRows,
             assistantAnswer: assistantAnswer,
             assistantIsStreaming: assistantIsStreaming,
+            assistantMode: assistantMode,
             shelfCount: shelfCount,
-            hubCount: hubCount
+            hubCount: hubCount,
+            notesRows: notesRows
         )
     }
 }

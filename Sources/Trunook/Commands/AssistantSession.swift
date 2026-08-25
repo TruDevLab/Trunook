@@ -11,13 +11,15 @@ final class AssistantSession: ObservableObject {
     @Published private(set) var answer = ""
     @Published private(set) var isStreaming = false
     @Published private(set) var error: String?
-    /// Открыто ли поле для встречного вопроса.
-    @Published var isComposing = false
-    @Published var draft = ""
-    /// Поле ввода в фокусе. Живёт здесь, а не в теле панели: `@State`
-    /// в этом тулчейне недоступен — по той же причине так устроены
-    /// `HoverTracker` и `NotchHintTracker`.
-    @Published var isDraftFocused = false
+    /// Искать ответ в заметках, а не в общих знаниях модели.
+    ///
+    /// Переключатель, а не отдельная кнопка отправки: включил — и все
+    /// вопросы идут по заметкам, пока не выключил. Кнопка заставляла бы
+    /// выбирать заново на каждом вопросе, хотя разговор обычно весь про одно.
+    ///
+    /// Живёт в сессии, а не в панели: `@State` в этом тулчейне недоступен,
+    /// а признак обязан пережить перерисовку.
+    @Published var usesNotes = false
 
     /// Куда вставлять ответ.
     ///
@@ -29,6 +31,13 @@ final class AssistantSession: ObservableObject {
     private let client: OllamaClient
     private var messages: [OllamaClient.ChatMessage] = []
     private var task: Task<Void, Never>?
+
+    /// Какое окно контекста просить у модели.
+    ///
+    /// `nil` — не просить ничего, пусть решает Ollama: обычному разговору
+    /// её умолчания хватает с запасом. Заметки в контекст в него не влезают,
+    /// и там окно приходится называть явно — иначе промт молча обрежется.
+    private var contextWindow: Int?
 
     init(client: OllamaClient = OllamaClient()) {
         self.client = client
@@ -44,25 +53,21 @@ final class AssistantSession: ObservableObject {
         self.target = target
         answer = ""
         error = nil
-        draft = ""
-        isComposing = false
         messages = [.user(prompt)]
         run()
     }
 
-    /// Свободный вопрос: панель открывается сразу с полем ввода, без команды
-    /// и без выделенного текста.
+    /// Свободный вопрос: панель открывается с пустым разговором, а поле
+    /// ввода в ней есть всегда.
     ///
     /// Отдельно от `start`: там разговор начинается с готового промта и сразу
     /// уходит к модели, а здесь ждём, пока человек напишет.
     func ask(target: NSRunningApplication?) {
         cancel()
-        title = t("Вопрос")
+        title = t("Модель")
         self.target = target
         answer = ""
         error = nil
-        draft = ""
-        isComposing = true
         messages = []
     }
 
@@ -71,27 +76,42 @@ final class AssistantSession: ObservableObject {
     /// разговора.
     var hasNoConversation: Bool { messages.isEmpty && answer.isEmpty }
 
-    /// Встречный вопрос. Прежний ответ уходит в переписку — модель должна
+    /// Вопрос модели. Прежний ответ уходит в переписку — модель должна
     /// помнить, что она уже сказала.
-    func follow(up question: String) {
+    ///
+    /// Заметки, если по ним ищут, кладутся **только в первую реплику**:
+    /// дальше они уже в переписке, и слать их заново значило бы удваивать
+    /// контекст на каждом встречном вопросе.
+    func send(_ question: String, notesContext: String? = nil) {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
+
         if !answer.isEmpty {
             messages.append(.assistant(answer))
         }
-        messages.append(.user(text))
+        if messages.isEmpty, let notesContext {
+            title = t("По заметкам")
+            messages.append(.user(notesContext + "\n\n" + t("Вопрос:") + " " + text))
+            contextWindow = OllamaClient.contextWindow(
+                forCharacters: messages.reduce(0) { $0 + $1.content.count }
+            )
+        } else {
+            messages.append(.user(text))
+        }
         answer = ""
         error = nil
-        draft = ""
-        isComposing = false
         run()
     }
 
     private func run() {
         isStreaming = true
-        DebugLog.write("модель: запрос, реплик в переписке — \(messages.count)")
+        DebugLog.write(
+            "модель: запрос, реплик в переписке — \(messages.count)"
+                + (contextWindow.map { ", окно контекста \($0)" } ?? "")
+        )
         task = client.stream(
             messages: messages,
+            contextWindow: contextWindow,
             onToken: { [weak self] piece in
                 self?.answer += piece
             },
@@ -120,10 +140,9 @@ final class AssistantSession: ObservableObject {
         title = ""
         answer = ""
         error = nil
-        draft = ""
-        isComposing = false
         messages = []
         target = nil
+        contextWindow = nil
     }
 
     // MARK: - Что делать с ответом

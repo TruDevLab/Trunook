@@ -130,6 +130,23 @@ struct SettingsStyleTests {
     ///
     /// Отношение, а не абсолютные значения: настройку из теста не подменить,
     /// а проверять надо связь между двумя величинами, а не их размер.
+    /// Ряд плиток, который шире окна, раздвигает его — и обрезаются **оба**
+    /// края разом: заголовок слева, кнопки справа. На восьми плитках по 96
+    /// точек это уже ловили; после того как в ряд добавили заметки, их стало
+    /// семь, и запас надо держать проверкой, а не памятью.
+    @Test("Ряды плиток помещаются в окно знакомства")
+    func рядыПлитокПомещаютсяВОкно() {
+        let tiles = CGFloat(WelcomeView.widestFeatureRow)
+        let spacing: CGFloat = 10
+        let row = tiles * WelcomeStyle.featureTile.width + (tiles - 1) * spacing
+        // Поля окна по бокам: содержимое до самой кромки не доходит.
+        let sidePadding = WelcomeStyle.scaled(28) * 2
+        #expect(
+            row + sidePadding <= WelcomeStyle.windowSize.width,
+            "ряд \(row) плюс поля \(sidePadding) шире окна \(WelcomeStyle.windowSize.width)"
+        )
+    }
+
     @Test("Плитка значка растёт как значок в ней")
     func плиткаРастётКакЗначок() {
         let byGlyph = SettingsStyle.font(10) / 10

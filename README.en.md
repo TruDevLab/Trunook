@@ -3,7 +3,7 @@
 [Русский](README.md) · **English** · [简体中文](README.zh.md)
 
 A dynamic notch for the MacBook: music, meetings, clipboard history, a shelf
-for files and prompts to a local model — in the notch instead of separate
+for files, notes and prompts to a local model — in the notch instead of separate
 windows.
 
 ![The notch in action](docs/demo.gif)
@@ -24,6 +24,9 @@ changed in settings or right in the welcome window.
 | ⌃⌥S | File shelf |
 | ⌃⌥T | Timer and stopwatch |
 | ⌃⌥M | System load |
+| ⌃⌥P | Teleprompter |
+| ⌃⌥Z | New note |
+| ⌃⌥N | Main panel |
 | ⌃⌥1 … ⌃⌥6 | Command slots directly |
 | ⌃⇧1 … ⌃⇧9 | Paste a clipboard entry by number |
 
@@ -41,8 +44,16 @@ changed in settings or right in the welcome window.
 - **Clipboard history.** Recent copies, paste by number from the keyboard.
 - **File shelf.** Drag files onto the notch and they land on the shelf. Drag
   them off into any window — the file moves for good.
-- **Model prompts.** Ollama on your own machine: the answer is written right
-  in the notch, and can be copied or pasted into the active window.
+- **Model prompts.** Ollama on your own machine: the question goes off with
+  Enter, the answer is written right in the notch, and can be copied or pasted
+  into the active window.
+- **Notes.** The same panel has a mode switch: "AI" is a question line and an
+  answer, "Note" is a multi-line field with formatting. The model comes up with
+  the note's name. Its answer goes into notes with one button too. The "search
+  notes" toggle makes the model answer from your own records rather than from
+  general knowledge. ⌃⌥Z opens an empty note; the list with word search is one
+  button away in that same panel, and notes are exported from there into
+  a folder as Markdown files.
 - **Quick commands.** Six slots with hotkeys: an app, a folder, a link, an
   AppleScript, a model prompt, or a macOS Shortcut.
 - **Timer and stopwatch.** Preset lengths and a twenty-five minute pomodoro
@@ -116,6 +127,8 @@ separate service.
   Settings or on the permissions step of the welcome screen, and location
   access is never requested — only the name you typed leaves the machine.
 - **Model prompts** go to Ollama on your own machine.
+- **Notes** live in the app's own file. They go nowhere else; with "search
+  notes" on, their text is sent to that same Ollama on your machine.
 - **Clipboard history and the shelf** stay local: history in the app's own
   file, the shelf as links to your own files.
 
