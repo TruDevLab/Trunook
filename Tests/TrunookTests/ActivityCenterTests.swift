@@ -13,6 +13,11 @@ struct ActivityCenterTests {
         return ActivityCenter(settings: settings)
     }
 
+    /// Скопированная запись для плашки.
+    private static func copied(_ text: String) -> ClipboardEntry {
+        ClipboardEntry(id: 1, kind: .text, text: text, copiedAt: Date())
+    }
+
     /// Сроки плашек короткие и подобраны под того, кто в этот момент смотрит
     /// на экран. Кому их мало, тот растягивает — иначе продлить было нечем:
     /// таймер одноразовый и ни на что не смотрит.
@@ -73,7 +78,7 @@ struct ActivityCenterTests {
     func равноеЗаменяет() {
         let center = ActivityCenter()
         center.present(.lowBattery(percentage: 20))
-        center.present(.clipboard(text: "текст", kind: .text))
+        center.present(.clipboard(entry: Self.copied("текст")))
         if case .clipboard = center.current?.kind {} else {
             Issue.record("плашка буфера не заменила равную по важности")
         }
@@ -88,7 +93,7 @@ struct ActivityCenterTests {
     @Test("По плашкам буфера и полки можно нажать, по прочим нельзя")
     func интерактивность() {
         #expect(Activity(kind: .shelf(count: 1)).isInteractive)
-        #expect(Activity(kind: .clipboard(text: "т", kind: .text)).isInteractive)
+        #expect(Activity(kind: .clipboard(entry: Self.copied("т"))).isInteractive)
         #expect(!Activity(kind: .trackChanged).isInteractive)
     }
 

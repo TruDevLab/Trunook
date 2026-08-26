@@ -126,6 +126,8 @@ struct NotchView: View {
     @ObservedObject var notes: NotesService
     /// Набранное в панели модели — вопрос ей или будущая заметка.
     @ObservedObject var draft: NoteDraft
+    /// Голосовой заход: фаза, громкость и чем его оборвать.
+    @ObservedObject var voice: VoiceSession
     /// Короткое подтверждение внутри панели: обычные плашки из-под накладки
     /// не видны вовсе.
     @ObservedObject var flash: PanelFlash
@@ -160,6 +162,11 @@ struct NotchView: View {
     let onCloseOverlay: () -> Void
     let onOpenClipboard: () -> Void
     let onUseClipboard: (ClipboardEntry) -> Void
+    /// Отложить скопированное в заметки — из списка истории или прямо
+    /// с плашки о копировании.
+    let onSaveClipboardToNotes: (ClipboardEntry) -> Void
+    /// Оборвать голосовой заход — кнопкой в мини-виде или в панели.
+    let onStopVoice: () -> Void
     let onDeleteClipboard: (ClipboardEntry) -> Void
     let onClearClipboard: () -> Void
     let onCopyAnswer: () -> Void
@@ -280,7 +287,10 @@ struct NotchView: View {
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
                 case .swiping: return 14
-                case .chip, .collapsed: return 12
+                // Голосовая полоса высотой с чёлку — той же формы, что
+                // и обратный отсчёт: это одна и та же полоса, разного
+                // содержания.
+                case .voice, .chip, .collapsed: return 12
                 }
             }()
         )
@@ -340,6 +350,14 @@ struct NotchView: View {
                 .offset(y: NotchHintLayout.reserved)
                 .allowsHitTesting(false)
         }
+        // Свечение голосового захода — **поверх** обрезки: внутри неё оно
+        // просто не вышло бы за края острова, а светить оно должно наружу.
+        //
+        // Слой стоит всегда и гаснет прозрачностью, а не появляется по `if`.
+        // Ветвление в теле вида меняет его тождество, и SwiftUI пересобирает
+        // поддерево вместо того чтобы доиграть переход: на этом уже ловили
+        // отрыв острова от кромки при мурчании.
+        .background(voiceGlow)
         // Панель сменилась или закрылась — подпись уходит с ней. Кнопка
         // исчезает вместе с панелью и об уходе курсора уже не сообщает,
         // так что сама плашка о своём устаревании не узнает.
@@ -386,6 +404,78 @@ struct NotchView: View {
         effectiveSwipe == .previous ? .leading : .trailing
     }
 
+
+    /// Свечение вокруг острова, пока идёт голосовой заход.
+    ///
+    /// Две обводки одной и той же формы, размытые по-разному: узкая держит
+    /// кромку, широкая уходит в стороны ореолом. Одной не хватает — одна
+    /// либо режет край, либо расплывается в пятно без формы.
+    ///
+    /// Пульс считается из времени, а не хранится состоянием: `@State`
+    /// в этом тулчейне недоступен, и это тот же приём, которым живёт
+    /// бегущая строка.
+    private var voiceGlow: some View {
+        // Останавливается, когда захода нет, и это не мелочь: вырез открыт
+        // всё время работы машины, и тридцать кадров в секунду ради
+        // невидимого слоя человек оплачивал бы батареей круглые сутки.
+        //
+        // Останов — параметр, а не ветка `if`: ветвление меняет тождество
+        // вида, и SwiftUI пересобирал бы поддерево вместо перехода.
+        TimelineView(.animation(
+            minimumInterval: 1 / 30,
+            paused: motion.reduceMotion || voice.phase == nil
+        )) { context in
+            let strength = voiceGlowStrength(at: context.date)
+            // Тени, наложенные одна на другую: каждая угасает наружу сама,
+            // а вместе они складываются в плавный ореол. Размытые обводки
+            // тут не годятся — они дают либо ничего, либо кольца; подробности
+            // у `VoiceGlow.layers`.
+            //
+            // Тени выписаны подряд, а не собраны циклом: `ForEach` строит
+            // соседние слои, а тень оборачивает предыдущий — свет от этого
+            // и накапливается.
+            shape
+                .stroke(voiceGlowTint, lineWidth: VoiceGlow.edgeWidth)
+                // Размытие до теней, а не после: резкая обводка видна сама
+                // по себе, и вместо ореола выходит чёткий контур с бледным
+                // свечением снаружи.
+                .blur(radius: VoiceGlow.edgeBlur)
+                .shadow(color: glowShade(0), radius: VoiceGlow.layers[0].radius)
+                .shadow(color: glowShade(1), radius: VoiceGlow.layers[1].radius)
+                .shadow(color: glowShade(2), radius: VoiceGlow.layers[2].radius)
+                .shadow(color: glowShade(3), radius: VoiceGlow.layers[3].radius)
+                .frame(width: size.width, height: size.height)
+                .opacity(strength)
+            // Свечение — украшение состояния, а не кнопка: попадания
+            // по нему уходят тому, что под ним.
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// Цвет слоя свечения по его номеру.
+    private func glowShade(_ index: Int) -> Color {
+        voiceGlowTint.opacity(VoiceGlow.layers[index].opacity)
+    }
+
+    private var voiceGlowTint: Color {
+        voice.phase.map(VoiceGlow.tint(for:)) ?? .clear
+    }
+
+    /// Сила свечения прямо сейчас: своя для каждой фазы, с медленным
+    /// дыханием поверх.
+    ///
+    /// Когда захода нет — ноль, и слой становится невидимым, не исчезая
+    /// из дерева видов.
+    private func voiceGlowStrength(at date: Date) -> Double {
+        guard let phase = voice.phase else { return 0 }
+        let base = VoiceGlow.strength(for: phase, level: voice.listener.level)
+        guard !motion.reduceMotion else { return base }
+        // Дыхание неглубокое: свечение должно жить, а не мигать. Мигающее
+        // у самой кромки экрана поле зрения читает как неисправность.
+        let breath = (sin(date.timeIntervalSinceReferenceDate * 2.2) + 1) / 2
+        return base * (0.82 + 0.18 * breath)
+    }
+
     /// Куда ведёт нажатие по плашке, по которой можно нажать.
     private func openInteractive(_ activity: Activity) {
         switch activity.kind {
@@ -423,7 +513,9 @@ struct NotchView: View {
                 onOpenNotes: onOpenNotes,
                 onToggleNotesSearch: onToggleNotesSearch,
                 onSelectMode: onSelectMode,
-                onClose: onCloseAssistant
+                onClose: onCloseAssistant,
+                onStopVoice: onStopVoice,
+                voicePhase: voice.phase
             )
         case .notes:
             NotesPanel(
@@ -438,9 +530,12 @@ struct NotchView: View {
         case .clipboard:
             ClipboardPanel(
                 entries: clipboard.entries,
+                flash: flash,
                 metrics: metrics,
                 slotHint: settings.clipboardSlotModifiers.hint,
+                notesEnabled: settings.notesEnabled,
                 onUse: onUseClipboard,
+                onSaveToNotes: onSaveClipboardToNotes,
                 onDelete: onDeleteClipboard,
                 onClear: onClearClipboard,
                 onOpenSettings: onOpenSettings,
@@ -490,6 +585,15 @@ struct NotchView: View {
                 onEndDragOut: onEndShelfDragOut,
                 onClose: onCloseOverlay
             )
+        case .voice:
+            if let phase = voice.phase {
+                VoiceChipView(
+                    phase: phase,
+                    level: voice.listener.level,
+                    metrics: metrics,
+                    onStop: onStopVoice
+                )
+            }
         case .chip:
             // Таймер важнее отсчёта до встречи: его завели руками.
             if timer.isRunning {
@@ -505,11 +609,18 @@ struct NotchView: View {
                     metrics: metrics,
                     onJoin: onJoin,
                     onDismiss: onDismissActivity,
-                    onOpen: { openInteractive(activity) }
+                    onOpen: { openInteractive(activity) },
+                    onSaveToNotes: onSaveClipboardToNotes,
+                    notesEnabled: settings.notesEnabled
                 )
                 .frame(
                     width: ActivityView
-                        .layout(for: activity.kind, track: music.nowPlaying, metrics: metrics)
+                        .layout(
+                            for: activity.kind,
+                            track: music.nowPlaying,
+                            metrics: metrics,
+                            notesEnabled: settings.notesEnabled
+                        )
                         .panelWidth
                 )
                 // Нажатие обрабатывает сама плашка: у неё есть ещё крестик,

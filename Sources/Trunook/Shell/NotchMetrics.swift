@@ -67,12 +67,10 @@ struct NotchMetrics: Equatable {
         // выписанный здесь заново, он разошёлся с ней на поле подложки.
         let panel = expanded(extraHeight: NotchContent.maxExtraHeight)
         let commands = CommandsPanel.height(notchHeight: notchHeight, hasBackRow: true)
-        // Потолок по обоим режимам: в разговоре высоту задаёт область
-        // ответа, в заметке — высокое поле, и заранее не сказать, какой
-        // из них выше на этой машине.
-        let assistant = NotePanelMode.allCases
-            .map { AssistantPanel.height(notchHeight: notchHeight, notchWidth: notchWidth, mode: $0) }
-            .max() ?? 0
+        let assistant = AssistantPanel.tallest(
+            notchHeight: notchHeight,
+            notchWidth: notchWidth
+        )
         let notes = NotesPanel.height(
             notchHeight: notchHeight,
             rows: NotesPanel.visibleRows
@@ -94,6 +92,7 @@ struct NotchMetrics: Equatable {
             width: max(
                 panel.width,
                 ChipView.width(metrics: self),
+                VoiceChipView.width(metrics: self),
                 TimerChipView.width(metrics: self, showsHours: true),
                 CommandsPanel.width,
                 ClipboardPanel.width(notchWidth: notchWidth),

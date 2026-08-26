@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Короткое подтверждение внутри открытой панели.
 ///
@@ -35,5 +36,38 @@ final class PanelFlash: ObservableObject {
         timer?.invalidate()
         timer = nil
         text = nil
+    }
+}
+
+/// Сама плашка подтверждения — накладкой поверх содержимого панели.
+///
+/// Вынесена из панели модели, когда откладывать в заметки научилась и панель
+/// буфера: подтверждение у них одно и то же, и второй раз рисовать его
+/// значило бы завести вторую плашку, которая разойдётся с первой в цвете
+/// и высоте при первой же правке.
+///
+/// Поверх содержимого, а не вместо строки: вместо строки — значит на полторы
+/// секунды убрать то, чем человек прямо сейчас пользуется; поверх — ничего
+/// не двигается, а не заметить всё равно нельзя.
+struct PanelFlashPill: View {
+    @ObservedObject var flash: PanelFlash
+
+    var body: some View {
+        if let text = flash.text {
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: NotchStyle.font(10), weight: .semibold))
+                Text(text)
+                    .font(.system(size: NotchStyle.font(11), weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Palette.positive)
+            .padding(.horizontal, 9)
+            .frame(height: NotchStyle.scaled(22))
+            .background(Capsule().fill(.black.opacity(0.82)))
+            .overlay(Capsule().strokeBorder(Palette.positive.opacity(0.35), lineWidth: 0.5))
+            .padding(6)
+            .allowsHitTesting(false)
+        }
     }
 }

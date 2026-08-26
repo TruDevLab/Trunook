@@ -47,6 +47,21 @@ struct ClipboardEntry: Identifiable, Equatable {
             .trimmingCharacters(in: .whitespaces)
     }
 
+    /// Текст записи для заметки. `nil` — записывать нечего.
+    ///
+    /// Только у текстовых записей. Изображение в заметку не положить так,
+    /// чтобы оно пережило выгрузку в Markdown, а список путей к файлам —
+    /// не заметка: файлы откладывают на полку, она для этого и заведена.
+    ///
+    /// Текст берётся целиком, а не `oneLine`: та выжимка — для узкой строки
+    /// списка, в ней склеены переносы и табуляции. В заметке абзацы нужны
+    /// такими, какими их скопировали.
+    var notesText: String? {
+        guard kind == .text else { return nil }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return text
+    }
+
     var fileNames: [String] {
         fileURLs.map(\.lastPathComponent)
     }

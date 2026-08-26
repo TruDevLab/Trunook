@@ -60,6 +60,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.notesFill", #selector(fillNotes)),
             ("com.trunook.debug.notesAsk", #selector(askNotes)),
             ("com.trunook.debug.noteNew", #selector(newNote)),
+            ("com.trunook.debug.noteSelection", #selector(noteSelection)),
+            ("com.trunook.debug.askLong", #selector(askLong)),
+            ("com.trunook.debug.voice", #selector(toggleVoice)),
+            ("com.trunook.debug.voiceNotes", #selector(toggleVoiceNotes)),
+            ("com.trunook.debug.voiceGlow", #selector(showVoiceGlow)),
+            ("com.trunook.debug.voiceSpeak", #selector(speakSample)),
+            ("com.trunook.debug.voiceAnswer", #selector(voiceAnswer)),
+            ("com.trunook.debug.noteClipboard", #selector(noteClipboard)),
             ("com.trunook.debug.noteEdit", #selector(editNote)),
             ("com.trunook.debug.noteSave", #selector(saveNote)),
             ("com.trunook.debug.caffeineExpire", #selector(expireCaffeine)),
@@ -252,6 +260,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.debugAskNotes()
     }
 
+    /// Панель с длинным вопросом в поле: так видно выросшее поле и панель,
+    /// подросшую вслед за ним. Набрать текст из сессии нечем.
+    @objc private func askLong() {
+        controller.debugLongQuestion()
+    }
+
+    /// Голосовой заход — то же, что двойное нажатие модификатора.
+    ///
+    /// Сам жест из сессии не изобразить: глобальный монитор не получает
+    /// синтетических событий, а Универсальный доступ выдан приложению,
+    /// а не отладочной сессии.
+    @objc private func toggleVoice() {
+        controller.debugToggleVoice()
+    }
+
+    /// То же, но с заметками в контексте.
+    @objc private func toggleVoiceNotes() {
+        controller.debugToggleVoiceNotes()
+    }
+
+    /// Прогнать фазы свечения по очереди — чтобы каждую успеть снять
+    /// `shotNotch`. Живой заход для этого не годится: он идёт своим ходом
+    /// и ждать снимка не станет.
+    @objc private func showVoiceGlow() {
+        controller.debugVoiceGlow()
+    }
+
+    /// Прочитать образец вслух: голос, скорость и обрыв проверяются только
+    /// на слух.
+    @objc private func speakSample() {
+        controller.speakVoiceSample()
+    }
+
+    /// Полный путь голосового ответа — до тишины включительно.
+    @objc private func voiceAnswer() {
+        controller.debugVoiceAnswer()
+    }
+
+    /// Выделенное в заметки — то же, что делает сочетание.
+    ///
+    /// Само сочетание из сессии не проверить: синтетические нажатия
+    /// до Carbon не доходят. Обработчик — проверяется, и вместе с ним весь
+    /// путь: чтение выделения, запись и подтверждение.
+    @objc private func noteSelection() {
+        controller.saveSelectionToNotes()
+    }
+
+    /// Свежая запись буфера в заметки — то же, что кнопка в списке истории
+    /// и на плашке о копировании. Нажать их из сессии нечем.
+    @objc private func noteClipboard() {
+        controller.debugSaveNewestClipboardToNotes()
+    }
+
     /// Снимок открытого окна знакомства в ~/Library/Logs/Trunook-welcome.png.
     @objc private func shotWelcome() {
         welcomeWindow.snapshot()
@@ -431,7 +492,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notes: controller.notes,
             onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() },
             onLayoutChanged: { [weak self] in self?.controller.relayout() },
-            onOpenWelcome: { [weak self] in self?.openWelcome() }
+            onOpenWelcome: { [weak self] in self?.openWelcome() },
+            onPreviewVoice: { [weak self] in self?.controller.speakVoiceSample() }
         )
     }
 

@@ -15,11 +15,17 @@ struct Note: Identifiable, Equatable {
     enum Origin: String {
         case typed
         case assistant
+        /// Запись истории буфера, отложенная в заметки кнопкой.
+        case clipboard
+        /// Выделенный в чужом окне текст, сохранённый клавишей.
+        case selection
 
         var symbol: String {
             switch self {
             case .typed: return "square.and.pencil"
             case .assistant: return "sparkles"
+            case .clipboard: return "doc.on.clipboard"
+            case .selection: return "text.viewfinder"
             }
         }
     }

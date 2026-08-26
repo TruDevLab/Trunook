@@ -95,4 +95,43 @@ final class PurrEffects {
         trembleTimer = nil
         state.tremble = .zero
     }
+
+    /// Одиночное вздрагивание — отклик на то, что случилось прямо сейчас.
+    ///
+    /// Живёт здесь, а не у того, кто его зовёт, потому что `state.tremble`
+    /// один на весь вырез. Два владельца у одного поля разошлись бы
+    /// в первом же случае, когда вздрогнуть попросили посреди мурчания:
+    /// один затирал бы смещение другого, и остров дёргался бы рывками.
+    ///
+    /// Затухающее, а не ровное: ровное подрагивание в полсекунды читается
+    /// как неисправность, а затухающее — как отклик.
+    func jolt() {
+        // Ровно то движение, от которого защищает настройка. Голосовой заход
+        // от этого не страдает: он и без вздрагивания виден свечением.
+        guard !MotionPreference.shared.reduceMotion else { return }
+        // Мурчание важнее: оно идёт непрерывно, и вклиниваться в него
+        // одиночным толчком значило бы его оборвать.
+        guard trembleTimer == nil else { return }
+
+        let started = Date()
+        let duration: TimeInterval = 0.45
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let time = Date().timeIntervalSince(started)
+            guard time < duration else {
+                self.stopTremble()
+                return
+            }
+            let decay = 1 - time / duration
+            // Вниз остров не уходит: окно приклеено к верхней кромке,
+            // и смещение вниз открывает под чёлкой незакрашенную полосу
+            // рабочего стола.
+            self.state.tremble = CGSize(
+                width: 1.6 * decay * sin(time * 2 * .pi * 12),
+                height: -1.0 * decay * abs(sin(time * 2 * .pi * 8))
+            )
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        trembleTimer = timer
+    }
 }

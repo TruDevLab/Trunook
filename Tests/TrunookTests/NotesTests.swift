@@ -469,15 +469,16 @@ struct NotesTests {
     @Test("Крылья вмещают свои кнопки при любой ширине чёлки")
     func крыльяВмещаютКнопки() {
         for notchWidth in notchWidths {
-            // В крыле панели модели две кнопки: список и крестик.
-            // Поиск по заметкам уехал вниз, к кнопке отправки.
+            // В крыле панели модели три кнопки разом: остановка голоса,
+            // список заметок и крестик. Поиск по заметкам уехал вниз,
+            // к кнопке отправки.
             let assistant = wing(
                 panelWidth: AssistantPanel.width(notchWidth: notchWidth),
                 notchWidth: notchWidth
             )
             #expect(
-                assistant >= NotchStyle.wingRow(buttons: 2),
-                "чёлка \(notchWidth): крыло панели модели \(assistant) не вмещает две кнопки"
+                assistant >= NotchStyle.wingRow(buttons: AssistantPanel.wingButtons),
+                "чёлка \(notchWidth): крыло панели модели \(assistant) не вмещает кнопки"
             )
 
             // В крыле списка две: выгрузка и крестик.
@@ -605,5 +606,160 @@ struct NotesTests {
             titleByModel: false
         )
         _ = store.insert(note)
+    }
+}
+
+/// Растущее поле вопроса и отправка чужого текста в заметки.
+///
+/// Поле было однострочным, и набранное сверх строки уезжало за правый край:
+/// текст дальше не набирался вовсе. Высота теперь зависит от текста — а вслед
+/// за ней и высота панели, и потолок окна. Оба расчёта тут и проверяются:
+/// разойдись они, панель обрезало бы краем окна, и увидеть это можно было бы
+/// только снимком.
+@Suite("Поле вопроса и отправка в заметки")
+struct AssistantInputTests {
+    private let notchWidth: CGFloat = 185
+    private let metrics = NotchMetrics(notchWidth: 185, notchHeight: 32)
+
+    private var textWidth: CGFloat {
+        AssistantPanel.questionTextWidth(notchWidth: 185)
+    }
+
+    @Test("Пустое поле — в одну строку")
+    func пустоеПолеОдностроное() {
+        #expect(GrowingTextField.height(for: "", textWidth: textWidth)
+            == GrowingTextField.minHeight)
+        #expect(GrowingTextField.height(for: "коротко", textWidth: textWidth)
+            == GrowingTextField.minHeight)
+    }
+
+    @Test("Поле растёт вместе с текстом")
+    func полеРастёт() {
+        let one = GrowingTextField.height(for: "строка", textWidth: textWidth)
+        let three = GrowingTextField.height(for: "раз\nдва\nтри", textWidth: textWidth)
+        #expect(three > one, "три строки \(three) не выше одной \(one)")
+    }
+
+    /// ⇧Enter в конце текста ставит курсор на новую строку — и поле обязано
+    /// под неё подрасти. Пустая последняя строка в замер текста не попадает:
+    /// после последнего перевода строки не нарисовано ничего, и поле стояло
+    /// на месте ровно в тот миг, когда его и просили подрасти.
+    @Test("Перевод строки в конце тоже считается")
+    func пустаяПоследняяСтрока() {
+        let without = GrowingTextField.height(for: "строка", textWidth: textWidth)
+        let with = GrowingTextField.height(for: "строка\n", textWidth: textWidth)
+        #expect(with > without, "после ⇧Enter поле \(with) не выше прежнего \(without)")
+    }
+
+    @Test("Поле упирается в потолок и дальше прокручивается")
+    func потолокПоля() {
+        let huge = String(repeating: "длинное слово ", count: 400)
+        let height = GrowingTextField.height(for: huge, textWidth: textWidth)
+        #expect(height == GrowingTextField.maxHeight)
+        #expect(GrowingTextField.maxHeight > GrowingTextField.minHeight)
+    }
+
+    /// Высота строки выписанная числом однажды уже оказалась меньше
+    /// настоящей, и последняя строка обрезалась пополам. Здесь она
+    /// считается из шрифта — проверяем, что не меньше него.
+    @Test("Строка поля не ниже своего шрифта")
+    func строкаНеНижеШрифта() {
+        let font = GrowingTextField.font
+        let real = font.ascender - font.descender + font.leading
+        #expect(GrowingTextField.lineHeight >= real)
+    }
+
+    @Test("Панель растёт вместе с полем")
+    func панельРастёт() {
+        let empty = AssistantPanel.height(notchHeight: 32, notchWidth: notchWidth)
+        let long = AssistantPanel.height(
+            notchHeight: 32,
+            notchWidth: notchWidth,
+            question: "раз\nдва\nтри\nчетыре"
+        )
+        #expect(long > empty, "панель с многострочным вопросом \(long) не выше пустой \(empty)")
+    }
+
+    /// Потолок окна обязан вмещать самую высокую панель — с полем,
+    /// доросшим до своего предела. Содержимое, переросшее окно, обрезается
+    /// краем, и заметить это можно только снимком.
+    @Test("Окно вмещает панель с выросшим полем")
+    func окноВмещаетВыросшуюПанель() {
+        let grown = AssistantPanel.height(
+            notchHeight: metrics.notchHeight,
+            notchWidth: metrics.notchWidth,
+            question: String(repeating: "строка вопроса\n", count: 20)
+        )
+        #expect(metrics.windowSize.height >= grown,
+                "панель \(grown) выше окна \(metrics.windowSize.height)")
+        #expect(AssistantPanel.tallest(
+            notchHeight: metrics.notchHeight,
+            notchWidth: metrics.notchWidth
+        ) >= grown)
+    }
+
+    // MARK: - Запись буфера в заметки
+
+    private func entry(_ kind: ClipboardEntry.Kind, _ text: String) -> ClipboardEntry {
+        ClipboardEntry(id: 7, kind: kind, text: text, copiedAt: Date())
+    }
+
+    @Test("В заметки уходит текст, и только он")
+    func вЗаметкиТолькоТекст() {
+        #expect(entry(.text, "мысль").notesText == "мысль")
+        // Целиком, а не однострочной выжимкой: в заметке абзацы нужны
+        // такими, какими их скопировали.
+        #expect(entry(.text, "первый\nвторой").notesText == "первый\nвторой")
+        #expect(entry(.text, "   \n  ").notesText == nil)
+        #expect(entry(.image, "снимок").notesText == nil)
+        #expect(entry(.files, "/tmp/один\n/tmp/два").notesText == nil)
+    }
+
+    /// Кнопка «в заметки» есть только у скопированного текста и только когда
+    /// заметки включены. От неё зависит ширина плашки — разойдись счёт
+    /// кнопок с рисунком, последнюю обрезало бы краем.
+    @Test("Кнопка на плашке появляется только у текста")
+    func кнопкаНаПлашке() {
+        let text = Activity.Kind.clipboard(entry: entry(.text, "мысль"))
+        let image = Activity.Kind.clipboard(entry: entry(.image, "снимок"))
+
+        #expect(ActivityView.notesEntry(for: text, notesEnabled: true) != nil)
+        #expect(ActivityView.notesEntry(for: text, notesEnabled: false) == nil)
+        #expect(ActivityView.notesEntry(for: image, notesEnabled: true) == nil)
+        #expect(ActivityView.notesEntry(for: .trackChanged, notesEnabled: true) == nil)
+
+        #expect(ActivityView.sideButtonCount(text, notesEnabled: true) == 1)
+        #expect(ActivityView.sideButtonCount(text, notesEnabled: false) == 0)
+        // У полки крестик — и он же остаётся единственной боковой кнопкой.
+        #expect(ActivityView.sideButtonCount(.shelf(count: 2), notesEnabled: true) == 1)
+    }
+
+    @Test("Плашка с кнопкой не уже плашки без неё")
+    func плашкаСКнопкойШире() {
+        // Длинный текст, чтобы плашка считалась по содержимому, а не упёрлась
+        // в нижнюю границу ширины: на короткой разницы не увидеть.
+        let kind = Activity.Kind.clipboard(entry: entry(.text, String(repeating: "слово ", count: 6)))
+        let with = ActivityView.layout(for: kind, track: nil, metrics: metrics, notesEnabled: true)
+        let without = ActivityView.layout(for: kind, track: nil, metrics: metrics, notesEnabled: false)
+        #expect(with.panelWidth >= without.panelWidth)
+        #expect(with.textWidth <= without.textWidth)
+    }
+
+    /// Выделенное в заметки сидит на той же букве, что и новая заметка,
+    /// и разводит их ⇧. Совпасть они не имеют права: система отдаёт
+    /// сочетание тому, кто успел зарегистрировать его первым.
+    @Test("Сочетание выделенного не совпадает с прочими")
+    func сочетаниеНеСовпадает() {
+        var seen = Set<String>()
+        let specs: [HotKeySpec] = [
+            .menu, .clipboard, .shelf, .timer, .monitor,
+            .expanded, .teleprompter, .notes, .noteSelection,
+        ]
+        for spec in specs {
+            #expect(seen.insert("\(spec.keyCode)-\(spec.modifiers)").inserted,
+                    "сочетание \(spec.display) назначено дважды")
+        }
+        #expect(HotKeySpec.noteSelection.keyCode == HotKeySpec.notes.keyCode)
+        #expect(!HotKeySpec.noteSelection.display.isEmpty)
     }
 }

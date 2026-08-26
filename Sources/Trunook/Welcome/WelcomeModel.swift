@@ -44,6 +44,11 @@ final class WelcomeModel: ObservableObject {
     /// Проверяется опросом по той же причине: TCC своё решение не отдаёт,
     /// а в теле вида ходить на диск нельзя — вид перерисовывается постоянно.
     @Published private(set) var filesGranted = FilesAccess.isGranted
+    /// Микрофон и распознавание речи. Опросом по той же причине, что
+    /// и остальные: решение принимается в системном диалоге, а уведомления
+    /// о нём приложению не приходит.
+    @Published private(set) var microphoneAccess = VoiceAccess.microphone
+    @Published private(set) var speechAccess = VoiceAccess.recognition
 
     private let calendar: CalendarService
     private let settings: Settings
@@ -91,7 +96,27 @@ final class WelcomeModel: ObservableObject {
             filesGranted = files
             DebugLog.write("доступ к файлам: \(files ? "выдан" : "закрыт")")
         }
+        refreshVoiceAccess()
         calendar.refreshAuthorization()
+    }
+
+    /// Перечитать доступы голоса.
+    ///
+    /// Отдельно от общего опроса ещё и потому, что их запрашивают кнопкой:
+    /// ответ на системный диалог приходит замыканием, и ждать до секунды,
+    /// пока строка обновится сама, значило бы показывать «не запрошен» уже
+    /// после того, как доступ выдан.
+    private func refreshVoiceAccess() {
+        let microphone = VoiceAccess.microphone
+        if microphone != microphoneAccess {
+            microphoneAccess = microphone
+            DebugLog.write("микрофон: \(microphone)")
+        }
+        let speech = VoiceAccess.recognition
+        if speech != speechAccess {
+            speechAccess = speech
+            DebugLog.write("распознавание речи: \(speech)")
+        }
     }
 
     // MARK: - Шаги
@@ -121,7 +146,7 @@ final class WelcomeModel: ObservableObject {
     /// и музыкальных приложений сюда не входит: система спрашивает о ней
     /// в момент первого обращения и объясняет всё сама.
     enum Permission: String, CaseIterable, Identifiable {
-        case calendar, reminders, accessibility, files
+        case calendar, reminders, accessibility, microphone, speech, files
 
         var id: String { rawValue }
 
@@ -130,6 +155,8 @@ final class WelcomeModel: ObservableObject {
             case .calendar: return t("Календарь")
             case .reminders: return t("Напоминания")
             case .accessibility: return t("Универсальный доступ")
+            case .microphone: return t("Микрофон")
+            case .speech: return t("Распознавание речи")
             case .files: return t("Файлы и папки")
             }
         }
@@ -139,6 +166,8 @@ final class WelcomeModel: ObservableObject {
             case .calendar: return "calendar"
             case .reminders: return "checklist"
             case .accessibility: return "hand.raised"
+            case .microphone: return "mic"
+            case .speech: return "waveform"
             case .files: return "folder"
             }
         }
@@ -150,7 +179,11 @@ final class WelcomeModel: ObservableObject {
             case .reminders:
                 return t("Напоминания со сроком — вырез предупредит заранее.")
             case .accessibility:
-                return t("Выделенный текст для запросов к модели и кнопки онлайн-встречи.")
+                return t("Выделенный текст для запросов к модели, кнопки онлайн-встречи и вызов голосового ассистента двойным нажатием.")
+            case .microphone:
+                return t("Голосовому ассистенту — чтобы услышать вопрос.")
+            case .speech:
+                return t("Перевод речи в текст. Идёт на самом компьютере: записи никуда не отправляются.")
             case .files:
                 return t("Полке — чтобы показать миниатюру и размер файла с рабочего стола или из документов.")
             }
@@ -176,7 +209,22 @@ final class WelcomeModel: ObservableObject {
         case .calendar: return Self.map(calendar.eventsAccess)
         case .reminders: return Self.map(calendar.remindersAccess)
         case .accessibility: return accessibilityTrusted ? .granted : .notAsked
+        case .microphone: return Self.map(microphoneAccess)
+        case .speech: return Self.map(speechAccess)
         case .files: return filesGranted ? .granted : .notAsked
+        }
+    }
+
+    /// Состояние доступа голоса — в общий вид строки.
+    ///
+    /// Своё перечисление у `VoiceAccess` потому, что TCC у микрофона
+    /// и у календаря разный: `EKAuthorizationStatus` знает про «полный»
+    /// и «только запись», а у микрофона таких оттенков нет.
+    private static func map(_ state: VoiceAccess.State) -> PermissionState {
+        switch state {
+        case .granted: return .granted
+        case .notAsked: return .notAsked
+        case .denied: return .denied
         }
     }
 
@@ -197,7 +245,7 @@ final class WelcomeModel: ObservableObject {
         case .notAsked:
             switch permission {
             case .accessibility, .files: return t("Открыть настройки")
-            case .calendar, .reminders: return t("Разрешить")
+            case .calendar, .reminders, .microphone, .speech: return t("Разрешить")
             }
         case .denied: return t("Открыть настройки")
         }
@@ -218,6 +266,18 @@ final class WelcomeModel: ObservableObject {
             // не произошло бы вообще ничего.
             AccessibilityAccess.request()
             AccessibilityAccess.openSettings()
+        case .microphone:
+            if asked {
+                VoiceAccess.requestMicrophone { [weak self] _ in self?.refreshVoiceAccess() }
+            } else {
+                VoiceAccess.openMicrophoneSettings()
+            }
+        case .speech:
+            if asked {
+                VoiceAccess.requestRecognition { [weak self] _ in self?.refreshVoiceAccess() }
+            } else {
+                VoiceAccess.openRecognitionSettings()
+            }
         case .files:
             // Первое же обращение к защищённой папке само вызывает системный
             // диалог. Если решение уже принято, диалога не будет — тогда
@@ -234,7 +294,14 @@ final class WelcomeModel: ObservableObject {
         switch permission {
         case .calendar: return settings.calendarEnabled
         case .reminders: return settings.remindersEnabled
-        case .accessibility: return settings.quickCommandsEnabled || settings.meetingControlsEnabled
+        // Голос сюда добавился не для полноты: вызов идёт глобальным
+        // монитором событий, а тот без Универсального доступа нажатий
+        // не получает вовсе.
+        case .accessibility:
+            return settings.quickCommandsEnabled
+                || settings.meetingControlsEnabled
+                || settings.voiceEnabled
+        case .microphone, .speech: return settings.voiceEnabled
         case .files: return settings.shelfEnabled
         }
     }

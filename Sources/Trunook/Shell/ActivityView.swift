@@ -68,26 +68,55 @@ struct ActivityView: View {
     let onDismiss: () -> Void
     /// Нажатие по самой плашке. У неинтерактивных не вызывается.
     let onOpen: () -> Void
+    /// Отложить скопированное в заметки, не открывая ничего.
+    let onSaveToNotes: (ClipboardEntry) -> Void
+    /// Заметки включены. От этого зависит не только кнопка, но и ширина
+    /// плашки — поэтому признак приходит и сюда, и в расчёт размера.
+    let notesEnabled: Bool
 
     static func layout(
         for kind: Activity.Kind,
         track: NowPlaying?,
-        metrics: NotchMetrics
+        metrics: NotchMetrics,
+        notesEnabled: Bool
     ) -> ActivityLayout {
         ActivityLayout(
             text: text(for: kind, track: track),
             trailing: trailing(for: kind),
             minimumWidth: metrics.closed.width,
             trailingIsButton: joinLink(for: kind) != nil,
-            trailingExtra: isDismissable(kind) ? dismissButtonWidth : 0
+            trailingExtra: sideButtonCount(kind, notesEnabled: notesEnabled) * sideButtonWidth
         )
     }
 
-    /// Ширина крестика вместе с отступом от значения.
-    /// Место под крестик в раскладке плашки. Считается от самой кнопки:
-    /// выписанное числом, оно разошлось бы с ней при первой же правке
-    /// размера — а разойдясь, обрезало бы крестик.
-    static let dismissButtonWidth: CGFloat = NotchPanelButton.size + 2
+    /// Сколько кнопок стоит справа от значения — за пределами нажимаемой
+    /// части плашки.
+    ///
+    /// Считается здесь, а не выписывается по месту: по этому же числу
+    /// отмеряется ширина плашки, и разойдясь с рисунком, оно обрезало бы
+    /// последнюю кнопку.
+    static func sideButtonCount(_ kind: Activity.Kind, notesEnabled: Bool) -> CGFloat {
+        var count: CGFloat = 0
+        if isDismissable(kind) { count += 1 }
+        if notesEntry(for: kind, notesEnabled: notesEnabled) != nil { count += 1 }
+        return count
+    }
+
+    /// Запись, которую с этой плашки можно отложить в заметки.
+    ///
+    /// Только у скопированного текста: изображение в заметку не положить,
+    /// а список путей к файлам заметкой не является — файлы откладывают
+    /// на полку.
+    static func notesEntry(for kind: Activity.Kind, notesEnabled: Bool) -> ClipboardEntry? {
+        guard notesEnabled, case let .clipboard(entry) = kind else { return nil }
+        return entry.notesText == nil ? nil : entry
+    }
+
+    /// Место под одну боковую кнопку вместе с отступом от значения.
+    ///
+    /// Считается от самой кнопки: выписанное числом, оно разошлось бы с ней
+    /// при первой же правке размера — а разойдясь, обрезало бы кнопку.
+    static let sideButtonWidth: CGFloat = NotchPanelButton.size + 2
 
     /// У каких плашек есть крестик. Он нужен там, где плашка не уходит сама.
     static func isDismissable(_ kind: Activity.Kind) -> Bool {
@@ -101,7 +130,14 @@ struct ActivityView: View {
         return item.link?.url
     }
 
-    private var layout: ActivityLayout { Self.layout(for: activity.kind, track: track, metrics: metrics) }
+    private var layout: ActivityLayout {
+        Self.layout(
+            for: activity.kind,
+            track: track,
+            metrics: metrics,
+            notesEnabled: notesEnabled
+        )
+    }
 
     var body: some View {
         HStack(spacing: ActivityLayout.spacing) {
@@ -116,23 +152,29 @@ struct ActivityView: View {
                 content
             }
 
+            // Скопированное — сразу в заметки, не открывая ни истории,
+            // ни панели. Плашка и так висит перед глазами четыре секунды
+            // ровно затем, чтобы по ней успели попасть курсором, — а решение
+            // «это стоит сохранить» приходит именно в тот миг, когда текст
+            // скопирован, а не когда за ним вернутся в историю.
+            //
+            // Отдельной кнопкой рядом, а не внутри: сама плашка — тоже
+            // кнопка, а кнопка, вложенная в кнопку, нажатий не получает.
+            if let entry = Self.notesEntry(for: activity.kind, notesEnabled: notesEnabled) {
+                sideButton(
+                    symbol: "tray.and.arrow.down",
+                    hint: t("В заметки"),
+                    tint: Palette.assistant
+                ) { onSaveToNotes(entry) }
+            }
+
             if Self.isDismissable(activity.kind) {
-                Button(action: onDismiss) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: NotchStyle.font(10), weight: .bold))
-                        // Ступенью: тот же крестик в шапках панелей берёт
-                        // её же, а разная плотность у одного и того же
-                        // значка читалась как небрежность.
-                        .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
-                        // Столько же, сколько у крестика в шапках панелей:
-                        // одна и та же кнопка, и попадать в неё должно быть
-                        // одинаково легко.
-                        .frame(width: NotchPanelButton.size, height: NotchPanelButton.size)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(PressableStyle())
-                .notchHint(t("Закрыть"))
-                .fixedSize()
+                sideButton(
+                    symbol: "xmark",
+                    hint: t("Закрыть"),
+                    tint: .white.opacity(NotchStyle.secondaryOpacity),
+                    action: onDismiss
+                )
             }
         }
         .padding(.leading, ActivityLayout.leadingPadding)
@@ -141,6 +183,29 @@ struct ActivityView: View {
         .padding(.top, metrics.notchHeight + 6)
         .padding(.bottom, 12)
         .foregroundStyle(.white)
+    }
+
+    /// Кнопка сбоку от плашки — за пределами её нажимаемой части.
+    ///
+    /// Размер тот же, что у кнопок в шапках панелей: это одни и те же кнопки,
+    /// и попадать в них должно быть одинаково легко. По этому же размеру
+    /// отмеряется место в раскладке — см. `sideButtonWidth`.
+    private func sideButton(
+        symbol: String,
+        hint: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: NotchStyle.font(10), weight: .bold))
+                .foregroundStyle(tint)
+                .frame(width: NotchPanelButton.size, height: NotchPanelButton.size)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
+        .notchHint(hint)
+        .fixedSize()
     }
 
     private var content: some View {
@@ -193,8 +258,8 @@ struct ActivityView: View {
             case .failed:
                 iconTile("exclamationmark.triangle.fill")
             }
-        case let .clipboard(_, kind):
-            iconTile(kind.symbol)
+        case let .clipboard(entry):
+            iconTile(entry.kind.symbol)
         case .shelf:
             iconTile("tray.full")
         case .timer:
@@ -228,8 +293,8 @@ struct ActivityView: View {
         switch kind {
         case let .command(text, _):
             return text
-        case let .clipboard(text, _):
-            return text
+        case let .clipboard(entry):
+            return entry.oneLine
         case let .shelf(count):
             return tf("На полке файлов: %d", count)
         case let .weather(text, _):

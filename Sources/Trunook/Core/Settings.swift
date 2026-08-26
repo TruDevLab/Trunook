@@ -381,6 +381,17 @@ final class Settings: ObservableObject {
         set { storeHotKey(newValue, "notesHotKey") }
     }
 
+    /// Выделенный текст сразу в заметки — ничего не открывая.
+    ///
+    /// Отдельно от `notesHotKey`, потому что это разные действия, а не одно
+    /// с оговоркой: то открывает пустую заметку, чтобы её набрали, это
+    /// записывает уже написанное чужой рукой и не показывает ничего, кроме
+    /// подтверждения.
+    var noteSelectionHotKey: HotKeySpec? {
+        get { hotKey("noteSelectionHotKey", default: .noteSelection) }
+        set { storeHotKey(newValue, "noteSelectionHotKey") }
+    }
+
     /// Имя заметке придумывает модель.
     ///
     /// Отдельно от `ollamaEnabled`: модель может быть нужна для команд
@@ -388,6 +399,78 @@ final class Settings: ObservableObject {
     var notesTitleByModel: Bool {
         get { flag("notesTitleByModel", default: true) }
         set { store(newValue, "notesTitleByModel") }
+    }
+
+    // MARK: - Голос
+
+    var voiceEnabled: Bool {
+        get { flag("voiceEnabled", default: true) }
+        set { store(newValue, "voiceEnabled") }
+    }
+
+    /// Чем зовут обычный голосовой вопрос — модификатор, нажатый дважды.
+    var voiceTrigger: VoiceTrigger {
+        get { VoiceTrigger(rawValue: defaults.string(forKey: "voiceTrigger") ?? "") ?? .control }
+        set { store(newValue.rawValue, "voiceTrigger") }
+    }
+
+    /// Чем зовут голосовой вопрос по заметкам.
+    var voiceNotesTrigger: VoiceTrigger {
+        get {
+            VoiceTrigger(rawValue: defaults.string(forKey: "voiceNotesTrigger") ?? "") ?? .option
+        }
+        set { store(newValue.rawValue, "voiceNotesTrigger") }
+    }
+
+    /// Язык распознавания. Пусто — язык интерфейса.
+    ///
+    /// Отдельно от языка интерфейса, потому что это разные вещи: интерфейс
+    /// держат на одном языке, а говорить могут на другом, и заставлять
+    /// человека переключать всё приложение ради одного вопроса незачем.
+    var voiceLanguage: Language? {
+        get { Language(rawValue: defaults.string(forKey: "voiceLanguage") ?? "") }
+        set { store(newValue?.rawValue ?? "", "voiceLanguage") }
+    }
+
+    /// Голос озвучки. Пусто — лучший из установленных для этого языка.
+    var voiceIdentifier: String? {
+        get {
+            let stored = defaults.string(forKey: "voiceIdentifier") ?? ""
+            return stored.isEmpty ? nil : stored
+        }
+        set { store(newValue ?? "", "voiceIdentifier") }
+    }
+
+    /// Скорость чтения ступенями от обычной, см. `SpeechSpeaker.rate(forStep:)`.
+    var voiceRateStep: Int {
+        get { defaults.object(forKey: "voiceRateStep") as? Int ?? 0 }
+        set {
+            let limit = SpeechSpeaker.rateSteps
+            store(min(limit, max(-limit, newValue)), "voiceRateStep")
+        }
+    }
+
+    /// Сколько тишины считается концом фразы, в десятых долях секунды.
+    ///
+    /// В десятых, а не дробным числом: `UserDefaults` дробные хранит, но
+    /// в `Picker` их пришлось бы сравнивать на равенство — а это ровно тот
+    /// случай, когда 1.5 не равно 1.5.
+    var voiceSilenceTenths: Int {
+        get { defaults.object(forKey: "voiceSilenceTenths") as? Int ?? 15 }
+        set { store(max(5, min(40, newValue)), "voiceSilenceTenths") }
+    }
+
+    var voiceSilence: TimeInterval { TimeInterval(voiceSilenceTenths) / 10 }
+
+    /// Сколько символов заметок уходит в контекст **голосового** вопроса.
+    ///
+    /// Свой потолок, меньше текстового, и это не мелочь. Ответа в тексте
+    /// ждут глазами и терпят; голосового ждут ушами, и полминуты тишины
+    /// человек читает как «не сработало». Контекст — главное, за что платят
+    /// временем, поэтому у голоса он свой.
+    var voiceNotesContextLimit: Int {
+        get { defaults.object(forKey: "voiceNotesContextLimit") as? Int ?? 6_000 }
+        set { store(max(1_000, newValue), "voiceNotesContextLimit") }
     }
 
     /// Сколько символов заметок уходит в контекст модели при поиске по ним.

@@ -107,6 +107,18 @@ struct HotKeySpec: Codable, Equatable, Hashable {
     /// добраться до главного экрана с клавиатуры нельзя.
     static let notes = HotKeySpec(keyCode: UInt32(kVK_ANSI_Z), modifiers: own)
 
+    /// ⌃⌥⇧Z — выделенный текст сразу в заметки, ничего не открывая.
+    ///
+    /// Та же буква, что у новой заметки, плюс ⇧ — и это не игра в мнемонику,
+    /// а единственный способ не тратить ещё одну букву: свободных букв в ⌃⌥
+    /// почти не осталось, а связь тут прямая. Z без ⇧ открывает пустую
+    /// заметку, Z с ⇧ — заметку из того, что выделено. Разница ровно
+    /// в «откуда взять текст», её модификатор и означает.
+    static let noteSelection = HotKeySpec(
+        keyCode: UInt32(kVK_ANSI_Z),
+        modifiers: own | UInt32(shiftKey)
+    )
+
     /// Цифра для номерной строки истории буфера.
     static func clipboardSlot(_ index: Int, modifiers: UInt32) -> HotKeySpec? {
         guard digits.indices.contains(index) else { return nil }

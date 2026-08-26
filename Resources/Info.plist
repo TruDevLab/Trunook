@@ -40,9 +40,13 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Чтобы показывать погоду в вырезе, приложению нужны координаты. Наружу уходят только они, округлённые до километра.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Голосовому ассистенту нужен микрофон, чтобы услышать вопрос. Речь распознаётся на самом компьютере и наружу не уходит.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Trunook показывает напоминания со сроком в вырезе экрана.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Чтобы понять голосовой вопрос, речь переводится в текст. Распознавание идёт на самом компьютере — записи никуда не отправляются.</string>
 </dict>
 </plist>

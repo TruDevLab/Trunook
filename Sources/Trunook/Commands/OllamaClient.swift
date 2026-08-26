@@ -16,6 +16,10 @@ final class OllamaClient {
 
         static func user(_ text: String) -> ChatMessage { ChatMessage(role: "user", content: text) }
         static func assistant(_ text: String) -> ChatMessage { ChatMessage(role: "assistant", content: text) }
+        /// Указание модели, как отвечать. Отдельной ролью, а не приставкой
+        /// к вопросу: приставка попадает в переписку и повторяется в каждой
+        /// реплике, а модель начинает отвечать на неё саму.
+        static func system(_ text: String) -> ChatMessage { ChatMessage(role: "system", content: text) }
     }
 
     private let settings: Settings

@@ -8,11 +8,17 @@ import SwiftUI
 /// невозможно.
 struct ClipboardPanel: View {
     let entries: [ClipboardEntry]
+    /// Подтверждение сохранения — своё, а не плашкой в вырезе: накладка
+    /// важнее плашки по расчёту состояния, и из-под открытой панели плашки
+    /// не видно вовсе.
+    @ObservedObject var flash: PanelFlash
     let metrics: NotchMetrics
     /// Сочетание для номерных строк — показываем рядом с номером,
     /// иначе о клавишах никто не узнает.
     let slotHint: String?
+    let notesEnabled: Bool
     let onUse: (ClipboardEntry) -> Void
+    let onSaveToNotes: (ClipboardEntry) -> Void
     let onDelete: (ClipboardEntry) -> Void
     let onClear: () -> Void
     let onOpenSettings: () -> Void
@@ -98,7 +104,10 @@ struct ClipboardPanel: View {
                 NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
             }
         } content: {
-            if entries.isEmpty { empty } else { list }
+            Group {
+                if entries.isEmpty { empty } else { list }
+            }
+            .overlay(alignment: .bottomTrailing) { PanelFlashPill(flash: flash) }
         }
     }
 
@@ -126,6 +135,13 @@ struct ClipboardPanel: View {
         .frame(height: Self.listHeight(rows: entries.count))
     }
 
+    /// Сторона кнопки «в заметки» в строке.
+    ///
+    /// Меньше нормы в 24 точки намеренно: строка сама высотой 34, и кнопка
+    /// в 24 съела бы её почти целиком. Промах при этом не страшен — мимо
+    /// кнопки попадаешь в саму строку, а это её обычное действие.
+    static var noteButtonSize: CGFloat { NotchStyle.scaled(22) }
+
     private func row(_ entry: ClipboardEntry, index: Int) -> some View {
         // `NotchTile`, а не своя подложка. Своя была двумя ошибками сразу:
         // плотность 0.06 против 0.08 у соседних панелей — то есть строка была
@@ -135,34 +151,69 @@ struct ClipboardPanel: View {
         // Главное же — отклика на курсор не было вовсе. Плитка написана ровно
         // против этого, и панель, где строк больше всего и промах дороже
         // всего, обходилась без неё дольше остальных.
-        Button { onUse(entry) } label: {
-            NotchTile(id: "clipboard-\(entry.id)", radius: NotchStyle.rowRadius) {
-                HStack(spacing: 9) {
-                    number(index)
-                    preview(entry)
-                        .frame(width: 18, height: 18)
+        NotchTile(id: "clipboard-\(entry.id)", radius: NotchStyle.rowRadius) {
+            HStack(spacing: 0) {
+                // Нажатие живёт внутри плитки, а не вокруг неё: кнопка
+                // «в заметки» обязана быть отдельной кнопкой, а кнопка,
+                // вложенная в кнопку, нажатий не получает — она вставляла бы
+                // запись вместо того, чтобы её сохранить.
+                Button { onUse(entry) } label: {
+                    HStack(spacing: 9) {
+                        number(index)
+                        preview(entry)
+                            .frame(width: 18, height: 18)
 
-                    Text(entry.oneLine)
-                        .font(.system(size: NotchStyle.font(11.5)))
-                        .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                        Text(entry.oneLine)
+                            .font(.system(size: NotchStyle.font(11.5)))
+                            .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
 
-                    Spacer(minLength: 8)
+                        Spacer(minLength: 8)
 
-                    Text(subtitle(entry))
-                        .font(.system(size: NotchStyle.font(9.5)))
-                        .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
-                        .lineLimit(1)
-                        .fixedSize()
+                        Text(subtitle(entry))
+                            .font(.system(size: NotchStyle.font(9.5)))
+                            .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                    .padding(.leading, 8)
+                    .frame(height: Self.rowHeight)
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 8)
-                .frame(height: Self.rowHeight)
+                .buttonStyle(PressableStyle())
+
+                noteButton(entry)
+                    .padding(.horizontal, 4)
             }
+            .padding(.trailing, 4)
         }
-        .buttonStyle(PressableStyle())
         .contextMenu {
             Button(t("Удалить запись"), role: .destructive) { onDelete(entry) }
+        }
+    }
+
+    /// Отложить запись в заметки, не вставляя её никуда.
+    ///
+    /// Есть только у текста: изображение в заметку не положить, а список
+    /// путей к файлам заметкой не является — файлы откладывают на полку.
+    /// У остальных строк на её месте пустое поле той же ширины: строки,
+    /// у которых текст обрывается в разных точках, читаются как рваный
+    /// список, а не как ровный.
+    @ViewBuilder
+    private func noteButton(_ entry: ClipboardEntry) -> some View {
+        if notesEnabled, entry.notesText != nil {
+            Button { onSaveToNotes(entry) } label: {
+                Image(systemName: "tray.and.arrow.down")
+                    .font(.system(size: NotchStyle.font(10), weight: .semibold))
+                    .foregroundStyle(Palette.assistant)
+                    .frame(width: Self.noteButtonSize, height: Self.noteButtonSize)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+            .notchHint(t("В заметки"))
+        } else if notesEnabled {
+            Color.clear.frame(width: Self.noteButtonSize, height: Self.noteButtonSize)
         }
     }
 

@@ -36,6 +36,8 @@ enum NotchPresentation: Equatable {
     case caffeine
     /// Список заметок.
     case notes
+    /// Голосовой заход: панель не раскрывается, светится сам остров.
+    case voice
 }
 
 enum SwipeDirection: Equatable {
@@ -64,9 +66,12 @@ struct NotchContent: Equatable {
     var meetingActions = 0
     /// Сколько строк истории буфера есть в наличии.
     var clipboardRows = 0
-    /// Ответ модели и идёт ли он прямо сейчас — от них зависит высота панели.
-    var assistantAnswer = ""
+    /// Переписка и идёт ли поток — от них зависит высота панели.
+    var assistantTranscript: [AssistantSession.Reply] = []
     var assistantIsStreaming = false
+    /// Набранный вопрос. Поле растёт вместе с ним, а вслед за полем —
+    /// и панель: высоту окна надо знать до того, как поле будет построено.
+    var assistantQuestion = ""
     /// Чем занята панель: разговором или заметкой. От режима зависит вся
     /// её вёрстка, а значит и высота.
     var assistantMode: NotePanelMode = .model
@@ -76,6 +81,17 @@ struct NotchContent: Equatable {
     var hubCount = 0
     /// Сколько строк показывает список заметок — с учётом поиска.
     var notesRows = 0
+    /// Заметки включены.
+    ///
+    /// Расчёту размера это нужно затем же, зачем и вёрстке: на плашке
+    /// о копировании появляется кнопка «в заметки», и от неё зависит ширина
+    /// плашки. Разойдись эти двое — кнопку обрезало бы краем.
+    var notesEnabled = true
+    /// Чем занят голосовой заход. `nil` — заход не идёт.
+    ///
+    /// Фазой, а не признаком «идёт»: от неё зависит цвет свечения и рисунок
+    /// шкалы, то есть само нарисованное. Признака хватило бы только на размер.
+    var voicePhase: VoiceSession.Phase?
 
     /// Сколько задач реально попадёт в панель.
     var visibleTasks: Int { min(taskCount, NotchMetrics.maxVisibleTasks) }
@@ -158,7 +174,12 @@ enum NotchSizing {
             return metrics.chip(width: ChipView.width(metrics: metrics))
         case .activity:
             guard let activity = content.activity else { return metrics.closed }
-            let layout = ActivityView.layout(for: activity.kind, track: content.track, metrics: metrics)
+            let layout = ActivityView.layout(
+                for: activity.kind,
+                track: content.track,
+                metrics: metrics,
+                notesEnabled: content.notesEnabled
+            )
             return metrics.activity(width: layout.panelWidth)
         case .preview:
             // Во время встречи наведение показывает её кнопки: это главное,
@@ -195,8 +216,9 @@ enum NotchSizing {
                     notchHeight: metrics.notchHeight,
                     notchWidth: metrics.notchWidth,
                     mode: content.assistantMode,
-                    answer: content.assistantAnswer,
-                    isStreaming: content.assistantIsStreaming
+                    transcript: content.assistantTranscript,
+                    isStreaming: content.assistantIsStreaming,
+                    question: content.assistantQuestion
                 )
             )
         case .notes:
@@ -207,6 +229,11 @@ enum NotchSizing {
                     rows: content.notesRows
                 )
             )
+        case .voice:
+            // Полоса высотой с чёлку: голосовой заход намеренно не раскрывает
+            // панель — она закрыла бы то, с чем человек работает, а смотреть
+            // в неё незачем, ответ звучит.
+            return metrics.chip(width: VoiceChipView.width(metrics: metrics))
         case .clipboard:
             return CGSize(
                 width: ClipboardPanel.width(notchWidth: metrics.notchWidth),

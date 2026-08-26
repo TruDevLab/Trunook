@@ -26,6 +26,9 @@ changed in settings or right in the welcome window.
 | ⌃⌥M | System load |
 | ⌃⌥P | Teleprompter |
 | ⌃⌥Z | New note |
+| ⌃⌥⇧Z | Selected text straight to notes |
+| ⌃⌃ | Ask out loud |
+| ⌥⌥ | Ask out loud about your notes |
 | ⌃⌥N | Main panel |
 | ⌃⌥1 … ⌃⌥6 | Command slots directly |
 | ⌃⇧1 … ⌃⇧9 | Paste a clipboard entry by number |
@@ -47,13 +50,22 @@ changed in settings or right in the welcome window.
 - **Model prompts.** Ollama on your own machine: the question goes off with
   Enter, the answer is written right in the notch, and can be copied or pasted
   into the active window.
+- **Voice assistant.** A double press of ⌃ asks out loud, a double ⌥ asks
+  about your notes. The panel stays closed: the notch jolts and glows — blue
+  while it listens, the model's colour while it thinks and answers — and a live
+  level meter on the side shows that you are being heard. The answer is short
+  and read aloud as the model writes it; a button in the notch stops it. Click
+  the notch to open the conversation and read it with your eyes. Speech is
+  recognised **on your own machine** and never leaves it.
 - **Notes.** The same panel has a mode switch: "AI" is a question line and an
   answer, "Note" is a multi-line field with formatting. The model comes up with
   the note's name. Its answer goes into notes with one button too. The "search
   notes" toggle makes the model answer from your own records rather than from
   general knowledge. ⌃⌥Z opens an empty note; the list with word search is one
   button away in that same panel, and notes are exported from there into
-  a folder as Markdown files.
+  a folder as Markdown files. Someone else's text goes in without retyping:
+  ⌃⌥⇧Z saves whatever is selected in any window, and copied text has a button
+  both in the clipboard history and on the copy badge.
 - **Quick commands.** Six slots with hotkeys: an app, a folder, a link, an
   AppleScript, a model prompt, or a macOS Shortcut.
 - **Timer and stopwatch.** Preset lengths and a twenty-five minute pomodoro

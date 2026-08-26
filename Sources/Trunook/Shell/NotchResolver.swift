@@ -45,12 +45,16 @@ struct NotchInputs: Equatable {
     var taskCount = 0
     var meetingActions = 0
     var clipboardRows = 0
-    var assistantAnswer = ""
+    var assistantTranscript: [AssistantSession.Reply] = []
     var assistantIsStreaming = false
+    var assistantQuestion = ""
     var assistantMode: NotePanelMode = .model
     var shelfCount = 0
     var hubCount = 0
     var notesRows = 0
+    var notesEnabled = true
+    /// Чем занят голосовой заход. `nil` — заход не идёт.
+    var voicePhase: VoiceSession.Phase?
 
     /// С какой доли жеста остров начинает расходиться в бока.
     static let swipingEnterProgress: Double = 0.15
@@ -78,6 +82,11 @@ struct NotchInputs: Equatable {
         case .notes: return .notes
         case nil: break
         }
+        // Голос выше всего, кроме накладок: заход начат прямой командой
+        // человека и идёт прямо сейчас — плашка о смене трека посреди него
+        // была бы не к месту. Ниже накладок потому, что открытая панель
+        // и есть тот самый разговор, только видимый глазами.
+        if voicePhase != nil { return .voice }
         // Остров расходится в бока не после срабатывания, а по ходу жеста:
         // значок должен появляться в освободившейся полосе, а не поверх
         // названия трека. Небольшой порог — чтобы случайный горизонтальный
@@ -102,12 +111,15 @@ struct NotchInputs: Equatable {
             commandsHasBackRow: isPinnedOpen,
             meetingActions: meetingActions,
             clipboardRows: clipboardRows,
-            assistantAnswer: assistantAnswer,
+            assistantTranscript: assistantTranscript,
             assistantIsStreaming: assistantIsStreaming,
+            assistantQuestion: assistantQuestion,
             assistantMode: assistantMode,
             shelfCount: shelfCount,
             hubCount: hubCount,
-            notesRows: notesRows
+            notesRows: notesRows,
+            notesEnabled: notesEnabled,
+            voicePhase: voicePhase
         )
     }
 }

@@ -33,6 +33,12 @@ final class NotchController {
     /// Подтверждение внутри панели. Обычные плашки событий из-под накладки
     /// не видны: накладка важнее плашки по расчёту состояния.
     let flash = PanelFlash()
+    /// Голосовой заход. Разговор берёт существующий: спросить голосом
+    /// и дописать текстом — это одна переписка, а не две.
+    lazy var voice = VoiceSession(assistant: assistant, notes: notes)
+    /// Жест вызова: модификатор, нажатый дважды. Мимо Carbon — тот умеет
+    /// только сочетания с обычной клавишей.
+    private let voiceHotKey = VoiceHotKey()
     /// Удержание экрана от гашения — чашка кофе в раскрытой панели.
     let wake: WakeGuard
 
@@ -105,6 +111,8 @@ final class NotchController {
         swipeResetTimer = nil
         purr.shutdown()
         chime.shutdown()
+        voiceHotKey.stop()
+        voice.shutdown()
         // Экран отпускаем явно: система сделала бы это и сама вместе
         // с процессом, но полагаться на это, когда выключение штатное,
         // незачем.
@@ -207,6 +215,7 @@ final class NotchController {
             self?.openAssistant(title: title, prompt: prompt)
         }
         installHotKeys()
+        installVoice()
 
         alerts.onAlert = { [weak self] item, minutes in
             self?.activities.present(.meeting(item: item, minutesBefore: minutes))
@@ -231,7 +240,7 @@ final class NotchController {
             // Пока история открыта, плашка не нужна: список и так обновился
             // на глазах, а всплыла бы она уже после закрытия панели.
             guard self.state.overlay == nil else { return }
-            self.activities.present(.clipboard(text: entry.oneLine, kind: entry.kind))
+            self.activities.present(.clipboard(entry: entry))
             self.updateWindowInteractivity()
         }
 
@@ -303,6 +312,9 @@ final class NotchController {
     /// нажатия — так галка действует сразу, без перерегистрации.
     func installHotKeys() {
         HotKeyCenter.shared.unregisterAll()
+        // Жест голоса — тоже вызов, и настраивают его в том же окне.
+        // Пересобирать его отдельно значило бы однажды забыть.
+        installVoiceHotKey()
 
         if let menu = settings.menuHotKey {
             HotKeyCenter.shared.register(menu, name: "меню команд") { [weak self] in
@@ -348,6 +360,15 @@ final class NotchController {
         if settings.notesEnabled, let notesKey = settings.notesHotKey {
             HotKeyCenter.shared.register(notesKey, name: "новая заметка") { [weak self] in
                 self?.toggleNoteComposer()
+            }
+        }
+
+        // Выделенное — сразу в заметки, ничего не открывая. Отдельно
+        // от предыдущего: там открывают пустое поле, чтобы набрать, здесь
+        // записывают уже написанное и остаются в своём окне.
+        if settings.notesEnabled, let selectionKey = settings.noteSelectionHotKey {
+            HotKeyCenter.shared.register(selectionKey, name: "выделенное в заметки") { [weak self] in
+                self?.saveSelectionToNotes()
             }
         }
 
@@ -556,12 +577,15 @@ final class NotchController {
             taskCount: things.todayTitles.count,
             meetingActions: meeting.availableActions.count,
             clipboardRows: clipboard.entries.count,
-            assistantAnswer: assistant.answer,
+            assistantTranscript: assistant.transcript,
             assistantIsStreaming: assistant.isStreaming,
+            assistantQuestion: draft.question,
             assistantMode: draft.mode,
             shelfCount: shelf.items.count,
             hubCount: HubEntry.count,
-            notesRows: notes.notes.count
+            notesRows: notes.notes.count,
+            notesEnabled: settings.notesEnabled,
+            voicePhase: voice.phase
         ).resolve()
     }
 
@@ -601,6 +625,14 @@ final class NotchController {
     /// по кнопке перемотки рискует продублироваться нажатием по панели,
     /// и трек переключался бы вместе со схлопыванием.
     private func expandPanel() {
+        // Пока идёт голосовой заход, нажатие по острову ведёт в разговор,
+        // а не раскрывает главную панель: на острове в этот момент шкала
+        // и кнопка «замолчать», и человек, нажимающий на него, хочет
+        // увидеть разговор глазами, а не музыку с расписанием.
+        if voice.isActive {
+            openVoiceConversation()
+            return
+        }
         guard state.isHovered, !state.isPinnedOpen else { return }
         state.isPinnedOpen = true
         DebugLog.write("панель раскрыта полностью")
@@ -879,10 +911,237 @@ final class NotchController {
         ))
     }
 
+
+    // MARK: - Голос
+
+    /// Связывает голосовой заход с вырезом.
+    ///
+    /// Ставится один раз: сам заход переживает перестройку геометрии,
+    /// меняются только настройки — их перечитывает `installVoiceHotKey`.
+    private func installVoice() {
+        voice.onStart = { [weak self] in
+            guard let self else { return }
+            // Вздрагивание — единственный отклик, который заметен, когда
+            // на вырез не смотрят. Свечение появляется плавно и краем глаза
+            // читается не сразу, а толчок виден движением.
+            self.purr.jolt()
+            Haptics.tap()
+            // Плашка события уступила бы месту самому свечению: голос
+            // важнее её по расчёту состояния, и она всё равно не показалась
+            // бы. Убираем явно, чтобы не висела под островом.
+            self.activities.dismiss()
+        }
+        voice.onFailure = { [weak self] reason in
+            // Молчаливый отказ неотличим от сломанного микрофона: человек
+            // позвал голосом и ждёт хоть чего-нибудь.
+            self?.activities.present(.command(text: reason, state: .failed))
+        }
+        installVoiceHotKey()
+    }
+
+    private func installVoiceHotKey() {
+        voiceHotKey.onTrigger = { [weak self] usesNotes in
+            self?.toggleVoice(usesNotes: usesNotes)
+        }
+        voiceHotKey.install(
+            plain: settings.voiceTrigger,
+            withNotes: settings.voiceNotesTrigger,
+            isEnabled: settings.voiceEnabled
+        )
+    }
+
+    /// Позвать голос — или оборвать начатое тем же жестом.
+    func toggleVoice(usesNotes: Bool) {
+        guard settings.voiceEnabled else {
+            DebugLog.write("голос: выключен в настройках")
+            return
+        }
+        guard VoiceAccess.isReady else {
+            requestVoiceAccess(usesNotes: usesNotes)
+            return
+        }
+        voice.toggle(usesNotes: usesNotes)
+    }
+
+    /// Просит недостающие доступы и, получив их, продолжает заход.
+    ///
+    /// Спрашиваем в тот момент, когда доступ понадобился, а не при запуске:
+    /// два системных диалога на старте приложения, которым человек ещё
+    /// не пользовался, — верный способ получить отказ.
+    private func requestVoiceAccess(usesNotes: Bool) {
+        // Уже отказали — диалога больше не будет, и повторный запрос молча
+        // вернёт «нет». Ведём в настройки: иначе нажатие жеста выглядело бы
+        // как сломанное.
+        guard VoiceAccess.microphone != .denied, VoiceAccess.recognition != .denied else {
+            DebugLog.write("голос: доступ закрыт, открываю настройки")
+            activities.present(.command(
+                text: t("Нужен доступ к микрофону и распознаванию речи"),
+                state: .failed
+            ))
+            if VoiceAccess.microphone == .denied {
+                VoiceAccess.openMicrophoneSettings()
+            } else {
+                VoiceAccess.openRecognitionSettings()
+            }
+            return
+        }
+
+        DebugLog.write("голос: спрашиваю доступ к микрофону и распознаванию")
+        // Приложение — агент: без этого системный диалог всплывает позади
+        // чужого окна, и человек его попросту не увидит.
+        NSApp.activate(ignoringOtherApps: true)
+        VoiceAccess.request { [weak self] granted in
+            guard let self else { return }
+            guard granted else {
+                self.activities.present(.command(
+                    text: t("Нужен доступ к микрофону и распознаванию речи"),
+                    state: .failed
+                ))
+                return
+            }
+            self.voice.toggle(usesNotes: usesNotes)
+        }
+    }
+
+    /// Раскрыть разговор глазами — нажатием по голосовой полосе.
+    ///
+    /// Заход при этом продолжается: панель показывает ту же переписку,
+    /// в которую сейчас говорят, а не отдельный её снимок.
+    func openVoiceConversation() {
+        guard settings.ollamaEnabled || settings.notesEnabled else { return }
+        draft.setMode(.model)
+        router.set(.assistant)
+        takeKeyboard()
+    }
+
+    func debugToggleVoice() { toggleVoice(usesNotes: false) }
+    func debugToggleVoiceNotes() { toggleVoice(usesNotes: true) }
+
+    /// Прогоняет фазы свечения по очереди — по восемь секунд на каждую.
+    ///
+    /// Живой заход для съёмки не годится: он идёт своим ходом, микрофон
+    /// в отладочной сессии не поговорит, а фазы сменяются быстрее, чем
+    /// успеваешь снять. Здесь фаза держится ровно столько, чтобы `shotNotch`
+    /// поймал каждую.
+    func debugVoiceGlow() {
+        let phases: [VoiceSession.Phase] = [.listening, .thinking, .speaking]
+        purr.jolt()
+        for (index, phase) in phases.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 8) { [weak self] in
+                guard let self else { return }
+                self.voice.debugShow(phase: phase)
+                DebugLog.write("голос: показана фаза \(phase)")
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(phases.count) * 8) {
+            [weak self] in
+            self?.voice.stop()
+        }
+    }
+
+    /// Полный путь ответа: фаза «отвечаю», чтение вслух и — главное —
+    /// возврат в тишину. Полоса после ответа однажды осталась висеть,
+    /// и поймать это можно только пройдя путь целиком.
+    func debugVoiceAnswer() {
+        // Без `t()`: строка отладочная, её слышит только разработчик —
+        // как и записи журнала. Держать её в словарях незачем.
+        voice.debugAnswer("Билеты до Владивостока уже куплены. Смета обсуждается завтра.")
+    }
+
+    /// Прочитать образец вслух — кнопкой «Прослушать» в настройках.
+    ///
+    /// Не отладочный вход, хотя начинался им: выбрать голос иначе нечем.
+    /// Имена у них случайные — системный премиальный русский зовётся
+    /// «Голос 2», — и разница между компактным и нейронным слышна только
+    /// на слух.
+    func speakVoiceSample() {
+        let language = settings.voiceLanguage ?? Localization.shared.resolved
+        voice.speaker.begin(
+            language: language,
+            rate: SpeechSpeaker.rate(forStep: settings.voiceRateStep),
+            voiceIdentifier: settings.voiceIdentifier
+        )
+        voice.speaker.finishStream(answer: t("Проверка голоса. Так звучит ответ модели."))
+        DebugLog.write("голос: читаю образец на \(language.rawValue)")
+    }
+
     // MARK: - Буфер обмена
 
     func openClipboard() {
         router.set(.clipboard)
+    }
+
+    /// Отложить скопированное в заметки — из списка истории или прямо
+    /// с плашки о копировании.
+    ///
+    /// Ничего не открывает и не закрывает: это действие «попутно», его делают,
+    /// не отрываясь от своего занятия. Список истории поэтому остаётся
+    /// на экране — из него откладывают подряд несколько записей.
+    private func saveClipboardToNotes(_ entry: ClipboardEntry) {
+        guard let text = entry.notesText else { return }
+        saveTextToNotes(text, origin: .clipboard, done: t("Записано в заметки"))
+    }
+
+    /// Выделенный в чужом окне текст — сразу заметкой, по клавише.
+    ///
+    /// Ничего не открывает: смысл в том и есть — выделил, нажал, продолжил
+    /// читать. Панель, всплывшая поверх страницы, отняла бы у этого ровно то,
+    /// ради чего сочетание и заводилось.
+    ///
+    /// Выделение читается тем же путём, что и для вопроса модели: сперва
+    /// напрямую через дерево доступности, а кто не отдаёт — через имитацию
+    /// ⌘C с возвратом прежнего буфера. Ответ приходит замыканием, потому что
+    /// второй путь занимает до полусекунды.
+    func saveSelectionToNotes() {
+        guard settings.notesEnabled else { return }
+        SelectionReader.read { [weak self] text in
+            guard let self else { return }
+            let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                // Молчать нельзя: человек нажал клавиши и ждёт ответа.
+                // Без слов это выглядит как несработавшее сочетание, и его
+                // жмут снова — а причина в том, что выделять было нечего
+                // или приложение выделение не отдало.
+                self.activities.present(.command(text: t("Нечего сохранить"), state: .failed))
+                DebugLog.write("заметки: выделения нет")
+                return
+            }
+            self.saveTextToNotes(trimmed, origin: .selection, done: t("Выделенное в заметках"))
+        }
+    }
+
+    /// Кладёт простой текст заметкой и говорит об этом там, где человек
+    /// сейчас смотрит.
+    ///
+    /// Подтверждение двоякое не от лени, а потому что мест два: при открытой
+    /// накладке плашка события не видна вовсе — накладка важнее плашки
+    /// по расчёту состояния и просто занимает её место; при закрытой,
+    /// наоборот, не видно панели.
+    private func saveTextToNotes(_ text: String, origin: Note.Origin, done: String) {
+        guard settings.notesEnabled else { return }
+        // Оформление своё, а не чужое: скопированный чёрный текст на чёрной
+        // панели попросту не виден, а поменять его в заметке нечем.
+        let attributed = NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: Note.bodyFontSize),
+            .foregroundColor: NSColor.white,
+        ])
+        guard notes.save(attributed, origin: origin) != nil else { return }
+
+        if state.overlay == nil {
+            activities.present(.command(text: done, state: .done))
+        } else {
+            flash.show(done)
+        }
+    }
+
+    /// Свежую запись истории — в заметки. То же, что кнопка в строке списка
+    /// и на плашке о копировании; нажать их из сессии нечем.
+    func debugSaveNewestClipboardToNotes() {
+        guard let entry = clipboard.entries.first else {
+            DebugLog.write("буфер: пусто, сперва что-нибудь скопируйте")
+            return
+        }
+        saveClipboardToNotes(entry)
     }
 
     func useClipboard(_ entry: ClipboardEntry) {
@@ -1238,6 +1497,7 @@ final class NotchController {
             teleprompter: teleprompter,
             notes: notes,
             draft: draft,
+            voice: voice,
             flash: flash,
             wake: wake,
             settings: settings,
@@ -1263,6 +1523,8 @@ final class NotchController {
             onCloseOverlay: { [weak self] in self?.router.close() },
             onOpenClipboard: { [weak self] in self?.openClipboard() },
             onUseClipboard: { [weak self] entry in self?.useClipboard(entry) },
+            onSaveClipboardToNotes: { [weak self] entry in self?.saveClipboardToNotes(entry) },
+            onStopVoice: { [weak self] in self?.voice.stop() },
             onDeleteClipboard: { [weak self] entry in self?.clipboard.delete(entry) },
             onClearClipboard: { [weak self] in self?.clipboard.clear() },
             onCopyAnswer: { [weak self] in self?.copyAnswer() },
@@ -1423,6 +1685,30 @@ final class NotchController {
 
     /// Вопрос по заметкам целиком из сессии: переключатель и отправка —
     /// это нажатия, а их отсюда нет.
+    /// Панель с длинным вопросом в поле — чтобы увидеть выросшее поле.
+    ///
+    /// Набрать его из сессии нечем: синтетические нажатия до Carbon
+    /// не доходят, а поле растёт именно от набранного. Здесь текст кладётся
+    /// прямо в черновик — и дальше всё идёт своим ходом: поле подрастает,
+    /// панель за ним, окно вмещает.
+    func debugLongQuestion() {
+        draft.setMode(.model)
+        // Заведомо больше потолка в пять строк: проверяется не только рост,
+        // но и то, что выросшее поле упирается в потолок и прокручивается,
+        // а панель при этом вписывается в окно.
+        // Без `t()`: строка отладочная, её видит только разработчик —
+        // как и записи журнала. Переводить её значило бы держать
+        // в словарях фразу, которой в интерфейсе нет.
+        draft.question = String(
+            repeating: "Длинный вопрос, который заведомо не помещается в одну строку и должен растянуть поле ввода на несколько строк подряд.",
+            count: 3
+        )
+        assistant.ask(target: NSWorkspace.shared.frontmostApplication)
+        router.set(.assistant)
+        takeKeyboard()
+        DebugLog.write("панель: длинный вопрос в поле, знаков \(draft.question.count)")
+    }
+
     func debugAskNotes() {
         guard settings.ollamaEnabled else {
             DebugLog.write("заметки: Ollama выключена, спрашивать нечем")

@@ -156,7 +156,7 @@ struct WelcomeView: View {
         }
     }
 
-    /// Два ряда, семь и шесть.
+    /// Два ряда по семь.
     ///
     /// Длина ряда — не вкусовщина, а расчёт: содержимое, которое шире окна,
     /// раздвигает его, и обрезаются **оба** края разом — заголовок слева,
@@ -165,8 +165,10 @@ struct WelcomeView: View {
     /// и его держит проверка `рядыПлитокПомещаютсяВОкно`.
     /// Третий ряд не заводить: под ним ещё демонстрация выреза и заголовок.
     ///
-    /// Заметки стоят рядом с моделью намеренно: это одна и та же панель,
-    /// и порознь они читались бы как две разные функции.
+    /// Заметки и голос стоят рядом с моделью намеренно: это одна и та же
+    /// панель и один и тот же разговор — порознь они читались бы как три
+    /// разные функции. Ради этого буфер уехал во второй ряд: соседство
+    /// по смыслу важнее порядка, в котором функции появлялись.
     private var featureRow: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
@@ -175,10 +177,11 @@ struct WelcomeView: View {
                 feature("square.grid.2x2.fill", t("Команды"), WelcomePalette.mint)
                 feature("video.fill", t("Встречи"), WelcomePalette.violet)
                 feature("sparkles", t("Модель"), WelcomePalette.violet)
+                feature("waveform", t("Голос"), WelcomePalette.violet)
                 feature("list.bullet.rectangle", t("Заметки"), WelcomePalette.violet)
-                feature("doc.on.clipboard.fill", t("Буфер"), WelcomePalette.cyan)
             }
             HStack(spacing: 10) {
+                feature("doc.on.clipboard.fill", t("Буфер"), WelcomePalette.cyan)
                 feature("tray.full.fill", t("Полка"), WelcomePalette.violet)
                 feature("timer", t("Таймер"), WelcomePalette.mint)
                 feature("gauge.with.dots.needle.67percent", t("Нагрузка"), WelcomePalette.cyan)

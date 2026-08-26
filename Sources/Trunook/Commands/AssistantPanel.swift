@@ -36,6 +36,13 @@ struct AssistantPanel: View {
     let onToggleNotesSearch: () -> Void
     let onSelectMode: (NotePanelMode) -> Void
     let onClose: () -> Void
+    /// Оборвать голосовой заход. Кнопка нужна и здесь, а не только
+    /// в мини-виде: панель важнее мини-вида по расчёту состояния и просто
+    /// занимает его место — открыв разговор глазами, оборвать его стало бы
+    /// нечем.
+    let onStopVoice: () -> Void
+    /// Чем занят голосовой заход прямо сейчас. `nil` — заход не идёт.
+    let voicePhase: VoiceSession.Phase?
 
     // MARK: - Размеры
 
@@ -43,17 +50,24 @@ struct AssistantPanel: View {
     /// на строку.
     private static var minimumWidth: CGFloat { NotchStyle.scaled(480) }
 
+    /// Сколько кнопок бывает в крыле разом.
+    ///
+    /// Три, а не две: к списку заметок и крестику добавилась остановка
+    /// голоса. Считается по самому полному составу, а не по обычному —
+    /// панель, рассчитанная на два значка, обрезала бы третий ровно тогда,
+    /// когда он и нужен.
+    static let wingButtons = 3
+
     /// Ширина панели.
     ///
-    /// Не число, а расчёт: в крыле две кнопки, а само крыло зависит
-    /// от ширины чёлки — у каждой модели MacBook она своя. Подобранное
-    /// на одной машине число обрезало бы последнюю кнопку на другой;
-    /// телесуфлер на этом уже ловили.
+    /// Не число, а расчёт: крыло зависит от ширины чёлки — у каждой модели
+    /// MacBook она своя. Подобранное на одной машине число обрезало бы
+    /// последнюю кнопку на другой; телесуфлер на этом уже ловили.
     static func width(notchWidth: CGFloat) -> CGFloat {
         max(
             minimumWidth,
             NotchStyle.width(
-                fittingWing: NotchStyle.wingRow(buttons: 2),
+                fittingWing: NotchStyle.wingRow(buttons: wingButtons),
                 notchWidth: notchWidth,
                 bodyPadding: bodyPadding
             )
@@ -65,8 +79,29 @@ struct AssistantPanel: View {
     /// Высота полосы с главным действием. Выше значка: главную кнопку
     /// увеличили нарочно, а полоса равняется по самому высокому в ней.
     static var rowHeight: CGFloat { NotchStyle.scaled(30) }
-    /// Однострочное поле вопроса.
-    static var questionHeight: CGFloat { NotchStyle.scaled(28) }
+
+    /// Сколько остаётся тексту вопроса после полей самого поля.
+    ///
+    /// Наружу — потому что по этой ширине считается высота поля, а считает
+    /// её `GrowingTextField`, которому о панели ничего не известно.
+    static func questionTextWidth(notchWidth: CGFloat) -> CGFloat {
+        width(notchWidth: notchWidth)
+            - 2 * (bodyPadding + NotchStyle.shoulderInset)
+            - 2 * GrowingTextField.inset.width
+    }
+
+    /// Высота поля вопроса под набранный текст.
+    ///
+    /// Поле было однострочным, и текст, переросший строку, дальше
+    /// не набирался вовсе: он уезжал за правый край, а поле стояло на месте.
+    /// Теперь оно растёт вместе с текстом — а раз растёт оно, растёт и панель,
+    /// поэтому высота считается тем же расчётом, что спрашивает окно.
+    static func questionHeight(text: String, notchWidth: CGFloat) -> CGFloat {
+        GrowingTextField.height(
+            for: text,
+            textWidth: questionTextWidth(notchWidth: notchWidth)
+        )
+    }
 
     /// Поле вокруг текста в поле заметки. Наружу — по нему выравнивается
     /// подсказка пустого поля.
@@ -103,44 +138,130 @@ struct AssistantPanel: View {
 
     static let answerFont = NSFont.systemFont(ofSize: 12)
 
-    /// Высота области ответа.
+    /// Насколько реплика человека у́же полосы: она в капсуле, прижатой
+    /// к правому краю, и во всю ширину не растягивается — иначе перестала бы
+    /// отличаться от ответа.
+    static let userReplyInset: CGFloat = 44
+
+    /// Зазор между репликами. Крупнее межстрочного: по нему лента и читается
+    /// лентой, а не сплошным текстом.
+    static let replySpacing: CGFloat = 8
+
+    /// Высота ленты переписки.
     ///
     /// Пока идёт поток — во всю доступную: панель, подраставшая на каждой
     /// новой строке, дёргала бы вырез десяток раз за ответ. Когда поток
     /// закончился, панель садится по содержимому — одним движением.
-    static func bodyHeight(answer: String, isStreaming: Bool, notchWidth: CGFloat) -> CGFloat {
+    static func bodyHeight(
+        transcript: [AssistantSession.Reply],
+        isStreaming: Bool,
+        notchWidth: CGFloat
+    ) -> CGFloat {
         guard !isStreaming else { return maxBodyHeight }
-        guard !answer.isEmpty else { return lineHeight * 2 }
+        guard !transcript.isEmpty else { return lineHeight * 2 }
 
-        // Замеряем текст без разметки: звёздочки и решётки на экран
-        // не попадают, а ширину строки заметно меняют.
         let available = width(notchWidth: notchWidth) - 2 * (bodyPadding + NotchStyle.shoulderInset)
-        let rows = MarkdownRender.plain(answer)
-            .components(separatedBy: "\n")
-            .reduce(0) { total, line in
-                let measured = TextMeasure.width(line, font: answerFont)
-                return total + max(1, Int(ceil(measured / available)))
+        var total: CGFloat = 0
+        for reply in transcript {
+            switch reply.role {
+            // Реплика человека у́же: она в капсуле у правого края.
+            case .user:
+                total += userReplyHeight(reply.text, available: available - userReplyInset)
+            case .assistant:
+                total += answerReplyHeight(reply.text, available: available)
             }
-        return min(maxBodyHeight, max(lineHeight * 2, CGFloat(rows) * lineHeight))
+        }
+        total += CGFloat(max(0, transcript.count - 1)) * replySpacing
+        return min(maxBodyHeight, max(lineHeight * 2, total))
+    }
+
+    /// Просвет на месте пустой строки разметки.
+    ///
+    /// Столько же, сколько рисует сама вёрстка: пустой абзац там не строка
+    /// текста, а узкий зазор. Считать его полной строкой значило бы отмерить
+    /// панели лишнего — и под лентой открылась бы пустая полоса тем шире,
+    /// чем больше в ответе абзацев.
+    static let blankLineHeight: CGFloat = 4 + lineSpacing
+
+    /// Поле внутри капсулы своей реплики. Наружу — потому что по нему же
+    /// считается её высота: выписанное в двух местах порознь, оно разошлось
+    /// бы, и реплика обрезалась бы снизу.
+    static let userReplyPadding = CGSize(width: 10, height: 5)
+
+    /// Колонка маркера в пункте списка: сама колонка и зазор до текста.
+    ///
+    /// Тексту пункта достаётся меньше ширины, чем абзацу, — а значит он
+    /// переносится раньше. Не учесть это значило бы недосчитать строку
+    /// ровно у длинных пунктов, то есть у тех, где перенос и случается.
+    static let markerColumn: CGFloat = 14 + 6
+
+    /// Высота реплики человека.
+    ///
+    /// Она лежит в капсуле, и поля капсулы — это высота сверх текста.
+    /// Считать её как голый текст значило бы недомерить десяток точек,
+    /// а вся лента от этого съезжает вверх и обрезается снизу.
+    static func userReplyHeight(_ text: String, available: CGFloat) -> CGFloat {
+        guard available > 0 else { return lineHeight }
+        let inner = available - 2 * userReplyPadding.width
+        let measured = TextMeasure.width(text, font: answerFont)
+        let rows = max(1, Int(ceil(measured / max(1, inner))))
+        return CGFloat(rows) * lineHeight + 2 * userReplyPadding.height
+    }
+
+    /// Высота ответа модели.
+    ///
+    /// Считается по разобранной разметке, а не по голому тексту: у пункта
+    /// списка своя ширина, у пустой строки — свой узкий просвет, и оба
+    /// расходятся с «строка есть строка» в разные стороны.
+    static func answerReplyHeight(_ text: String, available: CGFloat) -> CGFloat {
+        guard available > 0 else { return lineHeight }
+        var total: CGFloat = 0
+        var rows = 0
+        for line in MarkdownRender.lines(from: text) {
+            switch line.kind {
+            case .rule:
+                total += blankLineHeight
+                continue
+            case .paragraph where line.plain.trimmingCharacters(in: .whitespaces).isEmpty:
+                total += blankLineHeight
+                continue
+            default:
+                break
+            }
+            var room = available
+            if case .item = line.kind { room -= markerColumn }
+            let measured = TextMeasure.width(line.plain, font: answerFont)
+            let wrapped = max(1, Int(ceil(measured / max(1, room))))
+            rows += wrapped
+            total += CGFloat(wrapped) * lineHeight
+        }
+        // Хотя бы строка: пустая реплика всё равно занимает место под текст.
+        return rows > 0 ? total : lineHeight
     }
 
     static func height(
         notchHeight: CGFloat,
         notchWidth: CGFloat,
         mode: NotePanelMode = .model,
-        answer: String = "",
-        isStreaming: Bool = true
+        transcript: [AssistantSession.Reply] = [],
+        isStreaming: Bool = true,
+        question: String = ""
     ) -> CGFloat {
         var content: CGFloat
         switch mode {
         case .model:
-            content = bodyHeight(answer: answer, isStreaming: isStreaming, notchWidth: notchWidth)
-            // Строка действий над ответом появляется только вместе с ответом:
-            // держать её пустой значило бы отнимать высоту у самого ответа.
-            if !answer.isEmpty || isStreaming {
+            content = bodyHeight(
+                transcript: transcript,
+                isStreaming: isStreaming,
+                notchWidth: notchWidth
+            )
+            // Строка действий над лентой появляется только вместе с ответом:
+            // держать её пустой значило бы отнимать высоту у самой ленты.
+            if !transcript.isEmpty || isStreaming {
                 content += NotchStyle.gridSpacing + actionSize
             }
-            content += NotchStyle.gridSpacing + questionHeight
+            content += NotchStyle.gridSpacing
+                + questionHeight(text: question, notchWidth: notchWidth)
         case .note:
             content = noteFieldHeight
         }
@@ -148,10 +269,35 @@ struct AssistantPanel: View {
         return NotchStyle.height(notchHeight: notchHeight, contentHeight: content)
     }
 
+    /// Самая высокая, какой панель вообще может стать.
+    ///
+    /// Потолок окна считается по ней, и считать его надо здесь, а не в окне:
+    /// у панели два режима и растущее поле вопроса, и какой из них выше
+    /// на этой машине — заранее не сказать. Прежде здесь перебирались только
+    /// режимы, поле было однострочным, и выросшая панель обрезалась бы краем
+    /// окна: содержимое, переросшее окно, обрезается — и это ловится только
+    /// снимком.
+    static func tallest(notchHeight: CGFloat, notchWidth: CGFloat) -> CGFloat {
+        // Строка из пробелов ровно на потолок поля: высоту вопроса считает
+        // сам `GrowingTextField`, и просить у него потолок надо тем же
+        // расчётом, каким считается обычная высота.
+        let longQuestion = String(repeating: "\n", count: GrowingTextField.maxLines)
+        return NotePanelMode.allCases
+            .map {
+                height(
+                    notchHeight: notchHeight,
+                    notchWidth: notchWidth,
+                    mode: $0,
+                    question: longQuestion
+                )
+            }
+            .max() ?? 0
+    }
+
     // MARK: - Тело
 
     private var isNote: Bool { draft.mode == .note }
-    private var hasAnswer: Bool { !session.answer.isEmpty || session.isStreaming }
+    private var hasAnswer: Bool { !session.transcript.isEmpty || session.isStreaming }
     private var isEditingNote: Bool { draft.editingID != nil }
 
     var body: some View {
@@ -163,6 +309,15 @@ struct AssistantPanel: View {
             header
         } trailing: {
             HStack(spacing: 2) {
+                // Первой в крыле: пока голос идёт, оборвать его — самое
+                // срочное из всего, что здесь можно сделать.
+                if voicePhase != nil {
+                    NotchPanelButton(
+                        symbol: "stop.fill",
+                        hint: t("Замолчать"),
+                        action: onStopVoice
+                    )
+                }
                 if notesEnabled {
                     NotchPanelButton(
                         symbol: "list.bullet.rectangle",
@@ -218,6 +373,15 @@ struct AssistantPanel: View {
     /// потерять её содержимое, думая, что он пишет новую.
     private var headerTitle: String {
         if isNote { return isEditingNote ? t("Правка заметки") : t("Новая заметка") }
+        // Пока идёт голосовой заход, название говорит о нём: панель открыли
+        // затем, чтобы понять, что происходит, — и «Модель» на это
+        // не отвечает.
+        switch voicePhase {
+        case .listening: return t("Слушаю")
+        case .thinking: return t("Модель думает…")
+        case .speaking: return t("Отвечаю")
+        case nil: break
+        }
         return session.title.isEmpty ? t("Модель") : session.title
     }
 
@@ -229,31 +393,41 @@ struct AssistantPanel: View {
         return session.hasNoConversation ? t("Ответ появится здесь") : ""
     }
 
+    /// Лента переписки: свои реплики и ответы модели по порядку.
+    ///
+    /// Показывался только последний ответ, и это было терпимо, пока
+    /// спрашивали с клавиатуры: свой вопрос человек только что набрал
+    /// и помнит. Голосом — не помнит: сказанное вслух нигде не осталось,
+    /// а разобрать, что расслышала модель, можно только увидев это словами.
+    ///
+    /// Лента одна на оба способа спрашивать. Переписка и так одна —
+    /// два разных её вида разошлись бы при первой же правке.
     private var answerBody: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: Self.lineSpacing) {
+                VStack(alignment: .leading, spacing: Self.replySpacing) {
                     if let error = session.error {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .font(.system(size: NotchStyle.font(11.5)))
                             .foregroundStyle(.orange)
                     }
-                    if session.answer.isEmpty {
+                    if transcript.isEmpty {
                         Text(emptyText)
                             .font(.system(size: NotchStyle.font(12)))
                             .foregroundStyle(.white.opacity(0.4))
                     } else {
-                        ForEach(MarkdownRender.lines(from: session.answer)) { line in
-                            markdownLine(line)
+                        ForEach(transcript) { reply in
+                            replyRow(reply)
                         }
                     }
                     // Якорь для прокрутки: следим за хвостом, а не за всем
                     // текстом — иначе рывок на каждом слове.
                     Color.clear.frame(height: 1).id(Self.bottomAnchor)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(height: Self.bodyHeight(
-                answer: session.answer,
+                transcript: transcript,
                 isStreaming: session.isStreaming,
                 notchWidth: metrics.notchWidth
             ))
@@ -262,6 +436,44 @@ struct AssistantPanel: View {
                     proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 }
             }
+        }
+    }
+
+    private var transcript: [AssistantSession.Reply] { session.transcript }
+
+    /// Одна реплика ленты.
+    ///
+    /// Свою прижимаем вправо и кладём в капсулу, ответ оставляем слева
+    /// обычным текстом. Различать их обязательно: без этого лента читается
+    /// как один сплошной текст, в котором непонятно, где чей голос, — а при
+    /// голосовом разговоре именно свой вопрос и приходят проверять.
+    ///
+    /// Разметку разбираем только у ответа: человек её не пишет, а модель
+    /// пишет всегда.
+    @ViewBuilder
+    private func replyRow(_ reply: AssistantSession.Reply) -> some View {
+        switch reply.role {
+        case .user:
+            HStack(spacing: 0) {
+                Spacer(minLength: Self.userReplyInset)
+                Text(reply.text)
+                    .font(.system(size: NotchStyle.font(12)))
+                    .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Self.userReplyPadding.width)
+                    .padding(.vertical, Self.userReplyPadding.height)
+                    .background(
+                        RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
+                            .fill(Palette.assistant.opacity(NotchStyle.dense(0.28)))
+                    )
+            }
+        case .assistant:
+            VStack(alignment: .leading, spacing: Self.lineSpacing) {
+                ForEach(MarkdownRender.lines(from: reply.text)) { line in
+                    markdownLine(line)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -355,30 +567,62 @@ struct AssistantPanel: View {
 
     // MARK: - Поля ввода
 
-    /// Вопрос — одной строкой, и отправляется он Enter'ом.
+    /// Вопрос: Enter отправляет, ⇧Enter переводит строку.
+    ///
+    /// Поле растёт вместе с текстом до пяти строк, дальше прокручивается.
+    /// Однострочным оно быть перестало не ради удобства: набранное сверх
+    /// строки уезжало за правый край и **дальше не набиралось вовсе** —
+    /// человек не видел ни начала своего вопроса, ни конца.
     private var questionField: some View {
-        FocusedTextField(
+        GrowingTextField(
             text: Binding(get: { draft.question }, set: { draft.question = $0 }),
-            placeholder: session.usesNotes ? t("Спросите по заметкам") : t("Спросите модель"),
+            textWidth: Self.questionTextWidth(notchWidth: metrics.notchWidth),
             onSubmit: onSend
         )
-        .padding(.horizontal, 12)
-        .frame(height: Self.questionHeight)
-        // Капсула обычная, не `.continuous`: у сглаженной обводка торца
-        // рвётся — дуга не доходит до края, и слева остаётся отдельный
-        // вертикальный огрызок.
+        .frame(height: questionFieldHeight)
+        // Скругление постоянное — то, что делает пустое поле капсулой.
+        // Настоящая `Capsule` подросшее поле превратила бы в пилюлю
+        // с полукруглыми боками; постоянный радиус оставляет его
+        // скруглённым прямоугольником, не меняя вида однострочного.
+        //
+        // `.circular`, не `.continuous`: у сглаженной обводка торца рвётся —
+        // дуга не доходит до края, и слева остаётся вертикальный огрызок.
         .background(
-            Capsule()
+            RoundedRectangle(cornerRadius: Self.questionRadius, style: .circular)
                 .fill(.white.opacity(NotchStyle.tileFill))
                 .overlay(
-                    Capsule().strokeBorder(
-                        .white.opacity(NotchStyle.dense(0.12)),
-                        lineWidth: 1
-                    )
+                    RoundedRectangle(cornerRadius: Self.questionRadius, style: .circular)
+                        .strokeBorder(
+                            .white.opacity(NotchStyle.dense(0.12)),
+                            lineWidth: 1
+                        )
                 )
         )
-        .overlay(alignment: .trailing) { flashPill }
+        // Подсказка своим наложением, а не средствами поля: у `NSTextView`
+        // её нет вовсе, в отличие от `NSTextField`. Отступы берутся из самого
+        // поля — выписанные заново, они разъехались бы с текстом.
+        .overlay(alignment: .topLeading) {
+            if draft.question.isEmpty {
+                Text(session.usesNotes ? t("Спросите по заметкам") : t("Спросите модель"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .lineLimit(1)
+                    .padding(.horizontal, GrowingTextField.inset.width)
+                    .padding(.vertical, GrowingTextField.inset.height)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) { flashPill }
     }
+
+    /// Высота поля вопроса прямо сейчас.
+    private var questionFieldHeight: CGFloat {
+        Self.questionHeight(text: draft.question, notchWidth: metrics.notchWidth)
+    }
+
+    /// Скругление поля вопроса — половина его наименьшей высоты, то есть
+    /// ровно капсула, пока строка одна.
+    static var questionRadius: CGFloat { GrowingTextField.minHeight / 2 }
 
     /// Заметка — многострочно, с оформлением.
     private var noteField: some View {
@@ -415,29 +659,11 @@ struct AssistantPanel: View {
 
     /// Подтверждение поверх поля, а не вместо полосы действий.
     ///
-    /// Вместо полосы — значит на полторы секунды убрать переключатель режима
-    /// и главную кнопку; поверх поля — ничего не двигается, а не заметить всё
-    /// равно нельзя. Обычные плашки событий сюда не годятся вовсе: накладка
-    /// важнее плашки по расчёту состояния, и из-под открытой панели её
-    /// не видно.
-    @ViewBuilder
+    /// Обычные плашки событий сюда не годятся вовсе: накладка важнее плашки
+    /// по расчёту состояния, и из-под открытой панели её не видно. Сама
+    /// плашка — общая с панелью буфера, см. `PanelFlashPill`.
     private var flashPill: some View {
-        if let text = flash.text {
-            HStack(spacing: 5) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: NotchStyle.font(10), weight: .semibold))
-                Text(text)
-                    .font(.system(size: NotchStyle.font(11), weight: .medium))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(Palette.positive)
-            .padding(.horizontal, 9)
-            .frame(height: NotchStyle.scaled(22))
-            .background(Capsule().fill(.black.opacity(0.82)))
-            .overlay(Capsule().strokeBorder(Palette.positive.opacity(0.35), lineWidth: 0.5))
-            .padding(6)
-            .allowsHitTesting(false)
-        }
+        PanelFlashPill(flash: flash)
     }
 
     // MARK: - Полоса действий
