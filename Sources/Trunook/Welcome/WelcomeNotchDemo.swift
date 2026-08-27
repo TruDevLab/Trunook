@@ -29,7 +29,10 @@ struct WelcomeNotchDemo: View {
     /// в его края и перестаёт читаться как остров поверх рабочего стола.
     private static let expandedSize = CGSize(width: 348, height: 118)
     private static let clipboardSize = CGSize(width: 392, height: 126)
-    private static let commandsSize = CGSize(width: 312, height: 132)
+    /// Захват: панель разговора с плашкой над полем и списком команд под ним.
+    /// Выше прежнего меню — вместо сетки плиток здесь три полосы, каждая
+    /// со своим именем модели справа.
+    private static let captureSize = CGSize(width: 376, height: 158)
     private static let assistantSize = CGSize(width: 376, height: 134)
     /// Полка шире истории: плитки идут в ряд, а не строками.
     private static let shelfSize = CGSize(width: 404, height: 128)
@@ -63,7 +66,7 @@ struct WelcomeNotchDemo: View {
     private enum Beat {
         static let preview = 1.3
         static let expanded = 3.2
-        static let commands = 5.8
+        static let capture = 5.8
         static let assistant = 8.4
         static let clipboard = 11.6
         static let shelf = 14.4
@@ -89,9 +92,10 @@ struct WelcomeNotchDemo: View {
         phase(time, from: Beat.expanded, until: Beat.collapse)
     }
 
-    /// Меню быстрых команд: его вызывают клавишей, а не наведением.
-    private func commandsness(at time: TimeInterval) -> Double {
-        phase(time, from: Beat.commands, until: Beat.assistant)
+    /// Захват выделенного: его вызывают клавишей, а не наведением. Отсюда
+    /// и начинается вся работа с моделью — сцена стоит перед ответом.
+    private func captureness(at time: TimeInterval) -> Double {
+        phase(time, from: Beat.capture, until: Beat.assistant)
     }
 
     /// Ответ модели — то, ради чего команду чаще всего и запускают.
@@ -160,7 +164,7 @@ struct WelcomeNotchDemo: View {
     private func stage(at time: TimeInterval) -> some View {
         let open = openness(at: time)
         let grown = expansion(at: time)
-        let cmd = commandsness(at: time)
+        let cmd = captureness(at: time)
         let ai = assistantness(at: time)
         let clip = clipboardness(at: time)
         let shelf = shelfness(at: time)
@@ -171,7 +175,7 @@ struct WelcomeNotchDemo: View {
         func blend(_ side: KeyPath<CGSize, CGFloat>) -> CGFloat {
             var value = mix(Self.closedSize[keyPath: side], Self.previewSize[keyPath: side], open)
             value = mix(value, Self.expandedSize[keyPath: side], grown)
-            value = mix(value, Self.commandsSize[keyPath: side], cmd)
+            value = mix(value, Self.captureSize[keyPath: side], cmd)
             value = mix(value, Self.assistantSize[keyPath: side], ai)
             value = mix(value, Self.clipboardSize[keyPath: side], clip)
             value = mix(value, Self.shelfSize[keyPath: side], shelf)
@@ -287,7 +291,7 @@ struct WelcomeNotchDemo: View {
         let box = max(height, 1)
         // Панель гаснет под каждой следующей сценой отдельно: её собственный
         // признак поднят до самого конца, и без вычитания она проступала бы
-        // сквозь меню команд, ответ модели и полку.
+        // сквозь разговор с моделью и полку.
         let later = (1 - cmd) * (1 - ai) * (1 - clip) * (1 - shelf) * (1 - chip)
         return ZStack {
             previewContent(time: time)
@@ -296,7 +300,7 @@ struct WelcomeNotchDemo: View {
             expandedContent(time: time)
                 .frame(width: inner, height: box)
                 .opacity(grown * later)
-            commandsContent
+            captureContent
                 .frame(width: inner, height: box)
                 .opacity(cmd)
             assistantContent(time: time)
@@ -401,13 +405,15 @@ struct WelcomeNotchDemo: View {
     }
 
     /// Меню быстрых команд: шапка с сочетанием и шесть слотов.
-    private var commandsContent: some View {
+    /// Захват: то, что было выделено, плашкой над полем, команды — списком
+    /// под ним. Это и есть весь новый путь: выделил, нажал ⌃⌥C, выбрал.
+    private var captureContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: "square.grid.2x2.fill")
+                Image(systemName: "sparkles")
                     .font(.system(size: 8, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
-                Text(t("Команды"))
+                    .foregroundStyle(WelcomePalette.violet)
+                Text(t("Модель"))
                     .font(.system(size: 8.5, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.65))
                 Spacer(minLength: 0)
@@ -415,37 +421,60 @@ struct WelcomeNotchDemo: View {
                     .font(.system(size: 7, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
             }
-            VStack(spacing: 5) {
-                ForEach(0..<2, id: \.self) { row in
-                    HStack(spacing: 5) {
-                        ForEach(0..<3, id: \.self) { column in
-                            commandSlot(row * 3 + column)
-                        }
-                    }
+
+            // Захваченное: две полосы в подложке цвета модели — ровно так же,
+            // как настоящая плашка над полем вопроса.
+            VStack(alignment: .leading, spacing: 3) {
+                bar(width: 250, height: 4, opacity: 0.5)
+                bar(width: 176, height: 4, opacity: 0.34)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(WelcomePalette.violet.opacity(0.2))
+            )
+
+            // Поле вопроса: капсула, в которую можно написать своё.
+            Capsule()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 15)
+                .overlay(alignment: .leading) {
+                    bar(width: 62, height: 4, opacity: 0.3).padding(.leading, 8)
+                }
+
+            VStack(spacing: 4) {
+                ForEach(0..<3, id: \.self) { index in
+                    commandRow(index)
                 }
             }
         }
-        .padding(.vertical, 11)
+        .padding(.vertical, 10)
     }
 
-    /// Первый слот — запрос к модели: он же продолжает рассказ следующей
-    /// сценой, поэтому выделен цветом и подписан значком искры.
-    private func commandSlot(_ index: Int) -> some View {
-        let symbols = ["sparkles", "folder.fill", "safari.fill",
-                       "app.fill", "terminal.fill", "link"]
-        let isAssistant = index == 0
-        return HStack(spacing: 5) {
+    /// Строка команды: значок и название слева, имя модели справа.
+    ///
+    /// Первая выделена — она же продолжает рассказ следующей сценой,
+    /// где приходит ответ.
+    private func commandRow(_ index: Int) -> some View {
+        let symbols = ["text.badge.checkmark", "character.book.closed", "tray.and.arrow.down"]
+        let widths: [CGFloat] = [54, 68, 62]
+        let isFirst = index == 0
+        return HStack(spacing: 6) {
             Image(systemName: symbols[index])
-                .font(.system(size: 9))
-                .foregroundStyle(isAssistant ? WelcomePalette.violet : Color.white.opacity(0.45))
-            bar(width: isAssistant ? 46 : 38, height: 4, opacity: isAssistant ? 0.75 : 0.4)
+                .font(.system(size: 8))
+                .foregroundStyle(isFirst ? WelcomePalette.violet : Color.white.opacity(0.45))
+            bar(width: widths[index], height: 4, opacity: isFirst ? 0.75 : 0.42)
             Spacer(minLength: 0)
+            // Имя модели у каждой команды своё — оно и стоит справа.
+            bar(width: 38, height: 3.5, opacity: 0.26)
         }
-        .padding(.horizontal, 6)
-        .frame(width: 88, height: 26)
+        .padding(.horizontal, 7)
+        .frame(height: 18)
         .background(
-            RoundedRectangle(cornerRadius: 5)
-                .fill(isAssistant ? WelcomePalette.violet.opacity(0.18) : .white.opacity(0.07))
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isFirst ? WelcomePalette.violet.opacity(0.18) : .white.opacity(0.07))
         )
     }
 
@@ -475,9 +504,9 @@ struct WelcomeNotchDemo: View {
             // распорка внутри неё уходила в отрицательную — строка действий
             // оказывалась перевёрнутой.
             HStack(spacing: 5) {
-                answerAction(t("Ответить"))
                 answerAction(t("Скопировать"))
                 answerAction(t("Вставить"))
+                answerAction(t("В заметки"))
                 Spacer(minLength: 0)
             }
             .padding(.top, 4)
@@ -645,10 +674,10 @@ struct WelcomeNotchDemo: View {
             text = t("Свёрнут — обычная чёлка")
         } else if time < Beat.expanded {
             text = t("Курсор наведён — мини-вид")
-        } else if time < Beat.commands {
+        } else if time < Beat.capture {
             text = t("Нажатие — панель целиком")
         } else if time < Beat.assistant {
-            text = t("⌃⌥C — быстрые команды")
+            text = t("⌃⌥C — выделенное и команды к нему")
         } else if time < Beat.clipboard {
             text = t("Ответ модели пишется прямо в вырезе")
         } else if time < Beat.shelf {

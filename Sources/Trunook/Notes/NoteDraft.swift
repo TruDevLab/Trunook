@@ -20,14 +20,18 @@ enum NotePanelMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .model: return t("ИИ")
+        // «Команды», а не «ИИ»: с выключенной моделью в этом режиме остаются
+        // ровно они — захваченное и список того, что с ним сделать. Название,
+        // обещающее модель, оказывалось бы прямой неправдой ровно тогда,
+        // когда человек и так недоумевает, куда она делась.
+        case .model: return t("Команды")
         case .note: return t("Заметка")
         }
     }
 
     var symbol: String {
         switch self {
-        case .model: return "sparkles"
+        case .model: return "square.grid.2x2"
         case .note: return "square.and.pencil"
         }
     }

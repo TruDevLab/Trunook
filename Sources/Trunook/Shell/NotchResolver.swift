@@ -49,6 +49,15 @@ struct NotchInputs: Equatable {
     var assistantIsStreaming = false
     var assistantQuestion = ""
     var assistantMode: NotePanelMode = .model
+    /// Есть ли захваченный текст. Признак, а не сам текст: плашка постоянной
+    /// высоты, и на размер влияет только её наличие.
+    var assistantHasCapture = false
+    /// Плашка захваченного текста раскрыта: она выше свёрнутой.
+    var assistantCaptureExpanded = false
+    /// Сколько команд показывает список под полем. Ноль — списка нет вовсе.
+    var assistantCommandRows = 0
+    /// Модель включена. Без неё в панели нет ни ленты, ни поля вопроса.
+    var assistantModelEnabled = true
     var shelfCount = 0
     var hubCount = 0
     var notesRows = 0
@@ -70,7 +79,6 @@ struct NotchInputs: Equatable {
         // Вызвано клавишей или правой кнопкой — это прямое указание,
         // оно важнее всего.
         switch overlay {
-        case .commands: return .commands
         case .clipboard: return .clipboard
         case .assistant: return .assistant
         case .shelf: return .shelf
@@ -108,13 +116,16 @@ struct NotchInputs: Equatable {
             timerChip: timerChip,
             events: events,
             taskCount: taskCount,
-            commandsHasBackRow: isPinnedOpen,
             meetingActions: meetingActions,
             clipboardRows: clipboardRows,
             assistantTranscript: assistantTranscript,
             assistantIsStreaming: assistantIsStreaming,
             assistantQuestion: assistantQuestion,
             assistantMode: assistantMode,
+            assistantHasCapture: assistantHasCapture,
+            assistantCaptureExpanded: assistantCaptureExpanded,
+            assistantCommandRows: assistantCommandRows,
+            assistantModelEnabled: assistantModelEnabled,
             shelfCount: shelfCount,
             hubCount: hubCount,
             notesRows: notesRows,

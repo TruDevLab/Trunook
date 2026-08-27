@@ -16,8 +16,6 @@ enum NotchPresentation: Equatable {
     case swiping
     /// Полная панель после нажатия.
     case expanded
-    /// Меню быстрых команд по горячей клавише.
-    case commands
     /// История буфера обмена.
     case clipboard
     /// Ответ модели.
@@ -60,8 +58,6 @@ struct NotchContent: Equatable {
     /// На один слот в календаре нередко стоят две — они попадают сюда обе.
     var events: [CalendarItem] = []
     var taskCount: Int = 0
-    /// Меню открыто из раскрытой панели — значит есть строка возврата.
-    var commandsHasBackRow = false
     /// Сколько кнопок показывает панель встречи. Ноль — встречи нет.
     var meetingActions = 0
     /// Сколько строк истории буфера есть в наличии.
@@ -75,6 +71,27 @@ struct NotchContent: Equatable {
     /// Чем занята панель: разговором или заметкой. От режима зависит вся
     /// её вёрстка, а значит и высота.
     var assistantMode: NotePanelMode = .model
+    /// Есть ли захваченный текст: над полем вопроса появляется плашка.
+    ///
+    /// Признак, а не сам текст. Плашка постоянной высоты нарочно — иначе
+    /// размер окна пришлось бы пересчитывать на каждую смену захвата,
+    /// а панель дёргалась бы вслед за длиной чужого абзаца.
+    var assistantHasCapture = false
+    /// Плашка захваченного текста раскрыта.
+    ///
+    /// Раскрытая выше свёрнутой на постоянную величину: текст в ней
+    /// прокручивается, а не тянет плашку за собой. Иначе панель прыгала бы
+    /// на каждое раскрытие по-разному — в зависимости от того, что попало
+    /// в захват.
+    var assistantCaptureExpanded = false
+    /// Сколько команд показывает список под полем. Ноль — списка нет вовсе:
+    /// команды выключены в настройках.
+    var assistantCommandRows = 0
+    /// Модель включена.
+    ///
+    /// Без неё панель короче ровно на ленту и поле вопроса: спросить некого,
+    /// и держать под это место значило бы отдать полпанели пустоте.
+    var assistantModelEnabled = true
     /// Сколько файлов лежит на полке.
     var shelfCount = 0
     /// Сколько плиток показывает меню всех функций.
@@ -201,14 +218,6 @@ enum NotchSizing {
             )
         case .expanded:
             return metrics.expanded(extraHeight: content.extraHeight)
-        case .commands:
-            return CGSize(
-                width: CommandsPanel.width,
-                height: CommandsPanel.height(
-                    notchHeight: metrics.notchHeight,
-                    hasBackRow: content.commandsHasBackRow
-                )
-            )
         case .assistant:
             return CGSize(
                 width: AssistantPanel.width(notchWidth: metrics.notchWidth),
@@ -218,7 +227,12 @@ enum NotchSizing {
                     mode: content.assistantMode,
                     transcript: content.assistantTranscript,
                     isStreaming: content.assistantIsStreaming,
-                    question: content.assistantQuestion
+                    question: content.assistantQuestion,
+                    hasCapture: content.assistantHasCapture,
+                    captureExpanded: content.assistantCaptureExpanded,
+                    commandRows: content.assistantCommandRows,
+                    modelEnabled: content.assistantModelEnabled,
+                    notesEnabled: content.notesEnabled
                 )
             )
         case .notes:

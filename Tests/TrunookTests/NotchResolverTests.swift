@@ -90,4 +90,44 @@ struct NotchResolverTests {
         let many = NotchInputs(overlay: .shelf, shelfCount: 8).resolve().size(metrics: metrics)
         #expect(many.height > one.height)
     }
+
+    // MARK: - Разговор с моделью
+
+    /// Плашка захваченного текста и список команд занимают высоту, и оба
+    /// обязаны быть учтены расчётом. Не учтёшь — панель выйдет короче своего
+    /// содержимого, и нижнее обрежется краем: ловится это только снимком.
+    @Test("Захваченный текст и список команд поднимают панель")
+    func панельРастётПодСодержимое() {
+        let bare = NotchInputs(overlay: .assistant).resolve().size(metrics: metrics)
+
+        var withCapture = NotchInputs(overlay: .assistant)
+        withCapture.assistantHasCapture = true
+        #expect(withCapture.resolve().size(metrics: metrics).height > bare.height)
+
+        var withCommands = NotchInputs(overlay: .assistant)
+        withCommands.assistantCommandRows = 3
+        #expect(withCommands.resolve().size(metrics: metrics).height > bare.height)
+
+        // Ноль строк — это «списка нет вовсе», а не «список из нуля строк»:
+        // с выключенными командами место под него отводиться не должно.
+        var noCommands = NotchInputs(overlay: .assistant)
+        noCommands.assistantCommandRows = 0
+        #expect(noCommands.resolve().size(metrics: metrics).height == bare.height)
+    }
+
+    /// Окно всегда одного размера, а панель растёт: всё, что панель умеет
+    /// показать, обязано в него влезать. Прежде потолок считался по пустому
+    /// полю — и выросшая панель обрезалась бы краем окна.
+    @Test("Самая полная панель разговора влезает в окно")
+    func полнаяПанельВлезает() {
+        var inputs = NotchInputs(overlay: .assistant)
+        inputs.assistantHasCapture = true
+        inputs.assistantCommandRows = QuickCommands.visibleRows
+        inputs.assistantIsStreaming = true
+        inputs.assistantQuestion = String(repeating: "\n", count: GrowingTextField.maxLines)
+
+        let size = inputs.resolve().size(metrics: metrics)
+        #expect(size.height <= metrics.windowSize.height)
+        #expect(size.width <= metrics.windowSize.width)
+    }
 }

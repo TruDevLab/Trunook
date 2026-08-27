@@ -17,11 +17,10 @@ final class NotchState: ObservableObject {
     /// показывать ли его, принимает контроллер — вёрстка только рисует.
     @Published var chipItem: CalendarItem?
     /// Что вызвано поверх выреза клавишей. Одновременно — только одно:
-    /// меню команд и история буфера занимают одно и то же место.
+    /// разговор с моделью и история буфера занимают одно и то же место.
     @Published var overlay: Overlay?
 
     enum Overlay: Equatable, CaseIterable {
-        case commands
         case clipboard
         case assistant
         case shelf
@@ -42,7 +41,7 @@ final class NotchState: ObservableObject {
         /// в тот момент, ради которого она открыта.
         var closesOnCursorExit: Bool {
             switch self {
-            case .commands, .clipboard, .hub, .timer, .monitor, .caffeine: return true
+            case .clipboard, .hub, .timer, .monitor, .caffeine: return true
             case .shelf, .assistant, .teleprompter, .notes: return false
             }
         }
@@ -59,7 +58,6 @@ final class NotchState: ObservableObject {
         }
     }
 
-    var isCommandsOpen: Bool { overlay == .commands }
     var isClipboardOpen: Bool { overlay == .clipboard }
     var isAssistantOpen: Bool { overlay == .assistant }
     var isShelfOpen: Bool { overlay == .shelf }
@@ -116,6 +114,10 @@ struct NotchView: View {
     @ObservedObject private var motion = MotionPreference.shared
     @ObservedObject var clipboard: ClipboardService
     @ObservedObject var assistant: AssistantSession
+    /// Установленные модели Ollama — для правой части строки команды.
+    /// Общий объект с настройками: список один на приложение, и опрашивать
+    /// Ollama дважды незачем.
+    @ObservedObject private var models = OllamaModelList.shared
     @ObservedObject var weather: WeatherService
     @ObservedObject var shelf: ShelfStore
     @ObservedObject var timer: TimerService
@@ -153,11 +155,25 @@ struct NotchView: View {
     let onTap: () -> Void
     let onOpenSettings: () -> Void
     let onJoin: (URL) -> Void
+    /// Запустить команду из списка под полем вопроса.
     let onRunCommand: (QuickCommand) -> Void
+    /// Убрать захваченный текст с плашки.
+    let onClearCapture: () -> Void
+    /// Раскрыть или свернуть плашку захваченного текста.
+    let onToggleCapture: () -> Void
+    /// Выбор модели для команды: открыть список, выбрать, вернуться.
+    let onBeginChoosingModel: (QuickCommand) -> Void
+    let onChooseModel: (String?) -> Void
+    let onCancelChoosingModel: () -> Void
+    /// Клавиатура в поле вопроса. Каждое отвечает, забрало ли оно нажатие:
+    /// без списка команд стрелки и Tab принадлежат тексту.
+    let onMoveHighlight: (Int) -> Bool
+    /// ← и → ведут подсветку по действиям с готовым ответом.
+    let onMoveAnswerAction: (Int) -> Bool
+    let onCycleModel: () -> Bool
+    let onEscapeHighlight: () -> Bool
     let onCopyLink: (URL) -> Void
     let onOpenItem: (CalendarItem) -> Void
-    let onOpenCommands: () -> Void
-    let onCloseCommands: () -> Void
     /// Закрыть любую накладку — крестиком в её шапке.
     let onCloseOverlay: () -> Void
     let onOpenClipboard: () -> Void
@@ -217,7 +233,21 @@ struct NotchView: View {
     let onChooseAwakeLimit: (Int) -> Void
     let onDisableAwake: () -> Void
 
-    private var commands: [QuickCommand] { settings.quickCommands }
+    /// Команды для списка под полем вопроса: только настроенные и только
+    /// при включённых командах.
+    ///
+    /// Ненастроенные не показываются вовсе — в отличие от прежнего меню, где
+    /// пустой слот рисовался пунктиром как место под команду. Там это было
+    /// нужно: меню держало шесть мест, и пропавшее место означало бы съехавшую
+    /// раскладку. Здесь мест нет, список ровно из того, что есть, и пустая
+    /// строка в нём была бы просто мусором.
+    private var commands: [QuickCommand] {
+        QuickCommands.visible(
+            in: settings.quickCommands,
+            enabled: settings.quickCommandsEnabled,
+            modelEnabled: settings.ollamaEnabled
+        )
+    }
 
     /// Плитки меню всех функций: состав задаёт `HubEntry`, здесь к нему
     /// добавляются только действия. Раньше состав жил здесь, а его длина —
@@ -239,7 +269,7 @@ struct NotchView: View {
 
     private func run(_ entry: HubEntry) {
         switch entry {
-        case .commands: onOpenCommands()
+        case .assistant: onAskAssistant()
         case .clipboard: onOpenClipboard()
         case .shelf: onOpenShelf()
         case .timer: onOpenTimer()
@@ -282,7 +312,7 @@ struct NotchView: View {
             topRadius: isOpen ? NotchStyle.shoulderInset : 8,
             bottomRadius: {
                 switch presentation {
-                case .expanded, .commands, .clipboard, .assistant, .shelf, .hub, .timer,
+                case .expanded, .clipboard, .assistant, .shelf, .hub, .timer,
                      .monitor, .teleprompter, .caffeine, .notes:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
@@ -489,14 +519,6 @@ struct NotchView: View {
         switch presentation {
         case .collapsed, .swiping:
             EmptyView()
-        case .commands:
-            CommandsPanel(
-                commands: commands,
-                metrics: metrics,
-                onRun: onRunCommand,
-                onOpenSettings: onOpenSettings,
-                onClose: onCloseCommands
-            )
         case .assistant:
             AssistantPanel(
                 session: assistant,
@@ -505,7 +527,20 @@ struct NotchView: View {
                 metrics: metrics,
                 modelEnabled: settings.ollamaEnabled,
                 notesEnabled: settings.notesEnabled,
+                commands: commands,
+                models: models.models,
+                defaultModel: settings.ollamaModel,
                 onSend: onSendDraft,
+                onRunCommand: onRunCommand,
+                onClearCapture: onClearCapture,
+                onToggleCapture: onToggleCapture,
+                onBeginChoosingModel: onBeginChoosingModel,
+                onChooseModel: onChooseModel,
+                onCancelChoosingModel: onCancelChoosingModel,
+                onMoveHighlight: onMoveHighlight,
+                onMoveAnswerAction: onMoveAnswerAction,
+                onCycleModel: onCycleModel,
+                onEscapeHighlight: onEscapeHighlight,
                 onSaveNote: onSaveDraft,
                 onCopy: onCopyAnswer,
                 onPaste: onPasteAnswer,

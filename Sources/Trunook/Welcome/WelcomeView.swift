@@ -174,7 +174,7 @@ struct WelcomeView: View {
             HStack(spacing: 10) {
                 feature("music.note", t("Музыка"), WelcomePalette.violet)
                 feature("calendar", t("Календарь"), WelcomePalette.cyan)
-                feature("square.grid.2x2.fill", t("Команды"), WelcomePalette.mint)
+                feature("text.viewfinder", t("Захват"), WelcomePalette.mint)
                 feature("video.fill", t("Встречи"), WelcomePalette.violet)
                 feature("sparkles", t("Модель"), WelcomePalette.violet)
                 feature("waveform", t("Голос"), WelcomePalette.violet)
@@ -223,12 +223,14 @@ struct WelcomeView: View {
             stepTitle(t("Как этим пользоваться"), subtitle: t("Вырез не отбирает фокус: активное приложение остаётся активным."))
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 6) {
+                    gesture("text.viewfinder", t("Выделите текст и нажмите ⌃⌥C"),
+                            t("Захваченное появится над полем вопроса, команды — списком под ним"))
                     gesture("cursorarrow.rays", t("Наведите курсор на вырез"),
                             t("Мини-вид: что играет и когда ближайшая встреча"))
                     gesture("hand.tap.fill", t("Нажмите или потяните вниз"),
                             t("Панель целиком. Свайп вверх сворачивает её обратно"))
                     gesture("cursorarrow.click.badge.clock", t("Правая кнопка"),
-                            t("Меню всех функций: главный экран, команды, буфер, полка, таймер, нагрузка"))
+                            t("Меню всех функций: ИИ, буфер, полка, таймер, нагрузка, суфлер"))
                     gesture("arrow.left.arrow.right", t("Свайп двумя пальцами"),
                             t("Предыдущий и следующий трек, не убирая курсор с выреза"))
                     gesture("pawprint.fill", t("Погладьте чёлку"),
@@ -248,7 +250,7 @@ struct WelcomeView: View {
                       subtitle: t("Все на ⌃⌥: эту пару macOS не занимает ни под что. Любое можно сменить прямо здесь."))
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 6) {
-                    menuHotKeyRow
+                    assistantHotKeyRow
                     clipboardHotKeyRow
                     shelfHotKeyRow
                     timerHotKeyRow
@@ -260,15 +262,17 @@ struct WelcomeView: View {
         }
     }
 
-    /// Сочетание меню показывается настоящее и правится на месте: набирать
-    /// его заново в настройках после того, как оно уже названо здесь, —
-    /// лишний шаг, а вписанное в текст оно к тому же врёт, стоит его сменить.
-    private var menuHotKeyRow: some View {
+    /// Главное сочетание: захватить выделенное и спросить о нём модель.
+    ///
+    /// Показывается настоящее и правится на месте: набирать его заново
+    /// в настройках после того, как оно уже названо здесь, — лишний шаг,
+    /// а вписанное в текст оно к тому же врёт, стоит его сменить.
+    private var assistantHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
-                WelcomeGlyph(symbol: "command", size: WelcomeStyle.tile)
+                WelcomeGlyph(symbol: "text.viewfinder", size: WelcomeStyle.tile)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(t("Меню быстрых команд"))
+                    Text(t("Спросить о выделенном"))
                         .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                     Text(slotsHint)
@@ -279,9 +283,9 @@ struct WelcomeView: View {
                 Spacer(minLength: 8)
                 HotKeyRecorder(
                     spec: Binding(
-                        get: { settings.menuHotKey },
+                        get: { settings.assistantHotKey },
                         set: { spec in
-                            settings.menuHotKey = spec
+                            settings.assistantHotKey = spec
                             onHotKeysChanged()
                         }
                     ),
@@ -522,13 +526,13 @@ struct WelcomeView: View {
         return tf("Последние девять записей — %@", slots.title)
     }
 
-    /// Сочетания слотов перечисляются те, что назначены на самом деле.
+    /// Сочетания команд перечисляются те, что назначены на самом деле.
     private var slotsHint: String {
         let assigned = settings.quickCommands.compactMap { $0.hotKey?.display }
         guard !assigned.isEmpty else {
-            return t("Слоты запускаются из меню — сочетания для них задаются в настройках")
+            return t("Выделенное попадёт в панель разговора, команды — списком под полем")
         }
-        return t("Слоты напрямую: ") + assigned.joined(separator: ", ")
+        return t("Команды напрямую: ") + assigned.joined(separator: ", ")
     }
 
     private func gesture(_ symbol: String, _ title: String, _ detail: String) -> some View {

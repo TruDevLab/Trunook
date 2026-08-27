@@ -44,17 +44,24 @@ final class OllamaClient {
     /// Возвращает задачу: пока модель думает, пользователь может закрыть
     /// панель, и тянуть ответ в никуда незачем — Ollama продолжала бы
     /// считать до конца, занимая память под контекст.
+    /// `model` — чем отвечать. `nil` — моделью из настроек: у большинства
+    /// разговоров своей модели нет, а у команды бывает.
     @discardableResult
     func stream(
         messages: [ChatMessage],
         contextWindow: Int? = nil,
+        model: String? = nil,
         onToken: @escaping (String) -> Void,
         onFinish: @escaping (Result<String, Error>) -> Void
     ) -> Task<Void, Never> {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let request = try self.chatRequest(messages: messages, contextWindow: contextWindow)
+                let request = try self.chatRequest(
+                    messages: messages,
+                    contextWindow: contextWindow,
+                    model: model
+                )
                 let (bytes, response) = try await self.session.bytes(for: request)
 
                 if let http = response as? HTTPURLResponse, http.statusCode != 200 {
@@ -90,7 +97,11 @@ final class OllamaClient {
         }
     }
 
-    private func chatRequest(messages: [ChatMessage], contextWindow: Int?) throws -> URLRequest {
+    private func chatRequest(
+        messages: [ChatMessage],
+        contextWindow: Int?,
+        model: String?
+    ) throws -> URLRequest {
         guard let base = baseURL, let url = URL(string: "/api/chat", relativeTo: base) else {
             throw OllamaError.badURL
         }
@@ -104,7 +115,10 @@ final class OllamaClient {
         if let contextWindow { options["num_ctx"] = contextWindow }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "model": settings.ollamaModel,
+            // Пустое имя равносильно отсутствию: команда, у которой модель
+            // однажды выбрали, а потом эту модель удалили, не должна уходить
+            // к Ollama с пустой строкой вместо имени.
+            "model": model.flatMap { $0.isEmpty ? nil : $0 } ?? settings.ollamaModel,
             "messages": messages.map { ["role": $0.role, "content": $0.content] },
             "stream": true,
             "keep_alive": settings.ollamaKeepAlive,

@@ -19,7 +19,7 @@ changed in settings or right in the welcome window.
 
 | Shortcut | What it opens |
 |---|---|
-| ⌃⌥C | Quick commands menu |
+| ⌃⌥C | Capture the selection and ask the model |
 | ⌃⌥V | Clipboard history |
 | ⌃⌥S | File shelf |
 | ⌃⌥T | Timer and stopwatch |
@@ -30,7 +30,7 @@ changed in settings or right in the welcome window.
 | ⌃⌃ | Ask out loud |
 | ⌥⌥ | Ask out loud about your notes |
 | ⌃⌥N | Main panel |
-| ⌃⌥1 … ⌃⌥6 | Command slots directly |
+| ⌃⌥1 … ⌃⌥9 | Commands directly |
 | ⌃⇧1 … ⌃⇧9 | Paste a clipboard entry by number |
 
 ## What it does
@@ -66,8 +66,13 @@ changed in settings or right in the welcome window.
   a folder as Markdown files. Someone else's text goes in without retyping:
   ⌃⌥⇧Z saves whatever is selected in any window, and copied text has a button
   both in the clipboard history and on the copy badge.
-- **Quick commands.** Six slots with hotkeys: an app, a folder, a link, an
-  AppleScript, a model prompt, or a macOS Shortcut.
+- **Commands.** ⌃⌥C captures the selection and opens a conversation with the
+  model: the captured text sits in a pill above the field, the command list
+  below it. There can be any number of commands, they can be reordered, and
+  every model prompt carries its own Ollama model — shown on the right of its
+  row and changed in place with Tab or a click. Besides model prompts,
+  a command can be an app, a folder, a link, an AppleScript, a macOS Shortcut,
+  or saving the captured text as a note.
 - **Timer and stopwatch.** Preset lengths and a twenty-five minute pomodoro
   with a break queued after it. While it runs the notch widens into a strip
   with the count — click it to open the panel. Time is measured from the moment

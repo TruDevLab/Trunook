@@ -38,18 +38,39 @@ enum NotchHintLayout {
 final class NotchHintTracker: ObservableObject {
     static let shared = NotchHintTracker()
 
-    @Published private(set) var text: String?
+    /// Подпись того, на что наведён курсор.
+    @Published private(set) var hovered: String?
+
+    /// Подпись того, что подсвечено с клавиатуры.
+    ///
+    /// Отдельно от наведения, потому что это два разных указателя, и оба
+    /// бывают одновременно: курсор лежит где-то в панели, а стрелками ведут
+    /// подсветку совсем по другому. Раньше источник был один — наведение, —
+    /// и подсказка к кнопке, выбранной клавишей, не показывалась вовсе:
+    /// человек водил подсветку по трём одинаковым кружкам, не зная, какой
+    /// из них что делает.
+    @Published private(set) var focused: String?
+
+    /// Что показывать. Клавиатура важнее курсора: подсветку ведут нарочно,
+    /// а курсор часто просто лежит там, где его оставили.
+    var text: String? { focused ?? hovered }
 
     private init() {}
 
     func set(_ text: String, isInside: Bool) {
         if isInside {
-            self.text = text
-        } else if self.text == text {
+            hovered = text
+        } else if hovered == text {
             // Только своё: курсор уже мог перейти на соседний значок,
             // и тот успел записаться раньше, чем этот сообщил об уходе.
-            self.text = nil
+            hovered = nil
         }
+    }
+
+    /// Подпись подсвеченного с клавиатуры. `nil` — подсветки нет.
+    func focus(_ text: String?) {
+        guard focused != text else { return }
+        focused = text
     }
 
     /// Панель сменилась или закрылась — подпись уходит вместе с ней.
@@ -58,7 +79,8 @@ final class NotchHintTracker: ObservableObject {
     /// и `onHover(false)` от неё уже не приходит. Без сброса плашка осталась
     /// бы висеть под свёрнутой чёлкой.
     func clear() {
-        text = nil
+        hovered = nil
+        focused = nil
     }
 }
 

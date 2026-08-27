@@ -66,7 +66,6 @@ struct NotchMetrics: Equatable {
         // Потолок панели считается тем же расчётом, что и сама панель:
         // выписанный здесь заново, он разошёлся с ней на поле подложки.
         let panel = expanded(extraHeight: NotchContent.maxExtraHeight)
-        let commands = CommandsPanel.height(notchHeight: notchHeight, hasBackRow: true)
         let assistant = AssistantPanel.tallest(
             notchHeight: notchHeight,
             notchWidth: notchWidth
@@ -94,7 +93,6 @@ struct NotchMetrics: Equatable {
                 ChipView.width(metrics: self),
                 VoiceChipView.width(metrics: self),
                 TimerChipView.width(metrics: self, showsHours: true),
-                CommandsPanel.width,
                 ClipboardPanel.width(notchWidth: notchWidth),
                 AssistantPanel.width(notchWidth: notchWidth),
                 NotesPanel.width(notchWidth: notchWidth),
@@ -109,7 +107,7 @@ struct NotchMetrics: Equatable {
             // под самой высокой панелью, телесуфлером с его шестью значками
             // оформления.
             height: max(
-                panel.height, commands, clipboard, assistant, shelf, hub,
+                panel.height, clipboard, assistant, shelf, hub,
                 teleprompter, caffeine, notes
             ) + NotchHintLayout.reserved
         )

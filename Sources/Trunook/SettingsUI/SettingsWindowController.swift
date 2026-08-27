@@ -10,7 +10,7 @@ final class SettingsWindowController {
     private var window: NSWindow?
 
     private let selection = SettingsSelection()
-    private let models = OllamaModelList()
+    private let models = OllamaModelList.shared
     private let shortcuts = ShortcutsService()
     private let browsers = BrowserList()
     /// Поиск города для погоды. Живёт здесь, а не в теле вида: `@State`

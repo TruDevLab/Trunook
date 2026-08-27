@@ -211,8 +211,11 @@ final class NotchController {
                 self?.activities.present(.command(text: text, state: .failed))
             }
         }
-        commands.onAssistantPrompt = { [weak self] title, prompt in
-            self?.openAssistant(title: title, prompt: prompt)
+        commands.onAssistantPrompt = { [weak self] title, prompt, model in
+            self?.openAssistant(title: title, prompt: prompt, model: model)
+        }
+        commands.onSaveToNotes = { [weak self] text in
+            self?.saveTextToNotes(text, origin: .selection, done: t("Записано в заметки"))
         }
         installHotKeys()
         installVoice()
@@ -316,10 +319,13 @@ final class NotchController {
         // Пересобирать его отдельно значило бы однажды забыть.
         installVoiceHotKey()
 
-        if let menu = settings.menuHotKey {
-            HotKeyCenter.shared.register(menu, name: "меню команд") { [weak self] in
-                guard self?.settings.quickCommandsEnabled == true else { return }
-                self?.router.toggle(.commands)
+        // Единственный вход в разговор с моделью: захватить выделенное
+        // и открыть панель. Не переключателем, как накладки: нажатие при
+        // открытой панели означает «я выделил другое», и захват обязан
+        // обновиться, а не свернуть панель вместе с уже набранным вопросом.
+        if let capture = settings.assistantHotKey {
+            HotKeyCenter.shared.register(capture, name: "захват выделенного") { [weak self] in
+                self?.captureAndAsk()
             }
         }
 
@@ -402,8 +408,16 @@ final class NotchController {
                 guard self.settings.quickCommandsEnabled else { return }
                 guard let current = self.settings.quickCommands.first(where: { $0.id == id })
                 else { return }
-                self.closeCommands()
-                self.run(current)
+                // При открытой панели команда берёт захваченное, а не читает
+                // выделение заново: фокус уже у выреза, и в чужом окне
+                // выделения больше нет. Клавиша и строка списка обязаны
+                // делать одно и то же — иначе одна и та же команда работала
+                // бы по-разному в зависимости от того, чем её позвали.
+                if self.state.overlay == .assistant {
+                    self.runCommandFromPanel(current)
+                } else {
+                    self.run(current)
+                }
             }
         }
 
@@ -461,21 +475,6 @@ final class NotchController {
         }
     }
 
-    /// Переход к командам из раскрытой панели. В отличие от клавиши —
-    /// не переключатель: панель уже открыта, и «спрятать» здесь означает
-    /// вернуться назад, для чего есть своя кнопка.
-    func openCommands() {
-        router.set(.commands)
-    }
-
-    func closeCommands() {
-        guard state.isCommandsOpen else { return }
-        router.close()
-    }
-
-    /// Отладочные входы: горячую клавишу из скрипта не нажать.
-    func debugToggleCommands() { router.toggle(.commands) }
-
     func debugRunSlot(_ index: Int) {
         guard let command = settings.quickCommands.first(where: { $0.id == index }) else { return }
         // Через ту же развилку, что и настоящее нажатие: открытая история
@@ -486,11 +485,25 @@ final class NotchController {
         run(command)
     }
 
+    /// Команда по своей горячей клавише — из чужого окна, минуя панель.
+    ///
+    /// Выделение читается здесь же: панель ещё не открыта, фокус чужой,
+    /// и это последний момент, когда выделенное вообще можно взять.
     private func run(_ command: QuickCommand) {
-        router.close()
-        // Меню закрывается до запуска: команда может читать выделенный текст,
-        // а для этого активным должно остаться прежнее приложение.
-        commands.run(command)
+        SelectionReader.read { [weak self] selection in
+            self?.commands.run(command, selection: selection ?? "")
+        }
+    }
+
+    /// Команда из списка в открытой панели.
+    ///
+    /// Выделение не читается: оно уже захвачено, показано плашкой, и человек
+    /// мог его убрать. Спрашивать систему заново значило бы взять не то, что
+    /// он видит на экране, — фокус давно у панели, и выделения в чужом окне
+    /// больше нет.
+    private func runCommandFromPanel(_ command: QuickCommand) {
+        assistant.choosingModelFor = nil
+        commands.run(command, selection: assistant.captured)
     }
 
     // MARK: - Накладки
@@ -581,6 +594,10 @@ final class NotchController {
             assistantIsStreaming: assistant.isStreaming,
             assistantQuestion: draft.question,
             assistantMode: draft.mode,
+            assistantHasCapture: !assistant.captured.isEmpty,
+            assistantCaptureExpanded: assistant.isCaptureExpanded,
+            assistantCommandRows: visibleCommands.count,
+            assistantModelEnabled: settings.ollamaEnabled,
             shelfCount: shelf.items.count,
             hubCount: HubEntry.count,
             notesRows: notes.notes.count,
@@ -692,13 +709,67 @@ final class NotchController {
 
     /// Показывает панель с ответом. Приложение, из которого позвали команду,
     /// запоминается заранее: именно туда потом уйдёт «вставить».
-    func openAssistant(title: String, prompt: String) {
-        assistant.start(
-            title: title,
-            prompt: prompt,
-            target: NSWorkspace.shared.frontmostApplication
-        )
+    func openAssistant(title: String, prompt: String, model: String? = nil) {
+        // Приложение запоминается только если панель ещё закрыта: при запуске
+        // команды из открытой панели передним стоит сам вырез, и запомнить
+        // его значило бы потерять адрес, куда потом вставлять ответ.
+        let target = state.overlay == .assistant
+            ? assistant.target
+            : NSWorkspace.shared.frontmostApplication
+        assistant.start(title: title, prompt: prompt, model: model, target: target)
         router.set(.assistant)
+    }
+
+    /// Отладочный вход: панель с образцом захваченного текста.
+    ///
+    /// Настоящее выделение из сессии не создать — чужому окну его негде
+    /// взять, — а вёрстку плашки и списка команд надо на чём-то снимать.
+    /// Образец нарочно длинный: короткий уместился бы в строку и не показал
+    /// бы ни второй строки, ни обрезки.
+    func debugCapture(expanded: Bool = false) {
+        let sample = t("Захваченный текст показывается здесь целиком, насколько помещается в две строки, а дальше обрезается — по нему надо узнать кусок, а не перечитать его. Раскрытая плашка показывает его весь, до своего потолка, а дальше прокручивается: захват срабатывает на всё выделенное, и понять по обрезанной фразе, то ли взялось, нельзя.")
+        draft.setMode(.model)
+        assistant.ask(captured: sample, target: NSWorkspace.shared.frontmostApplication)
+        assistant.isCaptureExpanded = expanded
+        router.set(.assistant)
+        takeKeyboard()
+    }
+
+    /// ⌃⌥C: захватить выделенное и открыть разговор.
+    ///
+    /// Единственный вход в общение с моделью. Выделение читается тем же
+    /// путём, что и для заметки: сперва напрямую через дерево доступности,
+    /// а кто не отдаёт — имитацией ⌘C с возвратом прежнего буфера. Ответ
+    /// приходит замыканием, потому что второй путь занимает до полусекунды.
+    ///
+    /// Приложение запоминается **до** чтения: имитация ⌘C сама по себе фокус
+    /// не отбирает, но панель следом отберёт, а «вставить ответ» должно уйти
+    /// туда, откуда текст взят.
+    func captureAndAsk() {
+        // Команды без модели — тоже повод открыть панель. Раньше проверялись
+        // только модель и заметки, и с выключенной Ollama сочетание уводило
+        // захваченное прямиком в заметки: список команд, половина которых
+        // модели не требует, до человека не доходил вовсе.
+        let hasCommands = !visibleCommands.isEmpty
+        guard settings.ollamaEnabled || settings.notesEnabled || hasCommands else { return }
+        let target = NSWorkspace.shared.frontmostApplication
+
+        SelectionReader.read { [weak self] text in
+            guard let self else { return }
+            let captured = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            DebugLog.write("захват: \(captured.isEmpty ? "выделения нет" : "\(captured.count) симв.")")
+
+            // Без модели разговаривать не с кем. Но уводить в заметку можно
+            // только когда и делать больше нечего: с непустым списком команд
+            // панель остаётся тем, чем её и звали, — местом, где выбирают,
+            // что сделать с захваченным.
+            if !self.settings.ollamaEnabled, self.visibleCommands.isEmpty {
+                self.draft.setMode(.note)
+            }
+            self.assistant.ask(captured: captured, target: target)
+            self.router.set(.assistant)
+            self.takeKeyboard()
+        }
     }
 
     /// Кнопка на главной панели. Открывает панель модели и заметок:
@@ -714,6 +785,171 @@ final class NotchController {
         assistant.ask(target: NSWorkspace.shared.frontmostApplication)
         router.set(.assistant)
         takeKeyboard()
+    }
+
+    // MARK: - Список команд в панели
+
+    /// Команды, которые видно в панели прямо сейчас.
+    ///
+    /// Тем же расчётом, каким их отбирает вёрстка: стрелка обязана вести
+    /// подсветку ровно по видимым строкам, а два списка порознь разошлись бы
+    /// на первой же выключенной команде.
+    private var visibleCommands: [QuickCommand] {
+        QuickCommands.visible(
+            in: settings.quickCommands,
+            enabled: settings.quickCommandsEnabled,
+            modelEnabled: settings.ollamaEnabled
+        )
+    }
+
+    /// ↑ и ↓ ведут подсветку. Возвращает, забрала ли панель нажатие себе.
+    ///
+    /// Первое нажатие ставит подсветку на край списка: сверху при ↓, снизу
+    /// при ↑. По кругу подсветка не ходит — дойдя до края, она там и стоит.
+    /// Замкнутое кольцо в списке из трёх строк означало бы, что зажатая
+    /// стрелка бесконечно бегает по кругу, и понять, где ты, нельзя.
+    private func moveHighlight(_ offset: Int) -> Bool {
+        let list = visibleCommands
+        guard !list.isEmpty else { return false }
+        // Пока выбирают модель, стрелки принадлежат этому выбору, а не списку
+        // команд: увести подсветку из-под открытого выбора значило бы менять
+        // модель не у той команды.
+        guard assistant.choosingModelFor == nil else { return false }
+        // Вверх-вниз возвращают человека к командам: ответ прочитан, и он
+        // решил спросить иначе. Подсветка действий при этом гаснет — двух
+        // подсветок разом быть не должно, иначе непонятно, чей Enter.
+        assistant.highlightedAnswerAction = nil
+
+        guard let current = assistant.highlightedCommandID,
+              let index = list.firstIndex(where: { $0.id == current })
+        else {
+            assistant.highlightedCommandID = offset > 0 ? list.first?.id : list.last?.id
+            showHintForHighlight()
+            return true
+        }
+        let next = min(max(0, index + offset), list.count - 1)
+        assistant.highlightedCommandID = list[next].id
+        showHintForHighlight()
+        return true
+    }
+
+    /// Какие действия с ответом доступны прямо сейчас.
+    ///
+    /// Состав зависит от настроек — «в заметки» есть только при включённых
+    /// заметках, — и считать его надо здесь: панель рисует ту же тройку,
+    /// но о настройках знает лишь то, что ей передали.
+    private var answerActions: [AssistantSession.AnswerAction] {
+        settings.notesEnabled ? [.copy, .paste, .note] : [.copy, .paste]
+    }
+
+    /// ← и → ведут подсветку по действиям с ответом.
+    ///
+    /// Только пока подсветка есть: в остальное время стрелки принадлежат
+    /// тексту в поле, и забирать их значило бы сломать обычную правку
+    /// набранного вопроса.
+    private func moveAnswerAction(_ offset: Int) -> Bool {
+        guard let current = assistant.highlightedAnswerAction else { return false }
+        let list = answerActions
+        guard let index = list.firstIndex(of: current) else { return false }
+        let next = min(max(0, index + offset), list.count - 1)
+        assistant.highlightedAnswerAction = list[next]
+        showHintForHighlight()
+        return true
+    }
+
+    /// Подпись подсвеченного — той же плашкой под чёлкой, что и при наведении.
+    ///
+    /// Кнопки в панели — одни значки без слов, и подпись у них всегда была
+    /// одна: плашка под чёлкой. Но показывало её только наведение, и человек,
+    /// ведущий подсветку стрелками, водил её по трём одинаковым кружкам,
+    /// не зная, какой из них что делает.
+    private func showHintForHighlight() {
+        if let action = assistant.highlightedAnswerAction {
+            NotchHintTracker.shared.focus(action.title)
+            return
+        }
+        if let id = assistant.highlightedCommandID,
+           let command = visibleCommands.first(where: { $0.id == id }) {
+            // Сочетание в подписи — список заодно ему и учит: подсмотреть
+            // его больше негде, кроме настроек.
+            let shortcut = command.hotKey.map { " · " + $0.display } ?? ""
+            NotchHintTracker.shared.focus(command.title + shortcut)
+            return
+        }
+        NotchHintTracker.shared.focus(nil)
+    }
+
+    /// Выполнить подсвеченное действие с ответом.
+    private func runAnswerAction(_ action: AssistantSession.AnswerAction) {
+        switch action {
+        case .copy: copyAnswer()
+        case .paste: pasteAnswer()
+        case .note: saveAnswer()
+        }
+    }
+
+    /// Tab меняет модель подсвеченной команды на следующую установленную.
+    ///
+    /// По кругу и через «как в настройках»: у команды это отдельное
+    /// состояние, а не одна из моделей, и пропустить его перебором значило бы
+    /// лишить человека возможности вернуть команду к общей модели, не заходя
+    /// в настройки.
+    private func cycleModel() -> Bool {
+        guard let id = assistant.highlightedCommandID,
+              var command = settings.quickCommands.first(where: { $0.id == id }),
+              command.kind.usesModel
+        else { return false }
+
+        let models = OllamaModelList.shared.models
+        guard !models.isEmpty else { return false }
+
+        let ladder: [String?] = [nil] + models.map { Optional($0) }
+        let index = ladder.firstIndex(of: command.model) ?? 0
+        command.model = ladder[(index + 1) % ladder.count]
+        settings.updateCommand(command)
+        DebugLog.write("команда «\(command.title)»: модель — \(command.model ?? "как в настройках")")
+        return true
+    }
+
+    /// Esc снимает подсветку и закрывает выбор модели.
+    ///
+    /// Возвращает `false`, когда снимать было нечего: тогда нажатие идёт
+    /// дальше и панель закрывает `NotchInput`. Иначе Esc закрывал бы панель
+    /// вместе с набранным вопросом за одно нажатие — а человек всего лишь
+    /// передумал выбирать команду.
+    private func escapeHighlight() -> Bool {
+        if assistant.choosingModelFor != nil {
+            assistant.choosingModelFor = nil
+            return true
+        }
+        if assistant.highlightedAnswerAction != nil {
+            assistant.highlightedAnswerAction = nil
+            NotchHintTracker.shared.focus(nil)
+            return true
+        }
+        guard assistant.highlightedCommandID != nil else { return false }
+        assistant.highlightedCommandID = nil
+        NotchHintTracker.shared.focus(nil)
+        return true
+    }
+
+    /// Выбор модели открывается на месте списка команд.
+    private func beginChoosingModel(_ command: QuickCommand) {
+        assistant.highlightedCommandID = command.id
+        assistant.choosingModelFor = command.id
+        // Список могли не запрашивать ни разу: настройки открывают не все,
+        // а до этого момента моделей взять неоткуда.
+        OllamaModelList.shared.refresh()
+    }
+
+    private func chooseModel(_ model: String?) {
+        defer { assistant.choosingModelFor = nil }
+        guard let id = assistant.choosingModelFor,
+              var command = settings.quickCommands.first(where: { $0.id == id })
+        else { return }
+        command.model = model
+        settings.updateCommand(command)
+        DebugLog.write("команда «\(command.title)»: модель — \(model ?? "как в настройках")")
     }
 
     /// Поле ввода требует клавиатуры, а вырез по умолчанию фокус не забирает:
@@ -746,6 +982,23 @@ final class NotchController {
     /// Заметки в контекст кладутся только при включённом переключателе
     /// и только в первую реплику разговора: дальше они уже в переписке.
     private func sendDraft() {
+        // Подсвеченное забирает Enter себе — что бы это ни было. Человек
+        // довёл до него стрелками и ждёт именно его: иначе клавиша делала бы
+        // не то, на что показывает подсветка.
+        //
+        // Действие с ответом идёт первым: подсветка переезжает туда сама,
+        // как только ответ дописан, и в этот момент она единственная на весь
+        // экран.
+        if let action = assistant.highlightedAnswerAction {
+            runAnswerAction(action)
+            return
+        }
+        if let id = assistant.highlightedCommandID,
+           let command = visibleCommands.first(where: { $0.id == id }) {
+            runCommandFromPanel(command)
+            return
+        }
+
         let text = draft.question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, settings.ollamaEnabled else { return }
 
@@ -1510,16 +1763,20 @@ final class NotchController {
                 self?.notchSnapshot ?? NotchSnapshot(presentation: .collapsed, content: NotchContent())
             },
             onTap: { [weak self] in self?.expandPanel() },
-            onOpenSettings: { [weak self] in
-                self?.closeCommands()
-                self?.onOpenSettings?()
-            },
+            onOpenSettings: { [weak self] in self?.onOpenSettings?() },
             onJoin: { [weak self] url in self?.join(url) },
-            onRunCommand: { [weak self] command in self?.run(command) },
+            onRunCommand: { [weak self] command in self?.runCommandFromPanel(command) },
+            onClearCapture: { [weak self] in self?.assistant.clearCapture() },
+            onToggleCapture: { [weak self] in self?.assistant.isCaptureExpanded.toggle() },
+            onBeginChoosingModel: { [weak self] command in self?.beginChoosingModel(command) },
+            onChooseModel: { [weak self] model in self?.chooseModel(model) },
+            onCancelChoosingModel: { [weak self] in self?.assistant.choosingModelFor = nil },
+            onMoveHighlight: { [weak self] offset in self?.moveHighlight(offset) ?? false },
+            onMoveAnswerAction: { [weak self] offset in self?.moveAnswerAction(offset) ?? false },
+            onCycleModel: { [weak self] in self?.cycleModel() ?? false },
+            onEscapeHighlight: { [weak self] in self?.escapeHighlight() ?? false },
             onCopyLink: { [weak self] url in self?.copyLink(url) },
             onOpenItem: { [weak self] item in self?.openItem(item) },
-            onOpenCommands: { [weak self] in self?.openCommands() },
-            onCloseCommands: { [weak self] in self?.closeCommands() },
             onCloseOverlay: { [weak self] in self?.router.close() },
             onOpenClipboard: { [weak self] in self?.openClipboard() },
             onUseClipboard: { [weak self] entry in self?.useClipboard(entry) },

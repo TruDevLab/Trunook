@@ -15,7 +15,14 @@ final class CommandRunner {
     /// Запрос к модели уходит в панель выреза: ответ пишется там по мере
     /// поступления, и с ним можно что-то сделать, а не только найти
     /// в буфере обмена.
-    var onAssistantPrompt: ((_ title: String, _ prompt: String) -> Void)?
+    ///
+    /// Модель идёт третьим: она у каждой команды своя, а разговор ведёт
+    /// не бегунок, а сессия — сказать ей, чем отвечать, можно только здесь.
+    var onAssistantPrompt: ((_ title: String, _ prompt: String, _ model: String?) -> Void)?
+    /// Записать захваченный текст заметкой. Замыканием, а не своим вызовом
+    /// службы заметок: подтверждение показывается по-разному в зависимости
+    /// от того, открыта ли накладка, — а об этом знает только контроллер.
+    var onSaveToNotes: ((String) -> Void)?
 
     private let settings: Settings
     private let ollama: OllamaClient
@@ -27,15 +34,22 @@ final class CommandRunner {
         self.ollama = ollama
     }
 
-    func run(_ command: QuickCommand) {
+    /// `selection` — захваченный текст. Приходит готовым, а не читается здесь:
+    /// его прочли один раз при вызове панели, показали человеку плашкой,
+    /// и он мог его убрать. Читать выделение заново в момент запуска значило
+    /// бы взять не то, что видно на экране: панель забрала фокус, и выделения
+    /// в чужом окне к этому мигу уже нет.
+    func run(_ command: QuickCommand, selection: String = "") {
         guard command.isConfigured else { return }
         DebugLog.write("команда «\(command.title)» (\(command.kind.rawValue))")
 
         switch command.kind {
         case .shortcut:
-            runShortcut(command)
+            runShortcut(command, selection: selection)
         case .ollama:
-            runOllama(command)
+            runOllama(command, selection: selection)
+        case .saveToNotes:
+            saveToNotes(command, selection: selection)
         case .appleScript:
             runAppleScript(command)
         case .openApp:
@@ -49,34 +63,48 @@ final class CommandRunner {
 
     // MARK: - Модель
 
-    private func runOllama(_ command: QuickCommand) {
+    private func runOllama(_ command: QuickCommand, selection: String) {
         guard settings.ollamaEnabled else {
             DebugLog.write("команда «\(command.title)»: Ollama выключена в настройках")
             report(.failed(t("Ollama выключена в настройках")))
             return
         }
 
-        SelectionReader.read { [weak self] selection in
-            guard let self else { return }
-            let text = (selection ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = selection.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // Без выделения запрос бессмысленен, и это не безобидно: промт
-            // вроде «исправь ошибки» без текста уводит модель в бесконечную
-            // генерацию. Проверено — тот же запрос через curl не вернулся
-            // и за три минуты.
-            guard !text.isEmpty || !command.payload.contains("{{selection}}") else {
-                DebugLog.write("команда «\(command.title)»: нет выделенного текста")
-                self.report(.failed(t("Нет выделенного текста")))
-                return
-            }
-
-            self.onAssistantPrompt?(command.title, command.prompt(with: text))
+        // Без текста запрос бессмысленен, и это не безобидно: промт
+        // вроде «исправь ошибки» без текста уводит модель в бесконечную
+        // генерацию. Проверено — тот же запрос через curl не вернулся
+        // и за три минуты.
+        guard !text.isEmpty || !command.payload.contains("{{selection}}") else {
+            DebugLog.write("команда «\(command.title)»: нет захваченного текста")
+            report(.failed(t("Нечего обрабатывать — ничего не выделено")))
+            return
         }
+
+        onAssistantPrompt?(command.title, command.prompt(with: text), command.model)
+    }
+
+    // MARK: - Заметки
+
+    /// Захваченное — сразу в заметки, без модели.
+    ///
+    /// Единственная команда, которая ничего не спрашивает и ничего
+    /// не открывает: записал и читаешь дальше. Тем же путём, что и ⌃⌥⇧Z, —
+    /// иначе одна и та же запись легла бы двумя разными способами.
+    private func saveToNotes(_ command: QuickCommand, selection: String) {
+        let text = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            DebugLog.write("команда «\(command.title)»: нечего сохранять")
+            report(.failed(t("Нечего сохранить")))
+            return
+        }
+        onSaveToNotes?(text)
     }
 
     // MARK: - Команды
 
-    private func runShortcut(_ command: QuickCommand) {
+    private func runShortcut(_ command: QuickCommand, selection: String) {
         report(.running(command.title))
 
         func execute(with input: String?) {
@@ -103,13 +131,18 @@ final class CommandRunner {
             }
         }
 
+        // Захваченный текст на входе — только если команда его просит:
+        // многие команды из «Команд» работают сами по себе, и кормить их
+        // случайным выделением значило бы менять то, что они делают.
+        //
+        // Читать выделение заново здесь нельзя по той же причине, что
+        // и у модели: панель уже забрала фокус. Пустой захват передаётся
+        // как `nil` — «входа нет», а не «вход пустой».
         guard command.passesSelection else {
             execute(with: nil)
             return
         }
-        SelectionReader.read { selection in
-            execute(with: selection)
-        }
+        execute(with: selection.isEmpty ? nil : selection)
     }
 
     // MARK: - AppleScript

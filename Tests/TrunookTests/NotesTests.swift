@@ -752,7 +752,7 @@ struct AssistantInputTests {
     func сочетаниеНеСовпадает() {
         var seen = Set<String>()
         let specs: [HotKeySpec] = [
-            .menu, .clipboard, .shelf, .timer, .monitor,
+            .assistant, .clipboard, .shelf, .timer, .monitor,
             .expanded, .teleprompter, .notes, .noteSelection,
         ]
         for spec in specs {

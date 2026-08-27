@@ -1,6 +1,9 @@
 import Foundation
 
-/// Быстрая команда — один из шести слотов меню.
+/// Команда — строка в списке под полем вопроса.
+///
+/// Была слотом меню, одним из шести. Слотов больше нет: команд заводят
+/// сколько нужно и переставляют, а порядок задаётся местом в наборе.
 struct QuickCommand: Codable, Equatable, Identifiable {
     enum Kind: String, Codable, CaseIterable {
         case shortcut
@@ -9,6 +12,9 @@ struct QuickCommand: Codable, Equatable, Identifiable {
         case openPath
         case openURL
         case appleScript
+        /// Захваченный текст сразу в заметки. Ни промта, ни модели: это
+        /// то же, что делает ⌃⌥⇧Z, только из списка команд.
+        case saveToNotes
 
         var title: String {
             switch self {
@@ -18,6 +24,7 @@ struct QuickCommand: Codable, Equatable, Identifiable {
             case .openPath: return t("Открыть файл или папку")
             case .openURL: return t("Открыть ссылку")
             case .appleScript: return t("Скрипт AppleScript")
+            case .saveToNotes: return t("Сохранить в заметки")
             }
         }
 
@@ -29,10 +36,24 @@ struct QuickCommand: Codable, Equatable, Identifiable {
             case .openPath: return "folder"
             case .openURL: return "link"
             case .appleScript: return "applescript"
+            case .saveToNotes: return "tray.and.arrow.down"
             }
         }
+
+        /// Уходит ли команда к модели. От этого зависит, показывать ли
+        /// в её строке имя модели и давать ли его менять.
+        var usesModel: Bool { self == .ollama }
+
+        /// Есть ли у команды содержимое, которое нужно заполнить. У записи
+        /// в заметки его нет вовсе: она работает с захваченным текстом,
+        /// а не со своим промтом, — и требовать от неё непустой `payload`
+        /// значило бы навсегда оставить её ненастроенной.
+        var needsPayload: Bool { self != .saveToNotes }
     }
 
+    /// Постоянный номер команды. Не её место в списке: место задаётся
+    /// порядком в наборе и меняется перестановкой, а номер остаётся при
+    /// команде навсегда — по нему её находят настройки и горячая клавиша.
     let id: Int
     var title: String
     var kind: Kind
@@ -40,7 +61,7 @@ struct QuickCommand: Codable, Equatable, Identifiable {
     var payload: String
     var symbol: String
     var isEnabled: Bool
-    /// Своё сочетание. nil — слот запускается только из меню.
+    /// Своё сочетание. nil — команда запускается только из списка.
     var hotKey: HotKeySpec?
     /// Передавать ли выделенный текст на вход. Для команд из «Команд»:
     /// многие из них работают с текстом, а многие — сами по себе.
@@ -53,21 +74,35 @@ struct QuickCommand: Codable, Equatable, Identifiable {
     /// прошлой версией, перестали бы разбираться целиком.
     var browserBundleID: String?
 
-    /// Пустой слот: показывается в меню как место под команду.
-    static func empty(id: Int) -> QuickCommand {
+    /// Какой моделью выполнять. `nil` — той, что выбрана в настройках.
+    ///
+    /// У каждой команды своя: переводу хватает лёгкой модели, разбору кода
+    /// нужна тяжёлая, и одна на всё приложение заставляла бы переключать её
+    /// руками между двумя соседними вопросами.
+    ///
+    /// Необязательное поле намеренно — по той же причине, что
+    /// и `browserBundleID`: у синтезированного `Decodable` значения
+    /// по умолчанию не работают, а отсутствующий ключ необязательного
+    /// свойства читается как `nil`. Иначе наборы, сохранённые прошлой
+    /// версией, перестали бы разбираться целиком.
+    var model: String?
+
+    /// Новая команда: заготовка, которую человек тут же и заполнит.
+    static func blank(id: Int) -> QuickCommand {
         QuickCommand(
             id: id,
             title: "",
             kind: .ollama,
             payload: "",
             symbol: "",
-            isEnabled: false,
-            hotKey: HotKeySpec.slot(id)
+            isEnabled: true,
+            hotKey: nil
         )
     }
 
     var isConfigured: Bool {
-        isEnabled && !title.isEmpty && !payload.isEmpty
+        guard isEnabled, !title.isEmpty else { return false }
+        return !kind.needsPayload || !payload.isEmpty
     }
 
     var effectiveSymbol: String {
@@ -99,26 +134,99 @@ struct QuickCommand: Codable, Equatable, Identifiable {
     }
 }
 
-/// Шесть слотов быстрых команд.
+/// Набор команд: сколько угодно, в том порядке, в каком их расставили.
 ///
-/// Число фиксировано намеренно: меню вызывается вслепую, по памяти, и растущий
-/// список сводил бы на нет саму идею — попасть в нужное действие не глядя.
+/// Слотов было шесть, и число было фиксировано нарочно — меню вызывалось
+/// вслепую, по памяти, и растущий список сводил бы на нет саму идею. Меню
+/// больше нет: команды показываются списком в панели, где их читают глазами,
+/// и ограничивать их число стало незачем.
 enum QuickCommands {
-    static let slotCount = 6
+    /// Сколько строк списка видно разом. Дальше — прокрутка: список, который
+    /// может пополниться, обязан быть прокручиваемым, иначе он однажды
+    /// перерастёт окно и обрежется с обеих сторон.
+    static let visibleRows = 4
 
     static func load(from defaults: UserDefaults) -> [QuickCommand] {
         guard let data = defaults.data(forKey: "quickCommands"),
               let stored = try? JSONDecoder().decode([QuickCommand].self, from: data)
         else { return defaults0 }
 
-        // Число слотов могло измениться между версиями — приводим к текущему.
-        var commands = (0..<slotCount).map { index in
-            stored.first { $0.id == index } ?? .empty(id: index)
-        }
-        if migrateLegacyHotKeys(&commands, in: defaults) {
-            save(commands, to: defaults)
-        }
+        // Порядок — тот, в каком команды лежат в наборе. Приведение
+        // к шести слотам ушло вместе со слотами; пустышки старого формата,
+        // заводившиеся под ненастроенные места меню, выбрасываются:
+        // показывать их в списке не за чем, а редактировать — тем более.
+        var commands = stored.filter { !$0.title.isEmpty || !$0.payload.isEmpty }
+        var changed = migrateLegacyHotKeys(&commands, in: defaults)
+        changed = addNoteCommand(&commands, in: defaults) || changed
+        if changed { save(commands, to: defaults) }
         return commands
+    }
+
+    /// Ключ, которым помечена состоявшаяся выдача команды «в заметки».
+    ///
+    /// Не `private`: его ставит проверка, которой перенос мешает. Выписанный
+    /// в тесте строкой, он разошёлся бы с этим при первом переименовании,
+    /// и перенос молча начал бы срабатывать в каждой проверке.
+    static let noteCommandKey = "quickCommandsGotNoteCommand"
+
+    /// Дописывает «Сохранить в заметки» тем, у кого набор уже есть.
+    ///
+    /// Заготовки первого запуска до этих людей не доходят: их набор лежит
+    /// в настройках с прошлой версии, и новая команда не появилась бы у них
+    /// никогда — притом что руками её не собрать, вида `saveToNotes` в старом
+    /// списке действий просто не было.
+    ///
+    /// Отметка нужна, чтобы выдача случилась однажды: без неё команда
+    /// возвращалась бы на место при каждом запуске у всех, кто нарочно
+    /// её удалил.
+    private static func addNoteCommand(
+        _ commands: inout [QuickCommand],
+        in defaults: UserDefaults
+    ) -> Bool {
+        guard !defaults.bool(forKey: noteCommandKey) else { return false }
+        defaults.set(true, forKey: noteCommandKey)
+
+        guard !commands.contains(where: { $0.kind == .saveToNotes }) else { return false }
+        commands.append(QuickCommand(
+            id: nextID(after: commands),
+            title: t("Сохранить в заметки"),
+            kind: .saveToNotes,
+            payload: "",
+            symbol: "tray.and.arrow.down",
+            isEnabled: true,
+            // Без сочетания: свободные цифры у человека могли кончиться,
+            // а отобрать занятую значило бы молча переназначить то, чем он
+            // уже пользуется.
+            hotKey: nil
+        ))
+        return true
+    }
+
+    /// Что показывает список под полем вопроса.
+    ///
+    /// Один расчёт на всех: список рисует вёрстка, а ходит по нему стрелками
+    /// контроллер — и «третья сверху» у них обязана означать одно и то же.
+    /// Порознь эти два списка разошлись бы на первой же выключенной команде,
+    /// и стрелка вела бы подсветку мимо видимых строк.
+    /// `modelEnabled` — включена ли Ollama. Выключена — команды к модели
+    /// из списка уходят: показывать то, что заведомо ответит «Ollama выключена
+    /// в настройках», значит предлагать нажать и получить отказ. Остальные
+    /// виды работают без всякой модели, и отбирать их заодно не за что.
+    static func visible(
+        in commands: [QuickCommand],
+        enabled: Bool,
+        modelEnabled: Bool
+    ) -> [QuickCommand] {
+        guard enabled else { return [] }
+        return commands.filter { $0.isConfigured && (modelEnabled || !$0.kind.usesModel) }
+    }
+
+    /// Номер для новой команды: на единицу больше самого большого занятого.
+    ///
+    /// Не число команд: удалили среднюю — и новая получила бы номер уже
+    /// существующей, а по номеру команду находят и настройки, и клавиша.
+    static func nextID(after commands: [QuickCommand]) -> Int {
+        (commands.map(\.id).max() ?? -1) + 1
     }
 
     /// Ключ, которым помечен состоявшийся перенос сочетаний.
@@ -161,7 +269,7 @@ enum QuickCommands {
         defaults.set(data, forKey: "quickCommands")
     }
 
-    /// Заготовки при первом запуске: показывают, что вообще умеет меню.
+    /// Заготовки при первом запуске: показывают, что вообще умеет список.
     private static var defaults0: [QuickCommand] {
         [
             QuickCommand(
@@ -191,9 +299,18 @@ enum QuickCommands {
                 isEnabled: true,
                 hotKey: HotKeySpec.slot(2)
             ),
-            .empty(id: 3),
-            .empty(id: 4),
-            .empty(id: 5),
+            // Записать захваченное, ничего не спрашивая у модели. Идёт
+            // из коробки, но ничем не особеннее прочих: её можно удалить,
+            // переставить и переименовать.
+            QuickCommand(
+                id: 3,
+                title: t("Сохранить в заметки"),
+                kind: .saveToNotes,
+                payload: "",
+                symbol: "tray.and.arrow.down",
+                isEnabled: true,
+                hotKey: HotKeySpec.slot(3)
+            ),
         ]
     }
 }

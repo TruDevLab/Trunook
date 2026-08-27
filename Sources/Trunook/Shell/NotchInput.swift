@@ -142,7 +142,7 @@ final class NotchInput {
             monitors.append(outside)
         }
 
-        // Меню команд закрывается по Esc. Монитор локальный: панель к этому
+        // Накладка закрывается по Esc. Монитор локальный: панель к этому
         // моменту уже приняла фокус, чтобы принимать нажатия.
         if let keys = NSEvent.addLocalMonitorForEvents(matching: [.keyDown], handler: { [weak self] event in
             guard event.keyCode == 53, self?.state.overlay != nil else { return event }
@@ -198,12 +198,12 @@ final class NotchInput {
 
     /// Поглаживание считается только в мини-виде. В раскрытой панели курсор
     /// ходит между кнопками перемотки, и такие движения не должны будить кота;
-    /// в меню команд — тем более.
+    /// в любой накладке — тем более.
     private func updatePetting(at location: CGPoint) {
         guard settings.purrEnabled,
               state.isHovered,
               !state.isPinnedOpen,
-              !state.isCommandsOpen,
+              state.overlay == nil,
               let geometry = host.geometry
         else {
             petting.reset()

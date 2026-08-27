@@ -1,11 +1,16 @@
 import TrunookXPC
 import AppKit
 
-/// Список моделей Ollama для выпадающего меню.
+/// Список моделей Ollama для выбора.
 ///
 /// Отдельный объект, а не разовый запрос: список нужен в настройках,
 /// обновляется по кнопке и переживает переключение разделов.
 final class OllamaModelList: ObservableObject {
+    /// Один на всё приложение: тот же список читает строка команды в вырезе,
+    /// и два объекта означали бы два опроса Ollama и два разных ответа
+    /// на один и тот же вопрос.
+    static let shared = OllamaModelList()
+
     @Published private(set) var models: [String] = []
     @Published private(set) var isLoading = false
     @Published private(set) var error: String?

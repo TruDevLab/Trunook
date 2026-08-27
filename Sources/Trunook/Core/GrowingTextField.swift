@@ -31,7 +31,35 @@ struct GrowingTextField: NSViewRepresentable {
     /// снаружи, и подсмотреть настоящую ширину поля ему негде.
     var textWidth: CGFloat
     /// Enter без модификаторов.
+    ///
+    /// Отправляет набранное — но только если в списке команд никто
+    /// не подсвечен: с подсветкой Enter запускает её, и решает это сам
+    /// обработчик, а не поле. Полю о списке знать нечего.
     var onSubmit: () -> Void
+
+    /// ↑ и ↓ — вести подсветку по списку команд: −1 вверх, +1 вниз.
+    ///
+    /// Возврат `true` значит «нажатие забрали». Пока подсветка ведётся,
+    /// стрелка принадлежит списку; в остальное время уходит тексту — в поле,
+    /// выросшем до нескольких строк, ими водят курсор.
+    var onMoveHighlight: ((Int) -> Bool)?
+
+    /// ← и → — вести подсветку по действиям с ответом: −1 влево, +1 вправо.
+    ///
+    /// Забирать стрелки у поля можно только пока подсветка есть: в остальное
+    /// время ими двигают курсор по набранному вопросу, и съедать их значило
+    /// бы сломать обычную правку текста.
+    var onMoveAnswerAction: ((Int) -> Bool)?
+
+    /// Tab — сменить модель подсвеченной команды. `true` — забрали себе.
+    ///
+    /// Без подсветки Tab отдаётся системе: обход по элементам он здесь
+    /// не делает, но и съедать его беспричинно незачем.
+    var onCycleModel: (() -> Bool)?
+
+    /// Esc — снять подсветку. `false` значит «подсветки не было»: тогда
+    /// нажатие идёт дальше, и панель закрывает `NotchInput`.
+    var onEscape: (() -> Bool)?
 
     static let font = NSFont.systemFont(ofSize: 12)
 
@@ -170,15 +198,33 @@ struct GrowingTextField: NSViewRepresentable {
         /// `true` значит «нажатие обработано нами». Переводу строки
         /// отвечаем `false` — его вставит сам `NSTextView`, и делать это
         /// руками незачем.
+        /// Тем же путём разбираются стрелки, Tab и Esc: они принадлежат
+        /// списку команд под полем, а не тексту в нём. Каждый обработчик сам
+        /// говорит, забрал ли он нажатие, — иначе поле съедало бы стрелки
+        /// и там, где списка нет вовсе.
         func textView(
             _ textView: NSTextView,
             doCommandBy commandSelector: Selector
         ) -> Bool {
-            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else {
+            switch commandSelector {
+            case #selector(NSResponder.insertNewline(_:)):
+                parent.onSubmit()
+                return true
+            case #selector(NSResponder.moveUp(_:)):
+                return parent.onMoveHighlight?(-1) ?? false
+            case #selector(NSResponder.moveDown(_:)):
+                return parent.onMoveHighlight?(1) ?? false
+            case #selector(NSResponder.moveLeft(_:)):
+                return parent.onMoveAnswerAction?(-1) ?? false
+            case #selector(NSResponder.moveRight(_:)):
+                return parent.onMoveAnswerAction?(1) ?? false
+            case #selector(NSResponder.insertTab(_:)):
+                return parent.onCycleModel?() ?? false
+            case #selector(NSResponder.cancelOperation(_:)):
+                return parent.onEscape?() ?? false
+            default:
                 return false
             }
-            parent.onSubmit()
-            return true
         }
     }
 }

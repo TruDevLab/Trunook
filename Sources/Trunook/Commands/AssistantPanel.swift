@@ -26,8 +26,33 @@ struct AssistantPanel: View {
     /// и сохранить можно и так, а кнопки, которым нечего делать, прячутся.
     let modelEnabled: Bool
     let notesEnabled: Bool
+    /// Команды, которые показывает список. Пустой — списка нет вовсе:
+    /// команды выключены в настройках.
+    let commands: [QuickCommand]
+    /// Установленные модели и та, что выбрана в настройках, — для правой
+    /// части строки команды.
+    let models: [String]
+    let defaultModel: String
 
     let onSend: () -> Void
+    /// Запустить команду из списка.
+    let onRunCommand: (QuickCommand) -> Void
+    /// Убрать захваченный текст.
+    let onClearCapture: () -> Void
+    /// Раскрыть или свернуть плашку захваченного текста.
+    let onToggleCapture: () -> Void
+    /// Открыть выбор модели для команды и выбрать её.
+    let onBeginChoosingModel: (QuickCommand) -> Void
+    let onChooseModel: (String?) -> Void
+    let onCancelChoosingModel: () -> Void
+    /// Клавиатура в поле вопроса: стрелки ведут подсветку по списку команд,
+    /// Tab меняет модель подсвеченной, Esc снимает подсветку. Каждое отвечает,
+    /// забрало ли оно нажатие себе.
+    let onMoveHighlight: (Int) -> Bool
+    /// ← и → ведут подсветку по действиям с готовым ответом.
+    let onMoveAnswerAction: (Int) -> Bool
+    let onCycleModel: () -> Bool
+    let onEscapeHighlight: () -> Bool
     let onSaveNote: () -> Void
     let onCopy: () -> Void
     let onPaste: () -> Void
@@ -245,27 +270,53 @@ struct AssistantPanel: View {
         mode: NotePanelMode = .model,
         transcript: [AssistantSession.Reply] = [],
         isStreaming: Bool = true,
-        question: String = ""
+        question: String = "",
+        hasCapture: Bool = false,
+        captureExpanded: Bool = false,
+        commandRows: Int = 0,
+        modelEnabled: Bool = true,
+        notesEnabled: Bool = true
     ) -> CGFloat {
-        var content: CGFloat
+        var content: CGFloat = 0
         switch mode {
         case .model:
-            content = bodyHeight(
-                transcript: transcript,
-                isStreaming: isStreaming,
-                notchWidth: notchWidth
-            )
-            // Строка действий над лентой появляется только вместе с ответом:
-            // держать её пустой значило бы отнимать высоту у самой ленты.
-            if !transcript.isEmpty || isStreaming {
-                content += NotchStyle.gridSpacing + actionSize
+            // Захваченное — над всем остальным: сперва человек узнаёт, с чем
+            // работает, и только потом решает, что с этим делать.
+            if hasCapture {
+                content += CapturedTextPill.height(expanded: captureExpanded)
+                    + NotchStyle.gridSpacing
             }
-            content += NotchStyle.gridSpacing
-                + questionHeight(text: question, notchWidth: notchWidth)
+            // С выключенной моделью ленты и поля вопроса нет вовсе: спросить
+            // некого, а пустая область ответа и мёртвое поле — это полпанели,
+            // отданной под то, чего нет. Остаются захваченное и команды,
+            // которым модель не нужна.
+            if modelEnabled {
+                content += bodyHeight(
+                    transcript: transcript,
+                    isStreaming: isStreaming,
+                    notchWidth: notchWidth
+                )
+                // Строка действий над лентой появляется только вместе
+                // с ответом: держать её пустой значило бы отнимать высоту
+                // у самой ленты.
+                if !transcript.isEmpty || isStreaming {
+                    content += NotchStyle.gridSpacing + actionSize
+                }
+                content += NotchStyle.gridSpacing
+                    + questionHeight(text: question, notchWidth: notchWidth)
+            }
+            // Список команд стоит под полем: сперва «что сказать», потом
+            // «чем это сделать». Ноль строк — признак того, что списка нет
+            // вовсе: команды выключены в настройках.
+            if commandRows > 0 {
+                content += NotchStyle.gridSpacing + CommandRows.height(rows: commandRows)
+            }
         case .note:
             content = noteFieldHeight
         }
-        content += NotchStyle.gridSpacing + rowHeight
+        if hasActionRow(modelEnabled: modelEnabled, notesEnabled: notesEnabled, isNote: mode == .note) {
+            content += NotchStyle.gridSpacing + rowHeight
+        }
         return NotchStyle.height(notchHeight: notchHeight, contentHeight: content)
     }
 
@@ -277,6 +328,10 @@ struct AssistantPanel: View {
     /// режимы, поле было однострочным, и выросшая панель обрезалась бы краем
     /// окна: содержимое, переросшее окно, обрезается — и это ловится только
     /// снимком.
+    ///
+    /// Считается по **самому полному** составу: выросшее поле, плашка захвата
+    /// и полный список команд разом. Так они и сходятся в жизни — ⌃⌥C
+    /// открывает панель ровно с захватом и списком.
     static func tallest(notchHeight: CGFloat, notchWidth: CGFloat) -> CGFloat {
         // Строка из пробелов ровно на потолок поля: высоту вопроса считает
         // сам `GrowingTextField`, и просить у него потолок надо тем же
@@ -288,7 +343,10 @@ struct AssistantPanel: View {
                     notchHeight: notchHeight,
                     notchWidth: notchWidth,
                     mode: $0,
-                    question: longQuestion
+                    question: longQuestion,
+                    hasCapture: true,
+                    captureExpanded: true,
+                    commandRows: QuickCommands.visibleRows
                 )
             }
             .max() ?? 0
@@ -335,13 +393,31 @@ struct AssistantPanel: View {
                 if isNote {
                     noteField
                 } else {
-                    answerBody
-                    if hasAnswer { answerActions }
-                    questionField
+                    if !session.captured.isEmpty {
+                        CapturedTextPill(
+                            text: session.captured,
+                            isExpanded: session.isCaptureExpanded,
+                            onToggle: onToggleCapture,
+                            onClear: onClearCapture
+                        )
+                    }
+                    if modelEnabled {
+                        answerBody
+                        if hasAnswer { answerActions }
+                        questionField
+                    }
+                    if !commands.isEmpty { commandList }
                 }
                 switch draft.prompt {
                 case .link: linkRow
-                case nil: actionRow
+                case nil:
+                    if Self.hasActionRow(
+                        modelEnabled: modelEnabled,
+                        notesEnabled: notesEnabled,
+                        isNote: isNote
+                    ) {
+                        actionRow
+                    }
                 }
             }
         }
@@ -350,7 +426,7 @@ struct AssistantPanel: View {
     private var header: some View {
         HStack(spacing: 6) {
             NotchPanelTitle(
-                symbol: isNote ? draft.mode.symbol : "sparkles",
+                symbol: isNote ? draft.mode.symbol : (modelEnabled ? "sparkles" : "square.grid.2x2"),
                 title: headerTitle,
                 tint: Palette.assistant
             )
@@ -382,6 +458,10 @@ struct AssistantPanel: View {
         case .speaking: return t("Отвечаю")
         case nil: break
         }
+        // Без модели панель — это список того, что можно сделать
+        // с захваченным. Обещать в шапке модель, которой нет, значит
+        // отправить человека искать поле ввода, которого тоже нет.
+        guard modelEnabled else { return t("Команды") }
         return session.title.isEmpty ? t("Модель") : session.title
     }
 
@@ -545,16 +625,32 @@ struct AssistantPanel: View {
         }
     }
 
+    /// Что сделать с готовым ответом.
+    ///
+    /// Как только ответ дописан, подсветка сама переезжает сюда со списка
+    /// команд: команду человек уже выбрал, ответ получил — остаётся решить,
+    /// куда его деть. ← и → водят подсветку, Enter выполняет.
     private var answerActions: some View {
         HStack(spacing: 4) {
             Spacer(minLength: 0)
-            icon("doc.on.doc", t("Скопировать ответ"), action: onCopy)
-            icon("text.insert", t("Вставить ответ"), action: onPaste)
+            icon(
+                AssistantSession.AnswerAction.copy.symbol,
+                AssistantSession.AnswerAction.copy.title,
+                isHighlighted: session.highlightedAnswerAction == .copy,
+                action: onCopy
+            )
+            icon(
+                AssistantSession.AnswerAction.paste.symbol,
+                AssistantSession.AnswerAction.paste.title,
+                isHighlighted: session.highlightedAnswerAction == .paste,
+                action: onPaste
+            )
             if notesEnabled {
                 icon(
-                    "tray.and.arrow.down",
-                    t("Ответ в заметки"),
+                    AssistantSession.AnswerAction.note.symbol,
+                    AssistantSession.AnswerAction.note.title,
                     tint: Palette.assistant,
+                    isHighlighted: session.highlightedAnswerAction == .note,
                     action: onSaveAnswer
                 )
             }
@@ -577,7 +673,11 @@ struct AssistantPanel: View {
         GrowingTextField(
             text: Binding(get: { draft.question }, set: { draft.question = $0 }),
             textWidth: Self.questionTextWidth(notchWidth: metrics.notchWidth),
-            onSubmit: onSend
+            onSubmit: onSend,
+            onMoveHighlight: onMoveHighlight,
+            onMoveAnswerAction: onMoveAnswerAction,
+            onCycleModel: onCycleModel,
+            onEscape: onEscapeHighlight
         )
         .frame(height: questionFieldHeight)
         // Скругление постоянное — то, что делает пустое поле капсулой.
@@ -613,6 +713,21 @@ struct AssistantPanel: View {
             }
         }
         .overlay(alignment: .bottomTrailing) { flashPill }
+    }
+
+    /// Список команд под полем.
+    private var commandList: some View {
+        CommandRows(
+            commands: commands,
+            models: models,
+            defaultModel: defaultModel,
+            highlighted: session.highlightedCommandID,
+            choosingModelFor: session.choosingModelFor,
+            onRun: onRunCommand,
+            onBeginChoosingModel: onBeginChoosingModel,
+            onChooseModel: onChooseModel,
+            onCancelChoosingModel: onCancelChoosingModel
+        )
     }
 
     /// Высота поля вопроса прямо сейчас.
@@ -702,9 +817,23 @@ struct AssistantPanel: View {
             - 2 * actionSpacing
     }
 
+    /// Есть ли в полосе действий хоть что-нибудь.
+    ///
+    /// С выключенной моделью в режиме разговора её содержимое пусто: главного
+    /// действия нет — отправлять некому, — а переключатель режима есть только
+    /// вместе с заметками. Пустая полоса при этом всё равно занимала высоту,
+    /// и под списком команд оставалась чёрная плешь в тридцать точек.
+    static func hasActionRow(modelEnabled: Bool, notesEnabled: Bool, isNote: Bool) -> Bool {
+        if isNote { return notesEnabled }
+        return notesEnabled || modelEnabled
+    }
+
     private var actionRow: some View {
         HStack(spacing: Self.actionSpacing) {
-            if modelEnabled, notesEnabled {
+            // Переключатель режима есть и без модели: разговаривать не с кем,
+            // а записать захваченное заметкой — по-прежнему да, и другого
+            // пути в этот режим из панели нет.
+            if notesEnabled {
                 ModeSwitch(mode: draft.mode, onSelect: onSelectMode)
             }
             if isNote {
@@ -832,6 +961,7 @@ struct AssistantPanel: View {
         _ symbol: String,
         _ hint: String,
         tint: Color = .white,
+        isHighlighted: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -840,10 +970,20 @@ struct AssistantPanel: View {
                 .foregroundStyle(tint)
                 .frame(width: Self.actionSize, height: Self.actionSize)
                 .background(Circle().fill(.white.opacity(NotchStyle.tileFill)))
+                // Подсветка с клавиатуры — обводкой, как у строки команды:
+                // одинаковый признак «сюда сейчас уйдёт Enter» в обоих местах,
+                // иначе их пришлось бы различать по памяти.
+                .overlay(
+                    Circle().strokeBorder(
+                        isHighlighted ? Palette.assistant.opacity(0.9) : .clear,
+                        lineWidth: 1.5
+                    )
+                )
                 .contentShape(Circle())
         }
         .buttonStyle(PressableStyle())
         .notchHint(hint)
+        .animation(.easeOut(duration: 0.12), value: isHighlighted)
     }
 }
 

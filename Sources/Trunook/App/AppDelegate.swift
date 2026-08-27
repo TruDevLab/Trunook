@@ -86,7 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.nextTrack", #selector(testNextTrack)),
             ("com.trunook.debug.reminder", #selector(testReminderSoon)),
             ("com.trunook.debug.dump", #selector(dumpUpcoming)),
-            ("com.trunook.debug.commands", #selector(toggleCommandsMenu)),
+            ("com.trunook.debug.capture", #selector(testCapture)),
+            ("com.trunook.debug.captureOpen", #selector(testCaptureExpanded)),
             ("com.trunook.debug.runslot1", #selector(runSlot1)),
             ("com.trunook.debug.ollama", #selector(ollamaEcho)),
             ("com.trunook.debug.meetingButtons", #selector(dumpMeetingButtons)),
@@ -404,8 +405,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func toggleCommandsMenu() {
-        controller.debugToggleCommands()
+    /// Панель разговора с образцом захваченного текста.
+    ///
+    /// Настоящее выделение из отладочной сессии не создать: чужому окну
+    /// его негде взять, а синтетические нажатия до Carbon не доходят.
+    /// Образец подставляется прямо — вёрстку плашки и списка команд иначе
+    /// не снять вовсе.
+    @objc private func testCapture() {
+        controller.debugCapture()
+    }
+
+    /// То же, но с раскрытой плашкой: свёрнутая показывает две строки,
+    /// и по ней не увидеть ни прокрутки, ни того, во что панель вырастает.
+    @objc private func testCaptureExpanded() {
+        controller.debugCapture(expanded: true)
     }
 
     /// Снимает кнопки страницы встречи — по этому выводу калибруются подписи.

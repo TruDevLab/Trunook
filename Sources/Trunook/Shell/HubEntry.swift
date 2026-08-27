@@ -10,7 +10,7 @@ enum HubEntry: String, CaseIterable, Identifiable {
     // и возврат уже есть — крестик в правом крыле, общий для всех накладок.
     // Плитка «Главный экран» дублировала его вторым способом на том же
     // экране, а два способа одного действия человек читает как два разных.
-    case commands
+    case assistant
     case clipboard
     case shelf
     case timer
@@ -23,7 +23,7 @@ enum HubEntry: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .commands: return t("Команды")
+        case .assistant: return t("ИИ")
         case .clipboard: return t("Буфер обмена")
         case .shelf: return t("Полка")
         case .timer: return t("Таймер")
@@ -34,7 +34,7 @@ enum HubEntry: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .commands: return "square.grid.2x2.fill"
+        case .assistant: return "sparkles"
         case .clipboard: return "doc.on.clipboard.fill"
         case .shelf: return "tray.full.fill"
         case .timer: return "timer"
@@ -45,7 +45,7 @@ enum HubEntry: String, CaseIterable, Identifiable {
 
     var tint: Color {
         switch self {
-        case .commands: return Palette.commands
+        case .assistant: return Palette.assistant
         case .clipboard: return Palette.clipboard
         case .shelf: return Palette.shelf
         case .timer: return Palette.timer
@@ -59,7 +59,12 @@ enum HubEntry: String, CaseIterable, Identifiable {
     /// лишь выключили, — а вернуть её тогда неоткуда.
     func isEnabled(_ settings: Settings) -> Bool {
         switch self {
-        case .commands: return settings.quickCommandsEnabled
+        // Не `quickCommandsEnabled`: плитка открывает разговор, а команды
+        // в нём — только один из способов спросить. С выключенными командами
+        // остаются свой вопрос и заметки, и закрывать вход к ним незачем.
+        case .assistant:
+            return settings.ollamaEnabled || settings.notesEnabled
+                || settings.quickCommandsEnabled
         case .clipboard: return settings.clipboardEnabled
         case .shelf: return settings.shelfEnabled
         case .timer: return settings.timerEnabled
@@ -74,7 +79,7 @@ enum HubEntry: String, CaseIterable, Identifiable {
     /// Сочетание клавиш, если оно у функции есть. Меню заодно им и учит.
     func hint(_ settings: Settings) -> String? {
         switch self {
-        case .commands: return settings.menuHotKey?.display
+        case .assistant: return settings.assistantHotKey?.display
         case .clipboard: return settings.clipboardHotKey?.display
         case .shelf: return settings.shelfHotKey?.display
         case .timer: return settings.timerHotKey?.display

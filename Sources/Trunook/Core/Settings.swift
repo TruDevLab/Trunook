@@ -116,9 +116,24 @@ final class Settings: ObservableObject {
         set { storeHotKey(newValue, "expandedHotKey") }
     }
 
-    var menuHotKey: HotKeySpec? {
-        get { hotKey("menuHotKey", default: .menu) }
-        set { storeHotKey(newValue, "menuHotKey") }
+    /// Захватить выделенное и открыть разговор с моделью.
+    ///
+    /// Наследует значение старого `menuHotKey`, если человек его менял.
+    /// Сочетание, заданное руками, отбирать нельзя: до 0.11.0 на нём
+    /// открывалось меню быстрых команд, а меню превратилось в список команд
+    /// внутри этой же панели — действие то же самое, только полнее. Перенос
+    /// однократный: старый ключ после чтения стирается.
+    var assistantHotKey: HotKeySpec? {
+        get {
+            if let stored = hotKey("assistantHotKey", default: nil) { return stored }
+            if let legacy = hotKey("menuHotKey", default: nil) {
+                storeHotKey(legacy, "assistantHotKey")
+                defaults.removeObject(forKey: "menuHotKey")
+                return legacy
+            }
+            return .assistant
+        }
+        set { storeHotKey(newValue, "assistantHotKey") }
     }
 
     var ollamaModel: String {
@@ -145,11 +160,43 @@ final class Settings: ObservableObject {
         }
     }
 
-    /// Изменение одного слота без перезаписи всего набора вручную.
+    /// Изменение одной команды без перезаписи всего набора вручную.
     func updateCommand(_ command: QuickCommand) {
         var all = quickCommands
         guard let index = all.firstIndex(where: { $0.id == command.id }) else { return }
         all[index] = command
+        quickCommands = all
+    }
+
+    /// Заводит пустую команду в конце списка и возвращает её номер.
+    @discardableResult
+    func addCommand() -> Int {
+        var all = quickCommands
+        let command = QuickCommand.blank(id: QuickCommands.nextID(after: all))
+        all.append(command)
+        quickCommands = all
+        return command.id
+    }
+
+    func removeCommand(id: Int) {
+        var all = quickCommands
+        all.removeAll { $0.id == id }
+        quickCommands = all
+    }
+
+    /// Ставит команду на место другой — перетаскиванием в настройках.
+    ///
+    /// Целью назван сосед, а не номер места: перетаскивают на строку, которую
+    /// видят, и её номер меняется по ходу самой перестановки. Считать индекс
+    /// снаружи значило бы считать его дважды и однажды разойтись.
+    func moveCommand(id: Int, onto targetID: Int) {
+        guard id != targetID else { return }
+        var all = quickCommands
+        guard let from = all.firstIndex(where: { $0.id == id }),
+              let to = all.firstIndex(where: { $0.id == targetID })
+        else { return }
+        let moved = all.remove(at: from)
+        all.insert(moved, at: to)
         quickCommands = all
     }
 
