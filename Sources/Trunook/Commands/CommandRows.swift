@@ -13,16 +13,22 @@ import SwiftUI
 /// имя модели, а у плитки его нет.
 struct CommandRows: View {
     let commands: [QuickCommand]
-    /// Модели, установленные в Ollama. Пустой список — Ollama не отвечает
+    /// Модели всех включённых провайдеров. Пустой список — никто не ответил
     /// или моделей нет; выбирать тогда не из чего, и правая часть строки
     /// показывает только то, что уже выбрано.
-    let models: [String]
+    let models: [ModelRef]
     /// Модель из настроек — та, которой отвечают команды без своей.
-    let defaultModel: String
+    let defaultModel: ModelRef
     /// Какая строка подсвечена с клавиатуры.
     let highlighted: Int?
     /// У какой команды сейчас выбирают модель. `nil` — показываем команды.
     let choosingModelFor: Int?
+
+    /// Модель команды — разобранная. Хранится она строкой вместе
+    /// с провайдером; чей это сервер, по одному имени не узнать.
+    private func model(of command: QuickCommand) -> ModelRef? {
+        command.model.flatMap { ModelRef.parse($0, fallback: defaultModel.provider) }
+    }
 
     let onRun: (QuickCommand) -> Void
     let onBeginChoosingModel: (QuickCommand) -> Void
@@ -62,25 +68,53 @@ struct CommandRows: View {
     /// и `qwen2.5-coder:32b-instruct-q4_K_M`, и колонка, тянущаяся
     /// за длинным, съела бы название команды целиком. Длинное имя обрезается
     /// с головы — хвост у моделей и различает версии.
-    static var modelWidth: CGFloat { NotchStyle.scaled(116) }
+    static var modelWidth: CGFloat { NotchStyle.scaled(132) }
 
     // MARK: - Тело
 
+    /// Якорь начала списка моделей. Выбор занимает место команд, а прокрутка
+    /// при этом остаётся прежней — без якоря список моделей открывался бы
+    /// с середины.
+    private static let modelTopAnchor = "command-rows-model-top"
+
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: Self.spacing) {
-                if let id = choosingModelFor, let command = commands.first(where: { $0.id == id }) {
-                    modelChoices(for: command)
-                } else if commands.isEmpty {
-                    emptyRow
-                } else {
-                    ForEach(commands) { command in
-                        row(command)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: Self.spacing) {
+                    if let id = choosingModelFor, let command = commands.first(where: { $0.id == id }) {
+                        modelChoices(for: command)
+                    } else if commands.isEmpty {
+                        emptyRow
+                    } else {
+                        ForEach(commands) { command in
+                            row(command)
+                        }
                     }
                 }
             }
+            .frame(height: Self.height(rows: commands.count))
+            // Стрелки водят подсветку по всему набору, а видно из него
+            // четыре строки. Без прокрутки вслед за подсветкой пятая команда
+            // выбиралась бы вслепую: подсветка стоит там, где её не видно,
+            // и Enter запускает неизвестно что.
+            //
+            // Прокручиваем наименьшим движением (`anchor: nil`) — список
+            // сдвигается на строку, а не перескакивает подсвеченным
+            // в середину. Строки на месте, глазу не за чем гнаться.
+            .onChange(of: highlighted) { _, id in
+                guard let id else { return }
+                withAnimation(.easeOut(duration: 0.12)) {
+                    proxy.scrollTo(id, anchor: nil)
+                }
+            }
+            .onChange(of: choosingModelFor) { _, choosing in
+                if choosing != nil {
+                    proxy.scrollTo(Self.modelTopAnchor, anchor: .top)
+                } else if let highlighted {
+                    proxy.scrollTo(highlighted, anchor: nil)
+                }
+            }
         }
-        .frame(height: Self.height(rows: commands.count))
     }
 
     // MARK: - Строка команды
@@ -145,33 +179,44 @@ struct CommandRows: View {
     @ViewBuilder
     private func modelButton(_ command: QuickCommand) -> some View {
         if command.kind.usesModel {
+            let chosen = model(of: command)
+            let model = chosen ?? defaultModel
+            // Приглушённее названия команды: модель — не то, что выбирают
+            // в первую очередь, а уточнение к выбранному. Своя ярче
+            // унаследованной: иначе не отличить «я так решил» от «как везде».
+            let dim = chosen == nil ? NotchStyle.tertiaryOpacity : NotchStyle.secondaryOpacity
             Button { onBeginChoosingModel(command) } label: {
-                Text(Self.shortName(command.model ?? defaultModel))
-                    .font(.system(size: NotchStyle.font(10)))
-                    // Приглушённее названия команды: это не то, что выбирают
-                    // в первую очередь, а уточнение к выбранному. Своя модель
-                    // ярче унаследованной — иначе не отличить «я так решил»
-                    // от «как везде».
-                    .foregroundStyle(
-                        .white.opacity(
-                            command.model == nil
-                                ? NotchStyle.tertiaryOpacity
-                                : NotchStyle.secondaryOpacity
-                        )
-                    )
-                    .lineLimit(1)
-                    // С головы, а не с хвоста: у моделей хвост и различает
-                    // версии — `…coder:32b` говорит больше, чем `qwen2.5-c…`.
-                    .truncationMode(.head)
-                    .frame(width: Self.modelWidth, alignment: .trailing)
-                    .padding(.trailing, 8)
-                    .frame(height: Self.rowHeight)
-                    .contentShape(Rectangle())
+                HStack(spacing: 5) {
+                    Spacer(minLength: 0)
+                    ProviderIcon(provider: model.provider, size: NotchStyle.font(12))
+                        .foregroundStyle(.white.opacity(dim))
+                        // Значок не сжимается: имя рядом длинное, и первым
+                        // делом SwiftUI ужимал бы именно его — ту самую
+                        // картинку, ради которой всё и затевалось.
+                        .layoutPriority(1)
+                    Text(model.shortName)
+                        .font(.system(size: NotchStyle.font(10)))
+                        .foregroundStyle(.white.opacity(dim))
+                        .lineLimit(1)
+                        // С головы, а не с хвоста.
+                        //
+                        // Было наоборот: считалось, что хвост различает версии
+                        // — `…coder:32b` говорит больше, чем `qwen2.5-c…`.
+                        // На деле у длинных имён (`unsloth/gemma-4-E4B-it-qat`)
+                        // от начала не оставалось ничего, и понять, что это
+                        // за модель, было нельзя вовсе. Опознают модель
+                        // по началу имени, а версию уточняют, открыв список.
+                        .truncationMode(.tail)
+                }
+                .frame(width: Self.modelWidth, alignment: .trailing)
+                .padding(.trailing, 8)
+                .frame(height: Self.rowHeight)
+                .contentShape(Rectangle())
             }
             .buttonStyle(PressableStyle())
             .notchHint(
                 t("Сменить модель"),
-                bubble: tf("Модель команды: %@. Tab — следующая.", command.model ?? defaultModel)
+                bubble: tf("Модель команды: %@. Tab — следующая.", Self.full(chosen ?? defaultModel))
             )
         } else {
             // Место всё равно занято: без него название команды без модели
@@ -193,15 +238,25 @@ struct CommandRows: View {
     /// то же место дешевле: высота списка не меняется, и панель не дёргается.
     @ViewBuilder
     private func modelChoices(for command: QuickCommand) -> some View {
+        let chosen = model(of: command)
         choiceRow(
-            title: tf("Как в настройках (%@)", Self.shortName(defaultModel)),
+            title: tf("Как в настройках (%@)", defaultModel.shortName),
             symbol: "gearshape",
-            isOn: command.model == nil
+            isOn: chosen == nil
         ) { onChooseModel(nil) }
+        .id(Self.modelTopAnchor)
 
         ForEach(models, id: \.self) { model in
-            choiceRow(title: Self.shortName(model), symbol: "cube", isOn: command.model == model) {
-                onChooseModel(model)
+            // Здесь имя провайдера остаётся: строка выбора идёт во всю ширину
+            // панели, места хватает обоим. Тесно было в строке команды —
+            // там от названия модели после приставки не оставалось ничего,
+            // и провайдера в ней несёт только значок.
+            choiceRow(
+                title: Self.full(model),
+                provider: model.provider,
+                isOn: chosen == model
+            ) {
+                onChooseModel(model.stored)
             }
         }
 
@@ -209,7 +264,7 @@ struct CommandRows: View {
             // Нажатие возвращает к списку команд: тупика быть не должно —
             // выбирать тут не из чего вовсе.
             Button(action: onCancelChoosingModel) {
-                Text(t("Ollama не отвечает или моделей нет"))
+                Text(t("Сервер не отвечает или моделей нет"))
                     .font(.system(size: NotchStyle.font(11)))
                     .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
                     .lineLimit(1)
@@ -224,21 +279,33 @@ struct CommandRows: View {
         }
     }
 
+    /// Строка выбора. `provider` — чья это модель: у него свой нарисованный
+    /// значок, системного символа у провайдеров нет.
     private func choiceRow(
         title: String,
-        symbol: String,
+        symbol: String? = nil,
+        provider: AIProvider? = nil,
         isOn: Bool,
         action: @escaping () -> Void
     ) -> some View {
         NotchTile(id: "model-\(title)", radius: NotchStyle.rowRadius) {
             Button(action: action) {
                 HStack(spacing: 8) {
-                    Image(systemName: isOn ? "checkmark" : symbol)
-                        .font(.system(size: NotchStyle.font(10), weight: .semibold))
-                        .foregroundStyle(
-                            isOn ? Palette.assistant : .white.opacity(NotchStyle.tertiaryOpacity)
-                        )
-                        .frame(width: 16)
+                    Group {
+                        if isOn {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: NotchStyle.font(10), weight: .semibold))
+                        } else if let provider {
+                            ProviderIcon(provider: provider, size: NotchStyle.font(13))
+                        } else {
+                            Image(systemName: symbol ?? "cube")
+                                .font(.system(size: NotchStyle.font(10), weight: .semibold))
+                        }
+                    }
+                    .foregroundStyle(
+                        isOn ? Palette.assistant : .white.opacity(NotchStyle.tertiaryOpacity)
+                    )
+                    .frame(width: 16)
 
                     Text(title)
                         .font(.system(size: NotchStyle.font(11.5)))
@@ -246,7 +313,8 @@ struct CommandRows: View {
                             isOn ? NotchStyle.primaryOpacity : NotchStyle.secondaryOpacity
                         ))
                         .lineLimit(1)
-                        .truncationMode(.head)
+                        // С головы: опознают модель по началу имени.
+                        .truncationMode(.tail)
 
                     Spacer(minLength: 8)
                 }
@@ -278,13 +346,11 @@ struct CommandRows: View {
 
     // MARK: - Имя модели
 
-    /// Обрезает у имени то, что и так одинаково у всех.
+    /// Имя вместе с тем, чей это сервер.
     ///
-    /// Ollama называет модели `library/gemma3:4b`, и приставка `library/`
-    /// стоит у большинства — она не различает ничего, а место отнимает
-    /// у того, что различает.
-    static func shortName(_ model: String) -> String {
-        guard let slash = model.lastIndex(of: "/") else { return model }
-        return String(model[model.index(after: slash)...])
+    /// Нужно там, где провайдеров несколько: одно и то же имя модели бывает
+    /// у двух сразу, и выбор из двух одинаковых строк — не выбор.
+    static func full(_ model: ModelRef) -> String {
+        model.provider.title + " · " + model.shortName
     }
 }

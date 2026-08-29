@@ -117,7 +117,7 @@ struct NotchView: View {
     /// Установленные модели Ollama — для правой части строки команды.
     /// Общий объект с настройками: список один на приложение, и опрашивать
     /// Ollama дважды незачем.
-    @ObservedObject private var models = OllamaModelList.shared
+    @ObservedObject private var models = ModelList.shared
     @ObservedObject var weather: WeatherService
     @ObservedObject var shelf: ShelfStore
     @ObservedObject var timer: TimerService
@@ -280,16 +280,12 @@ struct NotchView: View {
 
     /// Что обещает кнопка в правом крыле раскрытой панели.
     ///
-    /// Обещает разное, потому что и открывает разное: с моделью это разговор
-    /// и заметки разом, без неё — только заметки. Общая формулировка вроде
-    /// «Спросить модель» с выключенной Ollama была бы прямой неправдой.
-    private var askHint: String {
-        switch (settings.ollamaEnabled, settings.notesEnabled) {
-        case (true, true): return t("Модель и заметки")
-        case (true, false): return t("Спросить модель")
-        default: return t("Записать заметку")
-        }
-    }
+    /// Одно слово на все случаи, хотя открывает кнопка разное: с моделью —
+    /// разговор, команды и заметки, без неё — команды и заметки. Подпись
+    /// перечисляла состав («Модель и заметки»), и выходило, что одно место
+    /// зовётся в трёх местах тремя именами. Имя у места должно быть одно,
+    /// а из чего оно состоит — видно, когда откроешь.
+    private var askHint: String { t("Команды") }
 
     private var content: NotchContent { snapshot().content }
     private var presentation: NotchPresentation { snapshot().presentation }
@@ -529,7 +525,7 @@ struct NotchView: View {
                 notesEnabled: settings.notesEnabled,
                 commands: commands,
                 models: models.models,
-                defaultModel: settings.ollamaModel,
+                defaultModel: settings.defaultModel,
                 onSend: onSendDraft,
                 onRunCommand: onRunCommand,
                 onClearCapture: onClearCapture,
@@ -569,6 +565,7 @@ struct NotchView: View {
                 metrics: metrics,
                 slotHint: settings.clipboardSlotModifiers.hint,
                 notesEnabled: settings.notesEnabled,
+                highlighted: clipboard.highlighted,
                 onUse: onUseClipboard,
                 onSaveToNotes: onSaveClipboardToNotes,
                 onDelete: onDeleteClipboard,
@@ -630,11 +627,15 @@ struct NotchView: View {
                 )
             }
         case .chip:
-            // Таймер важнее отсчёта до встречи: его завели руками.
+            // Порядок тот же, что в расчёте размера, и это не совпадение:
+            // разойдись они — вырез рисовал бы одно, а размер считал
+            // по другому.
             if timer.isRunning {
                 TimerChipView(timer: timer, metrics: metrics, onOpen: onOpenTimer)
             } else if let chip = state.chipItem {
                 ChipView(item: chip, metrics: metrics, onOpen: onOpenExpanded)
+            } else if wake.isOn {
+                CaffeineChipView(wake: wake, metrics: metrics, onOpen: onOpenAwake)
             }
         case .activity:
             if let activity = activities.current {

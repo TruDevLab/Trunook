@@ -11,6 +11,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppInfo.migrateSettingsIfNeeded()
+        // До всего, что спрашивает адрес модели: провайдеры разъезжаются
+        // по своим полям, и до переноса общие поля читались бы как чужие.
+        settings.migrateProviderSettings()
         // До всего остального: меню и окна собираются уже переведёнными.
         Localization.shared.apply(settings.language)
         // Невидимое меню: оно раздаёт ⌘C, ⌘V и прочую правку текста.
@@ -71,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.noteEdit", #selector(editNote)),
             ("com.trunook.debug.noteSave", #selector(saveNote)),
             ("com.trunook.debug.caffeineExpire", #selector(expireCaffeine)),
+            ("com.trunook.debug.caffeineOn", #selector(startCaffeine)),
             ("com.trunook.debug.timerRun", #selector(runTimer)),
             ("com.trunook.debug.hub", #selector(showHub)),
             ("com.trunook.debug.openEvent", #selector(openFirstItem)),
@@ -81,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.shotDemo", #selector(shotDemo)),
             ("com.trunook.debug.shotSettings", #selector(shotSettings)),
             ("com.trunook.debug.shotNotch", #selector(shotNotch)),
+            ("com.trunook.debug.shotMarks", #selector(shotMarks)),
             ("com.trunook.debug.meeting", #selector(testMeeting)),
             ("com.trunook.debug.links", #selector(testLinkExtraction)),
             ("com.trunook.debug.nextTrack", #selector(testNextTrack)),
@@ -88,6 +93,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.dump", #selector(dumpUpcoming)),
             ("com.trunook.debug.capture", #selector(testCapture)),
             ("com.trunook.debug.captureOpen", #selector(testCaptureExpanded)),
+            ("com.trunook.debug.captureDown", #selector(testCaptureHighlight)),
+            ("com.trunook.debug.clipboardDown", #selector(testClipboardHighlight)),
+            ("com.trunook.debug.captureModels", #selector(testCaptureModels)),
             ("com.trunook.debug.runslot1", #selector(runSlot1)),
             ("com.trunook.debug.ollama", #selector(ollamaEcho)),
             ("com.trunook.debug.meetingButtons", #selector(dumpMeetingButtons)),
@@ -329,6 +337,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow.snapshot()
     }
 
+    /// Лист со значками провайдеров.
+    @objc private func shotMarks() {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/Trunook-marks.png")
+        ProviderMark.writeSheet(to: url)
+    }
+
     /// Снимок самого выреза.
     @objc private func shotNotch() {
         controller.snapshot()
@@ -419,6 +434,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// и по ней не увидеть ни прокрутки, ни того, во что панель вырастает.
     @objc private func testCaptureExpanded() {
         controller.debugCapture(expanded: true)
+    }
+
+    /// Подсветка уведена на пятую команду: список должен сдвинуться,
+    /// иначе подсветка стоит там, где её не видно.
+    @objc private func testCaptureHighlight() {
+        controller.debugCaptureHighlight(steps: 5)
+    }
+
+    /// Зажечь чашку на срок: полоску в свёрнутом вырезе иначе не снять —
+    /// срок выбирают нажатием, а нажать из сессии нечем.
+    @objc private func startCaffeine() {
+        controller.wake.setLimit(minutes: 90)
+    }
+
+    /// Панель с открытым выбором модели.
+    @objc private func testCaptureModels() {
+        controller.debugCaptureModels()
+    }
+
+    /// Подсветка истории уведена на седьмую строку: видно шесть, список
+    /// обязан сдвинуться.
+    @objc private func testClipboardHighlight() {
+        controller.debugClipboardHighlight(steps: 7)
     }
 
     /// Снимает кнопки страницы встречи — по этому выводу калибруются подписи.

@@ -44,12 +44,18 @@ changed in settings or right in the welcome window.
 - **Meeting controls.** Microphone, camera, screen sharing, raise hand and
   leave — on hover, while a call is running. Telemost, Google Meet, Zoom and
   Teams in the browser.
-- **Clipboard history.** Recent copies, paste by number from the keyboard.
+- **Clipboard history.** Recent copies, paste by number from the keyboard;
+  with the list open, ↑↓ walk the rows and Enter pastes the chosen one.
 - **File shelf.** Drag files onto the notch and they land on the shelf. Drag
   them off into any window — the file moves for good.
-- **Model prompts.** Ollama on your own machine: the question goes off with
-  Enter, the answer is written right in the notch, and can be copied or pasted
-  into the active window.
+- **Model prompts.** The question goes off with Enter, the answer is written
+  right in the notch, and can be copied or pasted into the active window.
+  Answering is Ollama on your own machine, another local server with an
+  OpenAI interface (LM Studio, llama.cpp, vLLM, Unsloth Studio) or a cloud one
+  — OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek. Addresses for all
+  of those fill in themselves; anything else connects as a custom provider.
+  Several can be kept at once: each has its own address, key and model, and
+  a command picks a model from any of them.
 - **Voice assistant.** A double press of ⌃ asks out loud, a double ⌥ asks
   about your notes. The panel stays closed: the notch jolts and glows — blue
   while it listens, the model's colour while it thinks and answers — and a live
@@ -57,7 +63,7 @@ changed in settings or right in the welcome window.
   and read aloud as the model writes it; a button in the notch stops it. Click
   the notch to open the conversation and read it with your eyes. Speech is
   recognised **on your own machine** and never leaves it.
-- **Notes.** The same panel has a mode switch: "AI" is a question line and an
+- **Notes.** The same panel has a mode switch: "Commands" is a question line and an
   answer, "Note" is a multi-line field with formatting. The model comes up with
   the note's name. Its answer goes into notes with one button too. The "search
   notes" toggle makes the model answer from your own records rather than from
@@ -69,7 +75,7 @@ changed in settings or right in the welcome window.
 - **Commands.** ⌃⌥C captures the selection and opens a conversation with the
   model: the captured text sits in a pill above the field, the command list
   below it. There can be any number of commands, they can be reordered, and
-  every model prompt carries its own Ollama model — shown on the right of its
+  every model prompt carries its own model — shown on the right of its
   row and changed in place with Tab or a click. Besides model prompts,
   a command can be an app, a folder, a link, an AppleScript, a macOS Shortcut,
   or saving the captured text as a note.
@@ -86,7 +92,9 @@ changed in settings or right in the welcome window.
 - **A cup of coffee.** A button next to the weather: while it is on, the screen
   neither sleeps nor locks. Clicking it opens the choice of limit right in the
   notch — half an hour, an hour, ninety minutes, two hours or no limit; the
-  countdown is there too.
+  countdown is there too. While the cup is on, the notch stays widened: the
+  icon on the left, the time left on the right — and a click leads straight
+  back to the choice of limit.
 
 The interface is in Russian, English and Chinese — by default it follows the
 system.
@@ -143,9 +151,11 @@ separate service.
   the whole app. You need not share your location at all: name a city in
   Settings or on the permissions step of the welcome screen, and location
   access is never requested — only the name you typed leaves the machine.
-- **Model prompts** go to Ollama on your own machine.
+- **Model prompts** go to the address set in Settings. By default that is
+  Ollama on your own machine; if you point it at a server of yours, they go
+  there and nowhere else.
 - **Notes** live in the app's own file. They go nowhere else; with "search
-  notes" on, their text is sent to that same Ollama on your machine.
+  notes" on, their text is sent to the same model that answers questions.
 - **Clipboard history and the shelf** stay local: history in the app's own
   file, the shelf as links to your own files.
 
@@ -155,7 +165,8 @@ separate service.
   displays.
 - macOS 14 or newer.
 - Command Line Tools to build.
-- [Ollama](https://ollama.com) for model prompts, installed separately.
+- [Ollama](https://ollama.com) or any server with an OpenAI interface for
+  model prompts, installed separately.
 
 ## Development
 

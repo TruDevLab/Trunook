@@ -15,7 +15,7 @@ final class NoteTitler {
     /// Заметка переименована. Зовётся на главном потоке.
     var onTitle: ((Int64, String) -> Void)?
 
-    private let client: OllamaClient
+    private let client: ModelClient
     private let settings: Settings
 
     /// Очередь ожидающих. Запросы идут по одному: локальная модель
@@ -24,7 +24,7 @@ final class NoteTitler {
     private var pending: [(id: Int64, plain: String)] = []
     private var isBusy = false
 
-    init(client: OllamaClient = OllamaClient(), settings: Settings = .shared) {
+    init(client: ModelClient = ModelClient(), settings: Settings = .shared) {
         self.client = client
         self.settings = settings
     }

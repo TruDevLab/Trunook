@@ -37,6 +37,9 @@ final class NotchInput {
     var onOverlayHover: ((CGPoint) -> Void)?
     /// Нажатие мимо накладки или Esc.
     var onDismissOverlay: (() -> Void)?
+    /// Клавиша при открытой накладке. Возвращает, забрала ли накладка
+    /// нажатие себе: не забранное уходит дальше своим ходом.
+    var onOverlayKey: ((NSEvent) -> Bool)?
     /// Курсор сдвинулся — куда угодно, не только в вырез. По этому событию
     /// пересчитывается прозрачность окна для мыши.
     var onCursorMoved: (() -> Void)?
@@ -144,10 +147,20 @@ final class NotchInput {
 
         // Накладка закрывается по Esc. Монитор локальный: панель к этому
         // моменту уже приняла фокус, чтобы принимать нажатия.
+        //
+        // Этим же монитором накладка получает и остальные клавиши — стрелки
+        // и Enter в списке истории. Своего поля ввода у неё нет, а стрелки
+        // в панели команд достаются полю вопроса и оттуда уходят наверх;
+        // взять их иначе неоткуда. Узел только распознаёт и передаёт: что
+        // делать с нажатием, решает контроллер, и он же отвечает, забрал ли
+        // его себе.
         if let keys = NSEvent.addLocalMonitorForEvents(matching: [.keyDown], handler: { [weak self] event in
-            guard event.keyCode == 53, self?.state.overlay != nil else { return event }
-            self?.onDismissOverlay?()
-            return nil
+            guard let self, self.state.overlay != nil else { return event }
+            if event.keyCode == 53 {
+                self.onDismissOverlay?()
+                return nil
+            }
+            return self.onOverlayKey?(event) == true ? nil : event
         }) {
             monitors.append(keys)
         }

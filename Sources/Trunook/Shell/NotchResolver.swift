@@ -39,6 +39,10 @@ struct NotchInputs: Equatable {
     /// Полоска идущего таймера. Важнее отсчёта до встречи: таймер заводят
     /// руками и смотрят на него нарочно, а отсчёт всплывает сам.
     var timerChip: TimerChip?
+    /// Полоска горящей чашки. Ниже таймера и отсчёта до встречи: чашка живёт
+    /// часами, а те двое — минутами, и правило здесь общее — чем короче живёт
+    /// состояние, тем выше его право занять вырез.
+    var caffeineChip: CaffeineChip?
     var activity: Activity?
     var track: NowPlaying?
     var events: [CalendarItem] = []
@@ -105,7 +109,7 @@ struct NotchInputs: Equatable {
         if isPinnedOpen { return .expanded }
         if isHovered { return .preview }
         if activity != nil { return .activity }
-        return chip == nil && timerChip == nil ? .collapsed : .chip
+        return chip == nil && timerChip == nil && caffeineChip == nil ? .collapsed : .chip
     }
 
     private var content: NotchContent {
@@ -114,6 +118,7 @@ struct NotchInputs: Equatable {
             track: track,
             chip: chip,
             timerChip: timerChip,
+            caffeineChip: caffeineChip,
             events: events,
             taskCount: taskCount,
             meetingActions: meetingActions,

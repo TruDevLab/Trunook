@@ -11,9 +11,9 @@ import Foundation
 
 let known = ["powerConnected", "powerDisconnected", "lowBattery", "trackChanged",
              "settings", "meeting", "links", "nextTrack", "reminder", "dump", "thingsRaw", "notifications",
-             "capture", "captureOpen", "runslot1", "ollama", "meetingButtons", "meetingHand", "meetingLink", "meetingProbe",
-             "welcome", "purr", "shot", "shotDemo", "shotSettings", "shotNotch", "clipboard", "clipboardUse", "openEvent", "assistant", "ask", "expand",
-             "shelf", "hub", "timer", "timerRun", "monitor", "teleprompter", "teleprompterScroll", "teleprompterPrompt", "caffeine", "caffeineExpire",
+             "capture", "captureOpen", "captureDown", "captureModels", "runslot1", "ollama", "meetingButtons", "meetingHand", "meetingLink", "meetingProbe",
+             "welcome", "purr", "shot", "shotDemo", "shotSettings", "shotNotch", "shotMarks", "clipboard", "clipboardUse", "clipboardDown", "openEvent", "assistant", "ask", "expand",
+             "shelf", "hub", "timer", "timerRun", "monitor", "teleprompter", "teleprompterScroll", "teleprompterPrompt", "caffeine", "caffeineExpire", "caffeineOn",
              "notes", "notesFill", "notesAsk", "noteNew", "noteEdit", "noteSave",
              "noteSelection", "noteClipboard", "askLong",
              "voice", "voiceNotes", "voiceGlow", "voiceSpeak", "voiceAnswer"]

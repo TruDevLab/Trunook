@@ -98,7 +98,7 @@ struct SettingsView: View {
     @ObservedObject var launchAtLogin: LaunchAtLogin
     @ObservedObject var calendar: CalendarService
     @ObservedObject var selection: SettingsSelection
-    @ObservedObject var models: OllamaModelList
+    @ObservedObject var models: ModelList
     @ObservedObject var shortcuts: ShortcutsService
     @ObservedObject var browsers: BrowserList
     @ObservedObject var clipboard: ClipboardService
@@ -1144,64 +1144,262 @@ struct SettingsView: View {
     /// разговор в панели. Настройка, спрятанная в разделе одной из функций,
     /// выглядит её частью — и человек, у которого не работают заметки, ищет
     /// причину где угодно, кроме раздела «Команды».
+    /// Кто отвечает: основной провайдер среди включённых.
+    ///
+    /// Основной отвечает на свободный вопрос и на команды, у которых своей
+    /// модели нет. Выбирается он **только среди включённых**: назначить
+    /// основным выключенного значило бы отправлять вопрос туда, где его
+    /// никто не ждёт, и понять это по экрану было бы нельзя.
+    private var providerPicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Picker(t("Основной"), selection: Binding(
+                get: { settings.aiProvider },
+                set: { settings.aiProvider = $0; models.refresh() }
+            )) {
+                ForEach(settings.enabledProviders) { provider in
+                    Text(provider.title).tag(provider)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+
+            hint(t("Ему уходят свободный вопрос и команды без своей модели."))
+        }
+    }
+
+    /// Настройки одного провайдера: адрес, ключ, модель.
+    ///
+    /// Своим разделом на каждого, а не общими полями на всех. Общими они были
+    /// ровно одну версию, и этого хватило: ключ от прежнего провайдера
+    /// оставался в поле нового, уходил с запросом и получал отказ, в котором
+    /// виноватым выглядел новый сервер.
+    private func providerSection(_ provider: AIProvider) -> some View {
+        // Заголовок — маркой самого провайдера, той же, что стоит в строке
+        // команды. Две разные картинки на одного означали бы, что связать
+        // раздел настроек со строкой в вырезе можно только по названию.
+        section(provider.title, mark: provider) {
+            if provider.isRemote {
+                // Сказано прямо и с предупреждающим знаком: это единственное
+                // место в приложении, где вопрос и захваченный текст уходят
+                // с машины. Промолчать об этом было бы обманом умолчанием.
+                Label(
+                    t("Вопросы и захваченный текст уходят в интернет этому сервису."),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.callout)
+                .foregroundStyle(Palette.warning)
+            }
+
+            field(
+                t("Адрес"),
+                prompt: provider == .ollama
+                    ? Settings.defaultOllamaURL
+                    : (provider.presetURL ?? "https://…/v1"),
+                text: Binding(
+                    get: { settings.apiURLRaw(for: provider) },
+                    set: { settings.setAPIURL($0, for: provider) }
+                )
+            )
+
+            if provider.usesKey {
+                VStack(alignment: .leading, spacing: 4) {
+                    field(
+                        t("Ключ доступа"),
+                        prompt: "sk-…",
+                        text: Binding(
+                            get: { settings.apiKey(for: provider) },
+                            set: { settings.setAPIKey($0, for: provider) }
+                        ),
+                        isSecret: true
+                    )
+                    hint(t("Хранится в настройках приложения, не в связке ключей."))
+                }
+            }
+
+            providerModelPicker(provider)
+
+            // Удержание модели в памяти — свойство Ollama, а не разговора:
+            // у прочих этим распоряжается сервер, и настройка, показанная
+            // рядом, обещала бы влияние, которого у неё нет.
+            if provider == .ollama {
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker(t("Держать модель в памяти"), selection: settings.binding(\.ollamaKeepAlive)) {
+                        Text(t("5 минут")).tag("5m")
+                        Text(t("30 минут")).tag("30m")
+                        Text(t("2 часа")).tag("2h")
+                        Text(t("Постоянно")).tag("-1")
+                    }
+                    .pickerStyle(.menu)
+
+                    hint(t("Первый запрос после простоя ждёт загрузки модели — около минуты."))
+                }
+            }
+
+            // Основного не убрать: без него запрос уходить некуда. Кнопка
+            // остаётся видимой и погашенной — исчезнувшая читалась бы как
+            // «этого провайдера убрать нельзя вообще», хотя достаточно
+            // назначить основным другого.
+            HStack {
+                Spacer()
+                Button(t("Убрать провайдера"), role: .destructive) {
+                    settings.setProvider(provider, enabled: false)
+                    models.refresh()
+                }
+                .disabled(provider == settings.aiProvider)
+            }
+        }
+    }
+
+    private func providerModelPicker(_ provider: AIProvider) -> some View {
+        let found = models.models(of: provider)
+        let current = settings.apiModel(for: provider)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Picker(t("Модель"), selection: Binding(
+                    get: { current },
+                    set: { settings.setAPIModel($0, for: provider) }
+                )) {
+                    // Выбранное показываем, даже когда список не пришёл:
+                    // иначе поле выглядит пустым, будто модель не выбрана
+                    // вовсе, — а она выбрана, просто сервер сейчас молчит.
+                    if !found.contains(where: { $0.name == current }) {
+                        Text(current.isEmpty ? t("не выбрана") : current).tag(current)
+                    }
+                    ForEach(found, id: \.self) { model in
+                        // Имя провайдера здесь не нужно: раздел уже его,
+                        // и повторять было бы шумом. Марка остаётся —
+                        // по ней строка узнаётся боковым зрением.
+                        Label {
+                            Text(model.name)
+                        } icon: {
+                            ProviderIcon(provider: provider, size: SettingsStyle.font(13))
+                        }
+                        .tag(model.name)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Button {
+                    models.refresh()
+                } label: {
+                    if models.isLoading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .disabled(models.isLoading)
+                // Имя рядом с подсказкой, а не вместо неё: `.help` в macOS
+                // кладёт текст в подсказку элемента, а имя оставляет пустым —
+                // кнопка из одного значка так и остаётся для диктора
+                // безымянной.
+                .help(t("Обновить список моделей"))
+                .accessibilityLabel(t("Обновить список моделей"))
+            }
+        }
+    }
+
+    /// Чего ещё нет в списке.
+    ///
+    /// Меню, а не длинный список переключателей: провайдеров дюжина,
+    /// а держат обычно один-два, и одиннадцать выключенных строк заняли бы
+    /// весь раздел, ничего о себе не сообщая.
+    private var addProviderMenu: some View {
+        let rest = AIProvider.allCases.filter { !settings.isProviderEnabled($0) }
+        return Menu(t("Добавить провайдера")) {
+            Section(t("На этом компьютере")) {
+                ForEach(rest.filter(\.isLocal)) { provider in
+                    Button(provider.title) { add(provider) }
+                }
+            }
+            Section(t("В интернете")) {
+                ForEach(rest.filter { $0.isRemote }) { provider in
+                    Button(provider.title) { add(provider) }
+                }
+            }
+            if rest.contains(.custom) {
+                Section {
+                    Button(AIProvider.custom.title) { add(.custom) }
+                }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(rest.isEmpty)
+    }
+
+    private func add(_ provider: AIProvider) {
+        settings.setProvider(provider, enabled: true)
+        // Список моделей перечитывается сразу: у нового провайдера он свой,
+        // и без запроса его модели не появятся в выборе ни у одной команды.
+        models.refresh()
+    }
+
+    /// Поле ввода с подписью над ним.
+    ///
+    /// Подпись сверху, а не слева, и рамка обязательна. Без рамки поле
+    /// не видно вовсе: `Form` рисует значение простым текстом у правого края,
+    /// и пустое поле выглядит просто отсутствующим — строка «Ключ доступа»
+    /// стояла с пустотой справа, и вписать в неё что-либо человек
+    /// не догадывался. Длинная подпись вдобавок переносилась на две строки
+    /// и отжимала поле к краю.
+    private func field(
+        _ title: String,
+        prompt: String,
+        text: Binding<String>,
+        isSecret: Bool = false
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.callout)
+                .foregroundStyle(SettingsStyle.secondary)
+
+            Group {
+                if isSecret {
+                    SecureField(title, text: text, prompt: Text(prompt))
+                } else {
+                    TextField(title, text: text, prompt: Text(prompt))
+                }
+            }
+            .labelsHidden()
+            .textFieldStyle(.roundedBorder)
+            .frame(maxWidth: SettingsStyle.pickerWidth)
+        }
+    }
+
+    /// Настройки модели — своим разделом, а не внутри команд.
+    ///
+    /// Внутри команд они и лежали, пока модель была нужна только им. Теперь
+    /// на ней держатся ещё и заметки: имя записи, поиск по всему архиву,
+    /// разговор в панели. Настройка, спрятанная в разделе одной из функций,
+    /// выглядит её частью — и человек, у которого не работают заметки, ищет
+    /// причину где угодно, кроме раздела «Команды».
     private var modelSection: some View {
         Group {
             section(t("Запросы к модели"), icon: "sparkles") {
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle(t("Использовать Ollama"), isOn: settings.binding(\.ollamaEnabled))
-                    hint(t("Работает на вашем компьютере. Нужна командам, разговору и заметкам."))
+                    Toggle(t("Использовать модель"), isOn: settings.binding(\.ollamaEnabled))
+                    hint(t("Нужна командам, разговору и заметкам."))
                 }
 
-                if settings.ollamaEnabled {
-                    TextField(tf("Адрес (по умолчанию %@)", Settings.defaultOllamaURL),
-                              text: settings.binding(\.ollamaURLRaw))
+                if settings.ollamaEnabled, settings.enabledProviders.count > 1 {
+                    providerPicker
+                }
 
-                    HStack {
-                        Picker(t("Модель"), selection: settings.binding(\.ollamaModel)) {
-                            if models.models.isEmpty {
-                                Text(settings.ollamaModel).tag(settings.ollamaModel)
-                            }
-                            ForEach(models.models, id: \.self) { model in
-                                Text(model).tag(model)
-                            }
-                        }
-                        .pickerStyle(.menu)
+                if let error = models.error, settings.ollamaEnabled {
+                    Text(error)
+                        .font(.callout)
+                        .foregroundStyle(Palette.warning)
+                }
+            }
 
-                        Button {
-                            models.refresh()
-                        } label: {
-                            if models.isLoading {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Image(systemName: "arrow.clockwise")
-                            }
-                        }
-                        .disabled(models.isLoading)
-                        // Имя рядом с подсказкой, а не вместо неё: `.help`
-                        // в macOS кладёт текст в подсказку элемента, а имя
-                        // оставляет пустым — кнопка из одного значка так
-                        // и остаётся для диктора безымянной.
-                        .help(t("Обновить список моделей"))
-                        .accessibilityLabel(t("Обновить список моделей"))
-                    }
+            if settings.ollamaEnabled {
+                ForEach(settings.enabledProviders) { provider in
+                    providerSection(provider)
+                }
 
-                    if let error = models.error {
-                        Text(error)
-                            .font(.callout)
-                            .foregroundStyle(Palette.warning)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Picker(t("Держать модель в памяти"), selection: settings.binding(\.ollamaKeepAlive)) {
-                            Text(t("5 минут")).tag("5m")
-                            Text(t("30 минут")).tag("30m")
-                            Text(t("2 часа")).tag("2h")
-                            Text(t("Постоянно")).tag("-1")
-                        }
-                        .pickerStyle(.menu)
-
-                        hint(t("Первый запрос после простоя ждёт загрузки модели — около минуты."))
-                    }
+                section(t("Ещё провайдер"), icon: "plus") {
+                    addProviderMenu
                 }
             }
         }
@@ -1468,19 +1666,32 @@ struct SettingsView: View {
                 settings.updateCommand(updated)
             }
         )) {
-            Text(tf("Как в настройках (%@)", settings.ollamaModel)).tag("")
-            // Выбранная когда-то модель могла исчезнуть из Ollama.
-            // Без этого пункта список показал бы пустую строку, и было
-            // бы неясно, что вообще выбрано.
-            if let model = command.model, !models.models.contains(model) {
-                Text(tf("%@ — не найдена", model)).tag(model)
+            Text(tf("Как в настройках (%@)", settings.defaultModel.shortName)).tag("")
+            // Выбранная когда-то модель могла исчезнуть с сервера — или
+            // сам сервер выключили. Без этого пункта список показал бы
+            // пустую строку, и было бы неясно, что вообще выбрано.
+            if let stored = command.model, !known.contains(stored) {
+                Text(tf("%@ — не найдена", stored)).tag(stored)
             }
             ForEach(models.models, id: \.self) { model in
-                Text(model).tag(model)
+                // Марка провайдера и его имя: в окне настроек места хватает
+                // обоим, а одно и то же имя модели бывает у двух серверов
+                // сразу — выбор из двух одинаковых строк не выбор.
+                Label {
+                    Text(CommandRows.full(model))
+                } icon: {
+                    ProviderIcon(provider: model.provider, size: SettingsStyle.font(13))
+                }
+                .tag(model.stored)
             }
         }
         .pickerStyle(.menu)
     }
+
+    /// Сохранённые имена моделей — чтобы отличить исчезнувшую от найденной.
+    private var known: Set<String> { Set(models.models.map(\.stored)) }
+
+
 
     /// Поле значения зависит от типа: путь выбирается диалогом, готовое
     /// действие — списком, и только промт и свой скрипт пишутся руками.
@@ -1844,7 +2055,7 @@ struct SettingsView: View {
 
             section(t("Что уходит наружу"), icon: "lock") {
                 info(t("Погода"), t("Координаты, округлённые до километра, уходят на open-meteo.com. Это единственное обращение в интернет."))
-                info(t("Модель"), t("Запросы идут в Ollama на вашем же компьютере. Наружу не уходит ничего."))
+                info(t("Модель"), t("Запросы идут туда, чей адрес задан в разделе «ИИ». По умолчанию — на ваш же компьютер."))
                 info(t("Заметки"), t("Лежат в файле приложения. При поиске по ним текст уходит той же Ollama на вашем компьютере — и больше никуда."))
                 info(t("Буфер и полка"), t("Хранятся только у вас: история — в файле приложения, полка — ссылками на ваши же файлы."))
                 info(t("Телесуфлер"), t("Текст лежит в файле приложения, в формате RTF. Наружу не уходит ничего."))
@@ -1901,9 +2112,27 @@ struct SettingsView: View {
     /// со своей обводкой и своим скруглением. Значок в заголовке остался —
     /// он в этом окне единственное, что отличает одну карточку от другой
     /// при беглом взгляде.
+    /// То же, но со значком провайдера вместо системного символа.
+    private func section<Content: View>(
+        _ title: String,
+        mark provider: AIProvider,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        section(title, icon: nil, mark: provider, content: content)
+    }
+
     private func section<Content: View>(
         _ title: String,
         icon: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        section(title, icon: icon, mark: nil, content: content)
+    }
+
+    private func section<Content: View>(
+        _ title: String,
+        icon: String?,
+        mark provider: AIProvider?,
         @ViewBuilder content: () -> Content
     ) -> some View {
         Section {
@@ -1920,9 +2149,15 @@ struct SettingsView: View {
                 )
         } header: {
             HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: SettingsStyle.font(11), weight: .semibold))
-                    .foregroundStyle(SettingsStyle.tertiary)
+                Group {
+                    if let provider {
+                        ProviderIcon(provider: provider, size: SettingsStyle.font(13))
+                    } else {
+                        Image(systemName: icon ?? "circle")
+                            .font(.system(size: SettingsStyle.font(11), weight: .semibold))
+                    }
+                }
+                .foregroundStyle(SettingsStyle.tertiary)
                 Text(title)
                     .font(.system(size: SettingsStyle.font(12), weight: .semibold))
                     .foregroundStyle(SettingsStyle.secondary)

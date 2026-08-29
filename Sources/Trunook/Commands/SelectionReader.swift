@@ -12,6 +12,7 @@ enum SelectionReader {
     /// буфер, вернув затем прежнее содержимое на место.
     static func read(completion: @escaping (String?) -> Void) {
         if let text = readViaAccessibility(), !text.isEmpty {
+            DebugLog.write("выделение: взято через дерево доступности, \(text.count) симв.")
             completion(text)
             return
         }
@@ -20,25 +21,66 @@ enum SelectionReader {
 
     // MARK: - Через дерево доступности
 
+    /// Спрашиваем двумя путями и двумя способами каждым.
+    ///
+    /// Одного пути не хватало. Приложение спрашивалось только через свой
+    /// собственный элемент, а фокус бывает и не там: у приложений с окнами
+    /// в отдельном процессе — браузеры, всё на Electron — общесистемный
+    /// элемент отвечает, где фокус на самом деле, а собственный молчит.
+    ///
+    /// Способов тоже два. `AXSelectedText` отдают не все: у части полей
+    /// его нет вовсе, зато есть отрезок выделения и умение выдать текст
+    /// по отрезку. Это не одно и то же свойство, и приложение, молчащее
+    /// на первое, часто отвечает на второе.
     private static func readViaAccessibility() -> String? {
         guard AXIsProcessTrusted() else { return nil }
-        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
 
-        let element = AXUIElementCreateApplication(app.processIdentifier)
+        var roots: [AXUIElement] = [AXUIElementCreateSystemWide()]
+        if let app = NSWorkspace.shared.frontmostApplication {
+            roots.append(AXUIElementCreateApplication(app.processIdentifier))
+        }
 
-        var focused: CFTypeRef?
-        // Проверяется не только «не пусто», но и тип: значение приходит
-        // из дерева чужого приложения. Почему не `as?` — в `AXTree.element`.
-        guard AXUIElementCopyAttributeValue(
-            element, kAXFocusedUIElementAttribute as CFString, &focused
-        ) == .success, let focusedElement = AXTree.element(focused) else { return nil }
+        for root in roots {
+            var focused: CFTypeRef?
+            // Проверяется не только «не пусто», но и тип: значение приходит
+            // из дерева чужого приложения. Почему не `as?` — в `AXTree.element`.
+            guard AXUIElementCopyAttributeValue(
+                root, kAXFocusedUIElementAttribute as CFString, &focused
+            ) == .success, let element = AXTree.element(focused) else { continue }
 
+            if let text = selectedText(of: element), !text.isEmpty { return text }
+            if let text = selectedByRange(of: element), !text.isEmpty { return text }
+        }
+        return nil
+    }
+
+    private static func selectedText(of element: AXUIElement) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
-            focusedElement, kAXSelectedTextAttribute as CFString, &value
+            element, kAXSelectedTextAttribute as CFString, &value
         ) == .success else { return nil }
-
         return value as? String
+    }
+
+    /// Выделение отрезком: спрашиваем, что выделено, и просим текст этого
+    /// куска отдельным запросом.
+    private static func selectedByRange(of element: AXUIElement) -> String? {
+        var rangeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextRangeAttribute as CFString, &rangeValue
+        ) == .success, let raw = rangeValue else { return nil }
+        // Отрезок приходит завёрнутым в `AXValue`; пустой брать незачем —
+        // это курсор без выделения, и запрос по нему вернёт пустоту.
+        guard CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        let box = unsafeBitCast(raw, to: AXValue.self)
+        var range = CFRange()
+        guard AXValueGetValue(box, .cfRange, &range), range.length > 0 else { return nil }
+
+        var text: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element, kAXStringForRangeParameterizedAttribute as CFString, raw, &text
+        ) == .success else { return nil }
+        return text as? String
     }
 
     // MARK: - Через буфер обмена
@@ -59,29 +101,51 @@ enum SelectionReader {
         // Отметка ставится до нажатия, а не после: обе записи в буфер здесь —
         // следы самого приложения, а не человека. Без неё каждый запрос
         // к модели с выделением оставлял в истории лишнюю запись, а то и две.
+        //
+        // Продлевается она и потом: `SyntheticKey` ждёт, пока человек отпустит
+        // ⌃⌥, и от постановки отметки до самого копирования проходит время.
         PasteboardActivity.beQuiet(for: quietWindow)
-        sendCopyKeystroke()
 
-        // Приложению нужно время положить текст в буфер. Проверяем несколько
-        // раз подряд, а не ждём один раз наугад.
-        var attempt = 0
-        func poll() {
-            attempt += 1
-            let changed = pasteboard.changeCount != changeCountBefore
-            if changed, let text = pasteboard.string(forType: .string) {
-                restore(previous, in: pasteboard)
-                completion(text)
-                return
+        // Опрос заводится только после того, как нажатие ушло: раньше он
+        // начинался сразу, а само нажатие уходило с задержкой на отпускание
+        // клавиш — и половина попыток опроса тратилась впустую, до того как
+        // копировать вообще начали.
+        SyntheticKey.send(SyntheticKey.c, flags: .maskCommand) {
+            PasteboardActivity.beQuiet(for: quietWindow)
+
+            // Приложению нужно время положить текст в буфер. Проверяем
+            // несколько раз подряд, а не ждём один раз наугад.
+            var attempt = 0
+            func poll() {
+                attempt += 1
+                let changed = pasteboard.changeCount != changeCountBefore
+                if changed, let text = pasteboard.string(forType: .string) {
+                    restore(previous, in: pasteboard)
+                    DebugLog.write("выделение: взято через ⌘C с попытки \(attempt), \(text.count) симв.")
+                    completion(text)
+                    return
+                }
+                guard attempt < pollAttempts else {
+                    restore(previous, in: pasteboard)
+                    DebugLog.write("выделение: ⌘C ничего не дал — выделения нет или приложение его не отдаёт")
+                    completion(nil)
+                    return
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + pollStep, execute: poll)
             }
-            guard attempt < 10 else {
-                restore(previous, in: pasteboard)
-                completion(nil)
-                return
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: poll)
+            DispatchQueue.main.asyncAfter(deadline: .now() + pollStep, execute: poll)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: poll)
     }
+
+    /// Сколько раз спрашиваем буфер и с каким шагом.
+    ///
+    /// Было десять по 0,05 — полсекунды. Тяжёлым приложениям этого не хватало:
+    /// у страницы с длинным выделением копирование занимает дольше, и захват
+    /// возвращался пустым при живом выделении. Секунда с четвертью ждёт того,
+    /// кто задумался, и по-прежнему не заметна тому, кто ответил сразу:
+    /// опрос кончается на первом же изменении буфера.
+    private static let pollAttempts = 25
+    private static let pollStep: TimeInterval = 0.05
 
     /// Возвращаем прежнее содержимое: пользователь не просил портить буфер,
     /// а команда могла быть вызвана поверх чего-то скопированного раньше.
@@ -94,17 +158,4 @@ enum SelectionReader {
         pasteboard.setString(text, forType: .string)
     }
 
-    private static func sendCopyKeystroke() {
-        let source = CGEventSource(stateID: .combinedSessionState)
-        let keyC: CGKeyCode = 8 // c
-
-        guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyC, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: keyC, keyDown: false)
-        else { return }
-
-        down.flags = .maskCommand
-        up.flags = .maskCommand
-        down.post(tap: .cghidEventTap)
-        up.post(tap: .cghidEventTap)
-    }
 }

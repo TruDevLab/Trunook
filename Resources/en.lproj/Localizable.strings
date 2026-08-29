@@ -31,7 +31,6 @@
 "Модель" = "Model";
 "Модель думает…" = "The model is thinking…";
 "Ответ появится здесь" = "The answer will appear here";
-"Ollama не отвечает или моделей нет" = "Ollama is not responding, or there are no models";
 "Выберите приложение" = "Choose an app";
 "Выберите файл или папку" = "Choose a file or folder";
 "Заблокировать экран" = "Lock the screen";
@@ -52,8 +51,6 @@
 "Нажмите сочетание" = "Press a shortcut";
 "Ждём нажатия…" = "Waiting…";
 "клавиша %d" = "key %d";
-"Неверный адрес Ollama" = "Invalid Ollama address";
-"Ollama вернула пустой ответ" = "Ollama returned an empty answer";
 "Команда из «Команд»" = "Shortcuts command";
 "Запрос к модели" = "Model prompt";
 "Открыть приложение" = "Open an app";
@@ -163,8 +160,6 @@
 "Предупреждать о низком заряде" = "Warn about low battery";
 "Порог предупреждения" = "Warning threshold";
 "Запросы к модели" = "Model Prompts";
-"Использовать Ollama" = "Use Ollama";
-"Адрес (по умолчанию %@)" = "Address (default %@)";
 "Обновить список моделей" = "Refresh the model list";
 "Держать модель в памяти" = "Keep the model loaded";
 "5 минут" = "5 minutes";
@@ -226,7 +221,6 @@
 "Пока встреча близко, чёлка раздвигается обратным отсчётом. Нажмите по нему — раскроется главная панель." = "While a meeting is near, the notch widens with a countdown. Click it and the main panel opens.";
 "Что уходит наружу" = "What leaves your Mac";
 "Координаты, округлённые до километра, уходят на open-meteo.com. Это единственное обращение в интернет." = "Coordinates rounded to a kilometre go to open-meteo.com. That is the only request to the internet.";
-"Запросы идут в Ollama на вашем же компьютере. Наружу не уходит ничего." = "Requests go to Ollama on your own machine. Nothing leaves it.";
 "Буфер и полка" = "Clipboard and shelf";
 "Хранятся только у вас: история — в файле приложения, полка — ссылками на ваши же файлы." = "Kept only on your Mac: history in the app's own file, the shelf as links to your own files.";
 "Текст лежит в файле приложения, в формате RTF. Наружу не уходит ничего." = "The text lives in the app's own file, as RTF. Nothing leaves the machine.";
@@ -271,7 +265,6 @@
 "Эмодзи" = "Emoji";
 "Закрыть" = "Close";
 "Настройки" = "Settings";
-"Спросить модель" = "Ask the Model";
 "Очистить полку" = "Clear Shelf";
 "Стоп" = "Stop";
 "Пуск" = "Start";
@@ -429,8 +422,6 @@
 /* Notes: the model panel, the list, export and the search prompt. */
 "Заметки" = "Notes";
 "Список заметок" = "All notes";
-"Модель и заметки" = "Model and notes";
-"Записать заметку" = "Write a note";
 "Правка заметки" = "Editing note";
 "Наберите заметку" = "Type a note";
 "Правьте заметку" = "Edit the note";
@@ -567,7 +558,6 @@
 "Приложение запросит доступ к геопозиции." = "The app will ask for location access.";
 "Прогноз берётся у open-meteo.com — единственный выход в интернет." = "The forecast comes from open-meteo.com — the only internet access here.";
 "Процессор, память и диск. Нажатие открывает Мониторинг системы." = "CPU, memory and disk. A click opens Activity Monitor.";
-"Работает на вашем компьютере. Нужна командам, разговору и заметкам." = "Runs on your own machine. Needed by commands, the conversation and notes.";
 "Работает с любым плеером: сведения читаются из системы." = "Works with any player: track info comes from the system.";
 "Сколько заметок уходит модели. Больше — дольше ответ." = "How many notes go to the model. More means a slower answer.";
 "Сколько молчания считается концом вопроса." = "How much silence ends the question.";
@@ -620,3 +610,26 @@
 "Удалить команду «%@»" = "Delete the “%@” command";
 "Модель меняется и в вырезе: Tab или нажатие по её имени в строке." = "The model can also be changed in the notch: Tab, or click its name in the row.";
 "Модель выключена — запросы к ней в список не попадают. Остальные команды работают." = "The model is off — prompts to it stay out of the list. Other commands still work.";
+"Сервер не отвечает или моделей нет" = "The server is silent or has no models";
+"Неверный адрес сервера модели" = "Invalid model server address";
+"Сервер модели вернул пустой ответ" = "The model server returned an empty answer";
+"Сервер модели не принял ключ" = "The model server rejected the key";
+"Сервер модели ответил %d" = "The model server replied %d";
+"Использовать модель" = "Use a model";
+"Нужна командам, разговору и заметкам." = "Needed by commands, the conversation and notes.";
+"Ключ доступа" = "Access key";
+"Хранится в настройках приложения, не в связке ключей." = "Kept in the app settings, not in the keychain.";
+"Запросы идут туда, чей адрес задан в разделе «ИИ». По умолчанию — на ваш же компьютер." = "Requests go to the address set in “AI”. By default — to your own computer.";
+"Кастомный провайдер" = "Custom provider";
+"На этом компьютере" = "On this computer";
+"В интернете" = "On the internet";
+"Вопросы и захваченный текст уходят в интернет этому сервису." = "Questions and captured text go over the internet to this service.";
+"Адрес" = "Address";
+"Не отвечают или моделей нет: %@" = "Silent or no models: %@";
+"Основной" = "Main";
+"Ему уходят свободный вопрос и команды без своей модели." = "Free-form questions and commands without their own model go to it.";
+"Убрать провайдера" = "Remove provider";
+"не выбрана" = "not chosen";
+"Добавить провайдера" = "Add a provider";
+"Ещё провайдер" = "One more provider";
+"Выбрать срок" = "Choose a limit";

@@ -157,7 +157,8 @@ final class NotchController {
         input.onCollapse = { [weak self] in self?.collapsePanel() }
         input.onSwipe = { [weak self] direction in self?.performSwipe(direction) }
         input.onOverlayHover = { [weak self] location in self?.router.updateHover(at: location) }
-        input.onDismissOverlay = { [weak self] in self?.router.dismiss() }
+        input.onDismissOverlay = { [weak self] in self?.dismissOverlay() }
+        input.onOverlayKey = { [weak self] event in self?.handleOverlayKey(event) ?? false }
         // Прозрачность окна пересчитывается на каждом движении курсора,
         // а не только в тике опроса: между тиками десятая доля секунды,
         // и быстрый бросок к полоске с нажатием в неё не уложился бы.
@@ -331,7 +332,7 @@ final class NotchController {
 
         if settings.clipboardEnabled, let clipboardKey = settings.clipboardHotKey {
             HotKeyCenter.shared.register(clipboardKey, name: "история буфера") { [weak self] in
-                self?.router.toggle(.clipboard)
+                self?.toggleClipboard()
             }
         }
 
@@ -464,7 +465,7 @@ final class NotchController {
     func debugOllamaEcho() {
         let prompt = "Повтори дословно: Привет, мир"
         DebugLog.write("ollama: шлём «\(prompt)», байт \(prompt.utf8.count)")
-        OllamaClient().generate(prompt: prompt) { result in
+        ModelClient().generate(prompt: prompt) { result in
             switch result {
             case let .success(answer):
                 DebugLog.write("ollama: ответ «\(answer)»")
@@ -517,6 +518,13 @@ final class NotchController {
         } else {
             // Панель ушла — напоминание о полке возвращается на её место.
             refreshShelfChip()
+        }
+        // Список моделей нужен панели разговора: по нему Tab перебирает
+        // модель команды. Спрашивался он только из настроек и по нажатию
+        // на имя модели — то есть у того, кто ни туда, ни туда не заходил,
+        // Tab не делал ничего.
+        if overlay == .assistant, settings.ollamaEnabled {
+            ModelList.shared.refreshIfNeeded()
         }
         // Мониторинг опрашивает систему только пока он на экране: иначе
         // он сам стал бы той нагрузкой, которую показывает.
@@ -584,6 +592,7 @@ final class NotchController {
             isPinnedOpen: state.isPinnedOpen,
             chip: state.chipItem,
             timerChip: timerChip,
+            caffeineChip: wake.chip,
             activity: activities.current,
             track: music.nowPlaying,
             events: calendar.upcoming.upcomingSlots(limit: NotchMetrics.maxVisibleEvents),
@@ -735,6 +744,38 @@ final class NotchController {
         takeKeyboard()
     }
 
+    /// То же, но с подсветкой, уведённой вниз на несколько шагов.
+    ///
+    /// Стрелки из сессии не послать — синтетические нажатия до Carbon
+    /// не доходят, — а проверять надо именно то, что список едет
+    /// за подсветкой. Ходим тем же путём, что и ↓: иначе проверялся бы не он.
+    ///
+    /// Шаги идут по одному и с задержкой, а не подряд в том же такте.
+    /// Подряд они бессмысленны: панель к этому мигу ещё не построена,
+    /// SwiftUI собирает её уже с готовой подсветкой — и `onChange`,
+    /// на котором держится прокрутка, не срабатывает ни разу. Нажатия
+    /// живьём приходят по одному в уже открытую панель, и проверять
+    /// надо именно это.
+    func debugCaptureHighlight(steps: Int) {
+        debugCapture()
+        debugStepHighlight(left: max(1, steps))
+    }
+
+    private func debugStepHighlight(left: Int) {
+        guard left > 0 else {
+            DebugLog.write(
+                "отладка: подсветка на \(assistant.highlightedCommandID.map(String.init) ?? "нет")"
+                    + ", команд \(visibleCommands.count)"
+            )
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            _ = self.moveHighlight(1)
+            self.debugStepHighlight(left: left - 1)
+        }
+    }
+
     /// ⌃⌥C: захватить выделенное и открыть разговор.
     ///
     /// Единственный вход в общение с моделью. Выделение читается тем же
@@ -803,11 +844,7 @@ final class NotchController {
     }
 
     /// ↑ и ↓ ведут подсветку. Возвращает, забрала ли панель нажатие себе.
-    ///
-    /// Первое нажатие ставит подсветку на край списка: сверху при ↓, снизу
-    /// при ↑. По кругу подсветка не ходит — дойдя до края, она там и стоит.
-    /// Замкнутое кольцо в списке из трёх строк означало бы, что зажатая
-    /// стрелка бесконечно бегает по кругу, и понять, где ты, нельзя.
+    /// Само правило шага — в `HighlightMove`: оно общее с историей буфера.
     private func moveHighlight(_ offset: Int) -> Bool {
         let list = visibleCommands
         guard !list.isEmpty else { return false }
@@ -820,15 +857,9 @@ final class NotchController {
         // подсветок разом быть не должно, иначе непонятно, чей Enter.
         assistant.highlightedAnswerAction = nil
 
-        guard let current = assistant.highlightedCommandID,
-              let index = list.firstIndex(where: { $0.id == current })
-        else {
-            assistant.highlightedCommandID = offset > 0 ? list.first?.id : list.last?.id
-            showHintForHighlight()
-            return true
-        }
-        let next = min(max(0, index + offset), list.count - 1)
-        assistant.highlightedCommandID = list[next].id
+        assistant.highlightedCommandID = HighlightMove.next(
+            from: assistant.highlightedCommandID, in: list.map(\.id), offset: offset
+        )
         showHintForHighlight()
         return true
     }
@@ -896,14 +927,31 @@ final class NotchController {
     /// в настройки.
     private func cycleModel() -> Bool {
         guard let id = assistant.highlightedCommandID,
-              var command = settings.quickCommands.first(where: { $0.id == id }),
-              command.kind.usesModel
+              var command = settings.quickCommands.first(where: { $0.id == id })
         else { return false }
 
-        let models = OllamaModelList.shared.models
-        guard !models.isEmpty else { return false }
+        // Дальше Tab не уходит ни при каком исходе. Он уходил — и попадал
+        // в поле вопроса отступом: список моделей ни разу не спрашивали,
+        // он был пуст, обработчик отвечал «не моё», и `NSTextView` честно
+        // вставлял табуляцию. Выглядело это как «Tab не работает», а на деле
+        // работало всё, кроме одного: списка ещё не существовало.
+        //
+        // Пока подсветка стоит на команде, Tab принадлежит ей. Команде
+        // без модели менять нечего — но и отступ в вопросе ей не нужен тем
+        // более.
+        guard command.kind.usesModel else { return true }
 
-        let ladder: [String?] = [nil] + models.map { Optional($0) }
+        let models = ModelList.shared.models
+        guard !models.isEmpty else {
+            // Спрашиваем сейчас же: к следующему нажатию список будет.
+            ModelList.shared.refresh()
+            return true
+        }
+
+        // Лестница начинается с «как в настройках»: к общей модели надо иметь
+        // возможность вернуться, а руками её из списка не выбрать — там
+        // только имена.
+        let ladder: [String?] = [nil] + models.map { Optional($0.stored) }
         let index = ladder.firstIndex(of: command.model) ?? 0
         command.model = ladder[(index + 1) % ladder.count]
         settings.updateCommand(command)
@@ -939,7 +987,7 @@ final class NotchController {
         assistant.choosingModelFor = command.id
         // Список могли не запрашивать ни разу: настройки открывают не все,
         // а до этого момента моделей взять неоткуда.
-        OllamaModelList.shared.refresh()
+        ModelList.shared.refresh()
     }
 
     private func chooseModel(_ model: String?) {
@@ -955,6 +1003,9 @@ final class NotchController {
     /// Поле ввода требует клавиатуры, а вырез по умолчанию фокус не забирает:
     /// на этом держится «выделил текст, спросил у модели, вставил обратно».
     /// Забираем явно — и возвращаем при закрытии.
+    /// Куда вставлять из истории: приложение, из которого её открыли.
+    private var clipboardTarget: NSRunningApplication?
+
     private func takeKeyboard() {
         NSApp.activate(ignoringOtherApps: true)
         host.makeKey()
@@ -1321,7 +1372,86 @@ final class NotchController {
     // MARK: - Буфер обмена
 
     func openClipboard() {
+        guard settings.clipboardEnabled else { return }
+        // Приложение запоминается **до** того, как панель заберёт фокус:
+        // вставка обязана уйти туда, откуда пришли, а после `makeKey`
+        // активным будем уже мы.
+        //
+        // Себя целью не берём. Историю открывают и из меню функций, а оно
+        // к этому времени уже могло забрать фокус — цель вышла бы «Trunook»,
+        // и вставка ушла бы в нас же. Без цели вставка идёт туда, где фокус
+        // окажется сам, — как было до клавиатурной навигации.
+        let front = NSWorkspace.shared.frontmostApplication
+        clipboardTarget = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier
+            ? nil
+            : front
+        clipboard.highlighted = nil
         router.set(.clipboard)
+        // Клавиатура нужна ради стрелок и Enter. Панель обходилась без неё,
+        // пока в ней было нечего нажимать, кроме мыши и цифр: цифры приходят
+        // горячей клавишей и фокуса не требуют. Стрелки — требуют, и другого
+        // способа получить их у панели без поля ввода нет.
+        NSApp.activate(ignoringOtherApps: true)
+        host.makeKey()
+    }
+
+    /// Клавишей историю и открывают, и убирают.
+    func toggleClipboard() {
+        if state.overlay == .clipboard {
+            closeOverlay()
+            return
+        }
+        openClipboard()
+    }
+
+    /// Нажатие мимо накладки или Esc. Не всякая накладка этому поддаётся —
+    /// правило живёт в самой накладке, — но клавиатуру, если её забирали,
+    /// возвращать надо и на этом пути тоже.
+    private func dismissOverlay() {
+        let wasClipboard = state.overlay == .clipboard
+        router.dismiss()
+        guard wasClipboard, state.overlay == nil else { return }
+        clipboard.highlighted = nil
+        returnKeyboardToClipboardTarget()
+    }
+
+    /// Закрыть накладку и вернуть клавиатуру тому, у кого её взяли.
+    ///
+    /// Одно место на все способы закрыть — крестик, Esc, нажатие мимо, та же
+    /// клавиша второй раз. Возврат фокуса, разложенный по этим четырём путям,
+    /// разошёлся бы при первой правке, и человек оставался бы без фокуса
+    /// в чужом окне — по одному из путей из четырёх.
+    func closeOverlay() {
+        let wasClipboard = state.overlay == .clipboard
+        router.close()
+        guard wasClipboard else { return }
+        clipboard.highlighted = nil
+        returnKeyboardToClipboardTarget()
+    }
+
+    private func returnKeyboardToClipboardTarget() {
+        defer { clipboardTarget = nil }
+        guard let target = clipboardTarget, !target.isActive else { return }
+        target.activate()
+    }
+
+    /// Клавиши, пока открыт список истории.
+    ///
+    /// Стрелки водят подсветку, Enter вставляет подсвеченное. Всё остальное
+    /// уходит дальше нетронутым: панель забрала клавиатуру, и глотать чужие
+    /// нажатия ей не за чем.
+    private func handleOverlayKey(_ event: NSEvent) -> Bool {
+        guard state.overlay == .clipboard, settings.clipboardEnabled else { return false }
+        switch event.keyCode {
+        case 126: return clipboard.moveHighlight(-1)
+        case 125: return clipboard.moveHighlight(1)
+        // 36 — Enter основной, 76 — на цифровой части.
+        case 36, 76:
+            guard let entry = clipboard.highlightedEntry else { return false }
+            useClipboard(entry)
+            return true
+        default: return false
+        }
     }
 
     /// Отложить скопированное в заметки — из списка истории или прямо
@@ -1398,10 +1528,11 @@ final class NotchController {
     }
 
     func useClipboard(_ entry: ClipboardEntry) {
-        // Панель закрывается до вставки: она не забирает фокус, но остаётся
-        // поверх, а вставлять человек собирается в то, что под ней.
-        router.close()
-        clipboard.use(entry)
+        // Панель закрывается до вставки: вставлять человек собирается в то,
+        // что под ней. Цель берётся до закрытия — оно её и обнуляет.
+        let destination = clipboardTarget
+        closeOverlay()
+        clipboard.use(entry, into: destination)
     }
 
     // MARK: - Полка
@@ -1777,7 +1908,7 @@ final class NotchController {
             onEscapeHighlight: { [weak self] in self?.escapeHighlight() ?? false },
             onCopyLink: { [weak self] url in self?.copyLink(url) },
             onOpenItem: { [weak self] item in self?.openItem(item) },
-            onCloseOverlay: { [weak self] in self?.router.close() },
+            onCloseOverlay: { [weak self] in self?.closeOverlay() },
             onOpenClipboard: { [weak self] in self?.openClipboard() },
             onUseClipboard: { [weak self] entry in self?.useClipboard(entry) },
             onSaveClipboardToNotes: { [weak self] entry in self?.saveClipboardToNotes(entry) },
@@ -1911,7 +2042,44 @@ final class NotchController {
     /// Отладочные входы: синтетические нажатия из отладочной сессии
     /// до Carbon не доходят — Универсальный доступ выдан только самому
     /// приложению, а не процессу, который их шлёт.
-    func debugToggleClipboard() { router.toggle(.clipboard) }
+    func debugToggleClipboard() { toggleClipboard() }
+
+    /// Панель с открытым выбором модели у первой команды.
+    ///
+    /// Выбор открывается нажатием по имени модели в строке, а нажать
+    /// из сессии нечем. Проверять же надо именно его: с несколькими
+    /// провайдерами в списке появляются одноимённые модели разных серверов,
+    /// и по снимку видно, различимы ли они.
+    func debugCaptureModels() {
+        debugCapture()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self, let command = self.visibleCommands.first(where: { $0.kind.usesModel })
+            else { return }
+            self.beginChoosingModel(command)
+        }
+    }
+
+    /// История с подсветкой, уведённой вниз: список должен ехать за ней.
+    ///
+    /// Шаги по одному и с задержкой — по той же причине, что и у команд:
+    /// подряд в одном такте панель ещё не построена, и прокрутка,
+    /// живущая на `onChange`, не срабатывает ни разу.
+    func debugClipboardHighlight(steps: Int) {
+        openClipboard()
+        debugStepClipboard(left: max(1, steps))
+    }
+
+    private func debugStepClipboard(left: Int) {
+        guard left > 0 else {
+            DebugLog.write("отладка: подсветка истории на \(clipboard.highlighted.map(String.init) ?? "нет")")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            self.clipboard.moveHighlight(1)
+            self.debugStepClipboard(left: left - 1)
+        }
+    }
 
     /// Набивает заметками для проверки списка и поиска.
     ///

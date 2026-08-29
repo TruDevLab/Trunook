@@ -95,8 +95,8 @@ final class AssistantSession: ObservableObject {
     /// в саму панель.
     private(set) var target: NSRunningApplication?
 
-    private let client: OllamaClient
-    private var messages: [OllamaClient.ChatMessage] = []
+    private let client: ModelClient
+    private var messages: [ModelClient.ChatMessage] = []
     private var task: Task<Void, Never>?
 
     /// Какое окно контекста просить у модели.
@@ -122,7 +122,7 @@ final class AssistantSession: ObservableObject {
     /// дописывается с конца.
     private var hiddenMessages: Set<Int> = []
 
-    init(client: OllamaClient = OllamaClient()) {
+    init(client: ModelClient = ModelClient()) {
         self.client = client
     }
 
@@ -254,7 +254,7 @@ final class AssistantSession: ObservableObject {
     /// нечего. Уйдёт вместе с первым же вопросом.
     func ask(captured: String = "", target: NSRunningApplication?) {
         cancel()
-        title = t("Модель")
+        title = t("Команды")
         self.target = target
         self.captured = captured
         isCaptureExpanded = false
@@ -327,7 +327,7 @@ final class AssistantSession: ObservableObject {
             messages.append(.user(
                 preamble.joined(separator: "\n\n") + "\n\n" + t("Вопрос:") + " " + text
             ))
-            contextWindow = OllamaClient.contextWindow(
+            contextWindow = ModelClient.contextWindow(
                 forCharacters: messages.reduce(0) { $0 + $1.content.count }
             )
         }
@@ -432,25 +432,10 @@ final class AssistantSession: ObservableObject {
         let destination = target
         completion()
 
-        guard let destination else {
-            // Цели нет — вставляем туда, где фокус окажется сам.
-            ClipboardPaster.paste()
-            return
-        }
-
-        // Наше приложение перестаёт быть активным явно. `activate()` чужого
-        // само этого не делает: агент без окон остаётся активным, и система
-        // продолжает слать ему нажатия.
-        NSApp.deactivate()
-        destination.activate()
-        DebugLog.write("модель: вставка ответа в \(destination.localizedName ?? "?")")
-
-        // Переключение приложений система делает не мгновенно, и нажатие,
-        // посланное раньше времени, достаётся ещё нам. Прежние 0.2 с
-        // отмерялись от `activate()` без деактивации — то есть от момента,
-        // когда переключения и не начиналось.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            ClipboardPaster.paste()
-        }
+        // Порядок — деактивация, переключение, пауза, нажатие — живёт
+        // в `ClipboardPaster`: он же вставляет строки истории, и разъехаться
+        // этим двум путям нельзя. Разъезжались: у истории паузы не было вовсе.
+        DebugLog.write("модель: вставка ответа в \(destination?.localizedName ?? "?")")
+        ClipboardPaster.paste(into: destination)
     }
 }

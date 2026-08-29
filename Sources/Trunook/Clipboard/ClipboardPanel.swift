@@ -17,6 +17,8 @@ struct ClipboardPanel: View {
     /// иначе о клавишах никто не узнает.
     let slotHint: String?
     let notesEnabled: Bool
+    /// Какая строка подсвечена с клавиатуры. `nil` — ни одна.
+    let highlighted: Int64?
     let onUse: (ClipboardEntry) -> Void
     let onSaveToNotes: (ClipboardEntry) -> Void
     let onDelete: (ClipboardEntry) -> Void
@@ -125,14 +127,25 @@ struct ClipboardPanel: View {
     }
 
     private var list: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: Self.rowSpacing) {
-                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                    row(entry, index: index)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: Self.rowSpacing) {
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                        row(entry, index: index).id(entry.id)
+                    }
+                }
+            }
+            .frame(height: Self.listHeight(rows: entries.count))
+            // Список едет за подсветкой наименьшим движением: строк в истории
+            // до полусотни, а видно шесть, — без этого подсветка уходила бы
+            // за край, и Enter вставлял бы то, чего не видно.
+            .onChange(of: highlighted) { _, id in
+                guard let id else { return }
+                withAnimation(.easeOut(duration: 0.12)) {
+                    proxy.scrollTo(id, anchor: nil)
                 }
             }
         }
-        .frame(height: Self.listHeight(rows: entries.count))
     }
 
     /// Сторона кнопки «в заметки» в строке.
@@ -143,6 +156,22 @@ struct ClipboardPanel: View {
     static var noteButtonSize: CGFloat { NotchStyle.scaled(22) }
 
     private func row(_ entry: ClipboardEntry, index: Int) -> some View {
+        let isHighlighted = entry.id == highlighted
+        return rowBody(entry, index: index)
+            // Обводкой, а не заливкой: заливка у плитки уже занята
+            // наведением, и строка бывает подсвечена клавишей и мышью разом —
+            // одной заливкой они слились бы в одно.
+            .overlay(
+                RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
+                    .strokeBorder(
+                        isHighlighted ? Palette.clipboard.opacity(0.9) : .clear,
+                        lineWidth: 1.5
+                    )
+            )
+            .animation(.easeOut(duration: 0.12), value: isHighlighted)
+    }
+
+    private func rowBody(_ entry: ClipboardEntry, index: Int) -> some View {
         // `NotchTile`, а не своя подложка. Своя была двумя ошибками сразу:
         // плотность 0.06 против 0.08 у соседних панелей — то есть строка была
         // тусклее всего, что лежит рядом, — и мимо `dense()`, поэтому при

@@ -54,6 +54,8 @@ struct NotchContent: Equatable {
     var chip: CalendarItem?
     /// Полоска идущего таймера.
     var timerChip: TimerChip?
+    /// Полоска горящей чашки.
+    var caffeineChip: CaffeineChip?
     /// Ближайшие встречи: то, что начинается сейчас, и то, что идёт следом.
     /// На один слот в календаре нередко стоят две — они попадают сюда обе.
     var events: [CalendarItem] = []
@@ -181,14 +183,18 @@ enum NotchSizing {
         case .collapsed:
             return metrics.closed
         case .chip:
-            // Таймер важнее отсчёта до встречи: его завели руками.
+            // Таймер важнее отсчёта до встречи: его завели руками. Чашка ниже
+            // обоих: она горит часами, а те двое живут минутами.
             if let timer = content.timerChip {
                 return metrics.chip(
                     width: TimerChipView.width(metrics: metrics, showsHours: timer.showsHours)
                 )
             }
-            guard content.chip != nil else { return metrics.closed }
-            return metrics.chip(width: ChipView.width(metrics: metrics))
+            if content.chip != nil {
+                return metrics.chip(width: ChipView.width(metrics: metrics))
+            }
+            guard let caffeine = content.caffeineChip else { return metrics.closed }
+            return metrics.chip(width: CaffeineChipView.width(metrics: metrics, chip: caffeine))
         case .activity:
             guard let activity = content.activity else { return metrics.closed }
             let layout = ActivityView.layout(

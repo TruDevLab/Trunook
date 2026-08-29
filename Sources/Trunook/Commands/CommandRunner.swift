@@ -25,11 +25,11 @@ final class CommandRunner {
     var onSaveToNotes: ((String) -> Void)?
 
     private let settings: Settings
-    private let ollama: OllamaClient
+    private let ollama: ModelClient
     /// NSAppleScript не потокобезопасен — держим его на своей очереди.
     private let scriptQueue = DispatchQueue(label: "com.trunook.applescript")
 
-    init(settings: Settings = .shared, ollama: OllamaClient = OllamaClient()) {
+    init(settings: Settings = .shared, ollama: ModelClient = ModelClient()) {
         self.settings = settings
         self.ollama = ollama
     }

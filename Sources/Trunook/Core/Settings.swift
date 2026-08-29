@@ -1,3 +1,4 @@
+import TrunookXPC
 import SwiftUI
 
 /// Настройки приложения поверх UserDefaults.
@@ -145,6 +146,179 @@ final class Settings: ObservableObject {
     var ollamaKeepAlive: String {
         get { defaults.string(forKey: "ollamaKeepAlive") ?? "30m" }
         set { store(newValue, "ollamaKeepAlive") }
+    }
+
+    // MARK: - Провайдеры модели
+
+    /// Основной провайдер: он отвечает на свободный вопрос и на команды,
+    /// у которых своей модели нет.
+    ///
+    /// Всегда включён. Провайдер, выбранный основным и при этом выключенный,
+    /// означал бы, что вопрос уходит туда, где его никто не ждёт, — а понять
+    /// это по экрану было бы нельзя.
+    var aiProvider: AIProvider {
+        get { AIProvider(rawValue: defaults.string(forKey: "aiProvider") ?? "") ?? .ollama }
+        set {
+            store(newValue.rawValue, "aiProvider")
+            enableProvider(newValue)
+        }
+    }
+
+    /// Какие провайдеры включены. Порядок — как в `AIProvider.allCases`:
+    /// список в настройках не переставляют, а хранить порядок значило бы
+    /// показывать его разным в разных местах.
+    var enabledProviders: [AIProvider] {
+        get {
+            let raw = defaults.stringArray(forKey: "enabledProviders")
+            // Пусто — старый набор настроек: включён ровно тот, что был
+            // единственным. Сохранять при этом ничего не нужно: то же самое
+            // посчитается заново при следующем запросе.
+            guard let raw else { return [aiProvider] }
+            let stored = Set(raw.compactMap(AIProvider.init(rawValue:)))
+            let all = AIProvider.allCases.filter { stored.contains($0) }
+            return all.contains(aiProvider) ? all : all + [aiProvider]
+        }
+        set {
+            let unique = AIProvider.allCases.filter(newValue.contains)
+            store(unique.map(\.rawValue), "enabledProviders")
+        }
+    }
+
+    func isProviderEnabled(_ provider: AIProvider) -> Bool {
+        enabledProviders.contains(provider)
+    }
+
+    private func enableProvider(_ provider: AIProvider) {
+        guard !isProviderEnabled(provider) else { return }
+        enabledProviders = enabledProviders + [provider]
+    }
+
+    /// Включить или выключить провайдера.
+    ///
+    /// Основного выключить нельзя: без него запрос уходить некуда. Тому,
+    /// кто действительно хочет от него избавиться, надо сперва назначить
+    /// основным другого — и это верный порядок, а не придирка.
+    func setProvider(_ provider: AIProvider, enabled: Bool) {
+        if enabled {
+            enableProvider(provider)
+            return
+        }
+        guard provider != aiProvider else { return }
+        enabledProviders = enabledProviders.filter { $0 != provider }
+    }
+
+    // MARK: Настройки каждого провайдера по отдельности
+
+    // Адрес, ключ и модель хранятся **у каждого провайдера свои**. Общими
+    // они были ровно одну версию, и этого хватило: ключ от прежнего
+    // провайдера оставался в поле нового, уходил с запросом и получал отказ,
+    // в котором виноватым выглядел новый сервер.
+
+    private func key(_ name: String, _ provider: AIProvider) -> String {
+        name + "." + provider.rawValue
+    }
+
+    /// Адрес провайдера. Пусто — адрес его преднастройки: чтобы всё
+    /// заработало, знать адрес не обязательно.
+    func apiURL(for provider: AIProvider) -> String {
+        let stored = apiURLRaw(for: provider)
+        if !stored.isEmpty { return stored }
+        return provider == .ollama ? Self.defaultOllamaURL : (provider.presetURL ?? "")
+    }
+
+    /// Сырое значение для поля ввода: пустое так и остаётся пустым.
+    func apiURLRaw(for provider: AIProvider) -> String {
+        defaults.string(forKey: key("apiURL", provider)) ?? ""
+    }
+
+    func setAPIURL(_ value: String, for provider: AIProvider) {
+        store(value, key("apiURL", provider))
+    }
+
+    /// Ключ доступа.
+    ///
+    /// Лежит в настройках приложения, а не в связке ключей. Связка потребовала
+    /// бы своего разрешения на каждую пересборку: подпись у нас самодельная,
+    /// и после смены сертификата система спросила бы доступ заново — см.
+    /// «Разрешения привязаны к подписи» в `DEVELOPMENT.md`. Заводилось это
+    /// ради своего сервера на своей же машине, где ключ и так лежит рядом
+    /// в открытом виде; для облачного ключа это стоит помнить.
+    func apiKey(for provider: AIProvider) -> String {
+        defaults.string(forKey: key("apiKey", provider)) ?? ""
+    }
+
+    func setAPIKey(_ value: String, for provider: AIProvider) {
+        store(value, key("apiKey", provider))
+    }
+
+    func apiModel(for provider: AIProvider) -> String {
+        defaults.string(forKey: key("apiModel", provider)) ?? ""
+    }
+
+    func setAPIModel(_ value: String, for provider: AIProvider) {
+        store(value, key("apiModel", provider))
+    }
+
+    /// Модель, которой отвечает основной провайдер.
+    var defaultModel: ModelRef {
+        ModelRef(provider: aiProvider, name: apiModel(for: aiProvider))
+    }
+
+    /// Разбор сохранённого имени модели — команды или разговора.
+    func modelRef(_ stored: String?) -> ModelRef? {
+        guard let stored, !stored.isEmpty else { return nil }
+        return ModelRef.parse(stored, fallback: aiProvider)
+    }
+
+    /// Разовый перенос настроек, лежавших общими на всех.
+    ///
+    /// Адрес Ollama жил в `ollamaURL`, её модель — в `ollamaModel`, а адрес,
+    /// ключ и модель второго провайдера — в общих `apiURL`, `apiKey`
+    /// и `apiModel`. Провайдеров стало сколько угодно, и общие поля потеряли
+    /// смысл: переносим их тому, кто был выбран, и больше к ним не возвращаемся.
+    func migrateProviderSettings() {
+        guard !flag("didSplitProviderSettings", default: false) else { return }
+
+        if let url = defaults.string(forKey: "ollamaURL"), !url.isEmpty {
+            setAPIURL(url, for: .ollama)
+        }
+        if let model = defaults.string(forKey: "ollamaModel"), !model.isEmpty {
+            setAPIModel(model, for: .ollama)
+        }
+
+        let owner = aiProvider
+        let legacyURL = defaults.string(forKey: "apiURL") ?? ""
+        let legacyKey = defaults.string(forKey: "apiKey") ?? ""
+        let legacyModel = defaults.string(forKey: "apiModel") ?? ""
+
+        // Кому принадлежали общие поля.
+        //
+        // Обычно — выбранному провайдеру. Но выбранной могла оказаться
+        // и Ollama, у которой этих полей нет вовсе: человек настроил чужой
+        // сервер, а потом вернулся к местному, и ключ остался лежать ничьим.
+        // Тогда хозяина узнаём по адресу; не узнали — отдаём кастомному
+        // и включаем его. Терять набранный ключ молча нельзя: заново
+        // его взять неоткуда.
+        if !legacyKey.isEmpty || !legacyModel.isEmpty || !legacyURL.isEmpty {
+            let heir = owner != .ollama
+                ? owner
+                : AIProvider.allCases.first { $0.presetURL == legacyURL && !legacyURL.isEmpty }
+                    ?? .custom
+            if !legacyURL.isEmpty { setAPIURL(legacyURL, for: heir) }
+            if !legacyKey.isEmpty { setAPIKey(legacyKey, for: heir) }
+            if !legacyModel.isEmpty { setAPIModel(legacyModel, for: heir) }
+            enabledProviders = [owner, heir]
+            DebugLog.write("настройки: общие поля провайдера отданы \(heir.rawValue)")
+        } else {
+            enabledProviders = [owner]
+        }
+
+        // Старые поля убираем. Оставленная копия ключа — это секрет, лежащий
+        // там, где его больше никто не читает и никто не сотрёт.
+        for key in ["apiURL", "apiKey", "apiModel"] { defaults.removeObject(forKey: key) }
+
+        store(true, "didSplitProviderSettings")
+        DebugLog.write("настройки: провайдеры разведены по своим полям, основной — \(owner.rawValue)")
     }
 
     var quickCommandsEnabled: Bool {

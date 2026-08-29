@@ -45,7 +45,9 @@ struct HubPanel: View {
     /// Уже прежней ровно настолько, чтобы три плитки с зазорами уложились
     /// в ту же ширину панели.
     static let tileWidth: CGFloat = 130
-    static let tileHeight: CGFloat = 66
+    /// Ниже прежних 66 ровно на строку сочетания: она уехала во всплывающую
+    /// подпись, и высота, оставленная под неё, стала пустым полем.
+    static let tileHeight: CGFloat = 52
     /// Общая высота значка — см. плитку.
     private static let symbolHeight: CGFloat = 20
     static let tileSpacing = NotchStyle.gridSpacing
@@ -84,6 +86,15 @@ struct HubPanel: View {
         }
     }
 
+    /// Что показать под чёлкой при наведении на плитку.
+    ///
+    /// Сочетание приписывается к названию, а не подменяет его: подпись должна
+    /// отвечать сперва на «что это», и лишь потом учить клавише.
+    private static func bubble(for item: Item) -> String {
+        guard let hint = item.hint else { return item.title }
+        return item.title + " · " + hint
+    }
+
     private func tile(_ item: Item) -> some View {
         NotchTile(id: "hub-" + item.id, isEnabled: item.isEnabled) {
             Button(action: item.action) {
@@ -100,14 +111,6 @@ struct HubPanel: View {
                     .font(.system(size: NotchStyle.font(10.5), weight: .medium))
                     .foregroundStyle(.white.opacity(item.isEnabled ? 0.9 : 0.35))
                     .lineLimit(1)
-                // Строка подсказки есть у всех, даже когда сочетания нет:
-                // без неё плитки с клавишей и без неё вставали на разной
-                // высоте, и ряд читался рваным.
-                Text(item.hint ?? " ")
-                    .font(.system(size: NotchStyle.font(8.5), weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(item.isEnabled ? 0.3 : 0.18))
-                    .opacity(item.hint == nil ? 0 : 1)
-                    .lineLimit(1)
             }
             .frame(width: Self.tileWidth, height: Self.tileHeight)
             // Без этого зона нажатия у кнопки — только сами буквы и значок:
@@ -117,6 +120,12 @@ struct HubPanel: View {
         }
             .buttonStyle(PressableStyle())
             .disabled(!item.isEnabled)
+            // Сочетание — во всплывающей подписи, как у кнопок без подписи.
+            // Строкой в плитке оно стояло третьим этажом мелким моноширинным
+            // и читалось как часть названия, а не как клавиши. Плитка при этом
+            // росла на целую строку ради сведения, которое нужно один раз —
+            // узнать и запомнить. Под чёлкой ему место: там подпись и живёт.
+            .notchHint(item.title, bubble: Self.bubble(for: item))
         }
     }
 }

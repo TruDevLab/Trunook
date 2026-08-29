@@ -56,6 +56,18 @@ final class SpeechSpeaker: NSObject, ObservableObject {
         spokenUpTo = 0
         isStreamOver = false
         pending = 0
+        // Каким голосом читаем — в журнал. Выбор идёт сам, по качеству,
+        // и снаружи его не видно вовсе: панель показывает ответ словами,
+        // а не тем, кто их произносит. Разницу между компактным
+        // и премиальным слышно сразу, но искать причину пришлось бы
+        // на слух — и однажды пришлось: третьим приложениям система
+        // отдаёт не все голоса, что есть в ней самой.
+        let chosen = Self.voice(language: language, identifier: voiceIdentifier)
+        DebugLog.write(
+            "голос: читает \(chosen?.name ?? "системный по умолчанию")"
+                + " [\(chosen?.identifier ?? "—")]"
+                + ", качество \(chosen.map { Self.qualityName($0.quality) } ?? "—")"
+        )
     }
 
     /// Ответ подрос — дочитать то, что стало целыми предложениями.
@@ -172,7 +184,7 @@ final class SpeechSpeaker: NSObject, ObservableObject {
         "\(voice.name) — \(qualityName(voice.quality))"
     }
 
-    private static func qualityName(_ quality: AVSpeechSynthesisVoiceQuality) -> String {
+    static func qualityName(_ quality: AVSpeechSynthesisVoiceQuality) -> String {
         switch quality {
         case .premium: return t("премиальный")
         case .enhanced: return t("улучшенный")

@@ -23,7 +23,11 @@ enum HubEntry: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .assistant: return t("ИИ")
+        // «Команды» — тем же словом, что и шапка самой панели, и переключатель
+        // в ней. Плитка звалась «ИИ», панель открывалась под заголовком
+        // «Модель», а подпись под чёлкой обещала «Модель и заметки»: три имени
+        // одного места, и по ним не собрать, что это одно и то же место.
+        case .assistant: return t("Команды")
         case .clipboard: return t("Буфер обмена")
         case .shelf: return t("Полка")
         case .timer: return t("Таймер")

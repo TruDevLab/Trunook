@@ -1,3 +1,4 @@
+import TrunookXPC
 import Foundation
 
 /// Команда — строка в списке под полем вопроса.
@@ -158,8 +159,39 @@ enum QuickCommands {
         var commands = stored.filter { !$0.title.isEmpty || !$0.payload.isEmpty }
         var changed = migrateLegacyHotKeys(&commands, in: defaults)
         changed = addNoteCommand(&commands, in: defaults) || changed
+        changed = nameProviderOfModels(&commands, in: defaults) || changed
         if changed { save(commands, to: defaults) }
         return commands
+    }
+
+    static let modelProviderKey = "quickCommandModelsGotProvider"
+
+    /// Дописывает к имени модели того, кто её отдаёт.
+    ///
+    /// Пока провайдер был один, имени хватало. Теперь их держат несколько,
+    /// и голое имя молча означало бы «у основного» — а основного меняют,
+    /// и команда, настроенная на местную модель, однажды ушла бы в облако.
+    ///
+    /// Переносим один раз, к тому провайдеру, который на момент переноса
+    /// и был единственным.
+    private static func nameProviderOfModels(
+        _ commands: inout [QuickCommand],
+        in defaults: UserDefaults
+    ) -> Bool {
+        guard !(defaults.object(forKey: modelProviderKey) as? Bool ?? false) else { return false }
+        defaults.set(true, forKey: modelProviderKey)
+
+        let owner = AIProvider(rawValue: defaults.string(forKey: "aiProvider") ?? "") ?? .ollama
+        var changed = false
+        for index in commands.indices {
+            guard let stored = commands[index].model, !stored.isEmpty,
+                  let ref = ModelRef.parse(stored, fallback: owner), ref.stored != stored
+            else { continue }
+            commands[index].model = ref.stored
+            changed = true
+        }
+        if changed { DebugLog.write("команды: к именам моделей дописан провайдер \(owner.rawValue)") }
+        return changed
     }
 
     /// Ключ, которым помечена состоявшаяся выдача команды «в заметки».

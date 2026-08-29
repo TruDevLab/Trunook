@@ -1,38 +1,96 @@
 import TrunookXPC
 import AppKit
 
-/// Список моделей Ollama для выбора.
+/// Модели всех включённых провайдеров, сведённые в один список.
 ///
 /// Отдельный объект, а не разовый запрос: список нужен в настройках,
 /// обновляется по кнопке и переживает переключение разделов.
-final class OllamaModelList: ObservableObject {
+final class ModelList: ObservableObject {
     /// Один на всё приложение: тот же список читает строка команды в вырезе,
-    /// и два объекта означали бы два опроса Ollama и два разных ответа
+    /// и два объекта означали бы два опроса сервера и два разных ответа
     /// на один и тот же вопрос.
-    static let shared = OllamaModelList()
+    static let shared = ModelList()
 
-    @Published private(set) var models: [String] = []
+    @Published private(set) var models: [ModelRef] = []
     @Published private(set) var isLoading = false
     @Published private(set) var error: String?
 
-    private let client = OllamaClient()
+    private let client = ModelClient()
+    private let settings: Settings
+
+    init(settings: Settings = .shared) {
+        self.settings = settings
+    }
+
+    /// Модели одного провайдера — для выбора в его же настройках.
+    func models(of provider: AIProvider) -> [ModelRef] {
+        models.filter { $0.provider == provider }
+    }
+
+    /// Спросить всех включённых разом.
+    ///
+    /// Всех, а не только основного: команда может уходить не туда, куда
+    /// уходит свободный вопрос, и список, показывающий модели одного
+    /// провайдера, не дал бы выбрать модель второго — то есть второй
+    /// провайдер был бы включён и недоступен.
+    /// Спросить, если ещё не спрашивали.
+    ///
+    /// Для тех мест, где список нужен, но повторный опрос ни к чему: панель
+    /// разговора открывают десятки раз за день, а моделей на сервере
+    /// от этого не прибавляется.
+    func refreshIfNeeded() {
+        guard models.isEmpty, !isLoading else { return }
+        refresh()
+    }
 
     func refresh() {
         guard !isLoading else { return }
+        let providers = settings.enabledProviders
+        guard !providers.isEmpty else {
+            models = []
+            error = nil
+            return
+        }
         isLoading = true
         error = nil
 
-        client.listModels { [weak self] models in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.isLoading = false
-                self.models = models.map(\.name)
-                // Пустой список при доступном сервере — это тоже ответ:
-                // моделей просто нет, и об этом надо сказать.
-                self.error = models.isEmpty ? t("Ollama не отвечает или моделей нет") : nil
-                DebugLog.write("Ollama: моделей найдено — \(models.count)")
+        var collected: [AIProvider: [ModelRef]] = [:]
+        let group = DispatchGroup()
+        for provider in providers {
+            group.enter()
+            client.listModels(from: provider) { found in
+                // Складываем на главной очереди: ответы приходят вразнобой
+                // и с разных потоков, а словарь один на всех.
+                DispatchQueue.main.async {
+                    collected[provider] = found
+                    group.leave()
+                }
             }
         }
+
+        group.notify(queue: .main) { [weak self] in
+            guard let self else { return }
+            self.isLoading = false
+            // Порядок — как у провайдеров в настройках: список, меняющий
+            // порядок от ответа к ответу, читается как другой список.
+            self.models = providers.flatMap { collected[$0] ?? [] }
+            self.error = Self.error(silent: providers.filter { collected[$0]?.isEmpty != false })
+            DebugLog.write(
+                "модели: найдено — \(self.models.count)"
+                    + " у \(providers.count) провайдеров"
+            )
+        }
+    }
+
+    /// Что сказать про тех, кто ничего не отдал.
+    ///
+    /// Молчащего провайдера надо называть по имени. Раньше провайдер был один,
+    /// и «сервер не отвечает» относилось к нему без вопросов; теперь их
+    /// несколько, и общая жалоба отправила бы человека проверять все.
+    private static func error(silent: [AIProvider]) -> String? {
+        guard !silent.isEmpty else { return nil }
+        let names = silent.map(\.title).joined(separator: ", ")
+        return tf("Не отвечают или моделей нет: %@", names)
     }
 }
 

@@ -31,8 +31,8 @@ struct AssistantPanel: View {
     let commands: [QuickCommand]
     /// Установленные модели и та, что выбрана в настройках, — для правой
     /// части строки команды.
-    let models: [String]
-    let defaultModel: String
+    let models: [ModelRef]
+    let defaultModel: ModelRef
 
     let onSend: () -> Void
     /// Запустить команду из списка.
@@ -461,8 +461,10 @@ struct AssistantPanel: View {
         // Без модели панель — это список того, что можно сделать
         // с захваченным. Обещать в шапке модель, которой нет, значит
         // отправить человека искать поле ввода, которого тоже нет.
-        guard modelEnabled else { return t("Команды") }
-        return session.title.isEmpty ? t("Модель") : session.title
+        // Своё имя есть только у запущенной команды — оно и стоит в шапке,
+        // пока она отвечает. Всё остальное время панель зовётся так же,
+        // как плитка, которой её открыли.
+        return session.title.isEmpty ? t("Команды") : session.title
     }
 
     // MARK: - Ответ
