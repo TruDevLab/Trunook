@@ -105,6 +105,8 @@ struct SettingsView: View {
     @ObservedObject var weather: WeatherService
     /// Заметки: их число показывается в разделе, а очистка идёт через службу.
     @ObservedObject var notes: NotesService
+    /// Обновления: строка состояния и подпись кнопки живут от её состояния.
+    @ObservedObject var updates: UpdateService
     /// Поиск города. Живёт снаружи, а не в теле вида: `@State` в этом SDK
     /// недоступен, а полю ввода и списку найденного где-то держаться надо.
     @ObservedObject var placeSearch: WeatherPlaceSearch
@@ -264,8 +266,55 @@ struct SettingsView: View {
         }
     }
 
+    /// Состояние проверки и кнопка рядом с ним.
+    ///
+    /// Текст и подпись кнопки приходят из одной `UpdateStatusText.line(for:)`:
+    /// «Готово к установке» рядом с кнопкой «Проверить» было бы не опечаткой,
+    /// а обещанием, которого приложение не выполнит.
+    @ViewBuilder
+    private var updateStatusRow: some View {
+        let line = UpdateStatusText.line(for: updates.state)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(line.text).foregroundStyle(.secondary)
+                Spacer()
+                switch line.action {
+                case .check:
+                    Button(t("Проверить")) { updates.check(manual: true) }
+                case .install:
+                    Button(t("Обновить")) { updates.install() }
+                case .busy:
+                    Button(t("Проверить")) {}.disabled(true)
+                }
+            }
+            if case let .ready(release, _) = updates.state, let page = release.pageURL {
+                Link(t("Что нового"), destination: page)
+            }
+            if case .install = line.action {
+                hint(t("Приложение перезапустится. Доступы останутся выданными."))
+            }
+        }
+    }
+
     private var generalSection: some View {
         Group {
+                // Первой карточкой: с обновлением человек приходит сюда
+                // по плашке из выреза, и искать его среди мурчания и размера
+                // текста ему незачем.
+                section(t("Обновления"), icon: "arrow.down.circle") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(t("Проверять обновления"), isOn: settings.binding(\.autoUpdateEnabled))
+                        hint(t("Раз в сутки спрашивает GitHub и скачивает новую версию фоном."))
+                    }
+                    HStack {
+                        Text(t("Версия"))
+                        Spacer()
+                        Text(AppInfo.version).textSelection(.enabled)
+                            .foregroundStyle(.secondary)
+                    }
+                    updateStatusRow
+                }
+
                 section(t("Общие"), icon: "gearshape") {
                     Picker(t("Язык интерфейса"), selection: Binding(
                         get: { settings.language },
@@ -940,7 +989,7 @@ struct SettingsView: View {
                 // настроек. Одной строкой — чтобы `Form` не расчерчивал абзацы
                 // разделителями, будто каждый из них что-то отдельное включает.
                 VStack(alignment: .leading, spacing: 8) {
-                    hint(t("Прогноз берётся у open-meteo.com — единственный выход в интернет."))
+                    hint(t("Прогноз берётся у open-meteo.com."))
                     hint(t("Наружу уходят координаты, округлённые до километра."))
                 }
             }
@@ -2054,7 +2103,8 @@ struct SettingsView: View {
             }
 
             section(t("Что уходит наружу"), icon: "lock") {
-                info(t("Погода"), t("Координаты, округлённые до километра, уходят на open-meteo.com. Это единственное обращение в интернет."))
+                info(t("Погода"), t("Координаты, округлённые до километра, уходят на open-meteo.com."))
+                info(t("Обновления"), t("Раз в сутки приложение спрашивает у github.com, нет ли новой версии. Проверку можно выключить."))
                 info(t("Модель"), t("Запросы идут туда, чей адрес задан в разделе «ИИ». По умолчанию — на ваш же компьютер."))
                 info(t("Заметки"), t("Лежат в файле приложения. При поиске по ним текст уходит той же Ollama на вашем компьютере — и больше никуда."))
                 info(t("Буфер и полка"), t("Хранятся только у вас: история — в файле приложения, полка — ссылками на ваши же файлы."))

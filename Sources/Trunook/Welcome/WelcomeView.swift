@@ -571,6 +571,7 @@ struct WelcomeView: View {
                     }
                     weatherRow
                     launchRow
+                    updatesRow
                     ollamaRow
                     Text(t("Доступ выдаётся один раз и переживает обновления приложения. Отказ система запоминает — вернуть его можно только в Системных настройках."))
                         .font(.system(size: WelcomeStyle.caption, design: .rounded))
@@ -764,6 +765,36 @@ struct WelcomeView: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .tint(WelcomePalette.cyan)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+    }
+
+    /// Обновления — не разрешение, а единственное, кроме погоды, обращение
+    /// приложения в интернет. Сказать об этом надо там же, где спрашивают
+    /// про доступы: узнать о такой проверке из настроек, наткнувшись на неё
+    /// случайно, — худший способ о ней узнать.
+    private var updatesRow: some View {
+        WelcomeCard {
+            HStack(spacing: 13) {
+                WelcomeGlyph(symbol: "arrow.down.circle.fill", tint: WelcomePalette.mint, size: WelcomeStyle.tile)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Обновляться самому"))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(t("Раз в сутки спрашивает GitHub о новой версии и скачивает её фоном. Ставится по нажатию"))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                // Подпись скрыта визуально, но в дереве доступности остаётся:
+                // без неё выключатель объявлялся бы безымянным.
+                Toggle(t("Обновляться самому"), isOn: settings.binding(\.autoUpdateEnabled))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(WelcomePalette.cyan)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)

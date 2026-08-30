@@ -96,6 +96,13 @@ changed in settings or right in the welcome window.
   icon on the left, the time left on the right — and a click leads straight
   back to the choice of limit.
 
+- **Updates itself.** Once a day the app asks GitHub whether a newer version
+  exists and downloads it in the background. When it is ready, a pill appears
+  in the notch with a button: one tap installs the update and restarts the app.
+  What was downloaded is checked against the very signature the running app
+  carries, so granted permissions survive the update and you never clear
+  quarantine again. The check can be turned off.
+
 The interface is in Russian, English and Chinese — by default it follows the
 system.
 
@@ -146,9 +153,11 @@ separate service.
 
 ## What leaves your Mac
 
+- **Updates** — once a day the app asks github.com whether a newer version
+  exists and downloads it in the background. Nothing but the request itself
+  leaves your Mac. The check can be turned off in Settings.
 - **Weather** — coordinates rounded to a hundredth of a degree (about a
-  kilometre) go to open-meteo.com. That is the only request to the internet in
-  the whole app. You need not share your location at all: name a city in
+  kilometre) go to open-meteo.com. You need not share your location at all: name a city in
   Settings or on the permissions step of the welcome screen, and location
   access is never requested — only the name you typed leaves the machine.
 - **Model prompts** go to the address set in Settings. By default that is

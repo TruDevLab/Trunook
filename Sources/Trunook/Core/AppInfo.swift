@@ -8,10 +8,30 @@ enum AppInfo {
     }
 
     /// Версия для показа пользователю, например «0.1.0 (2608111447)».
+    ///
+    /// Разбирать эту строку обратно нельзя — она склеена для глаз. Для сравнения
+    /// с выпуском есть `current`.
     static var version: String {
-        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
-        return "\(short) (\(build))"
+        "\(shortVersion) (\(build))"
+    }
+
+    /// Только маркетинговый номер: «0.11.1». По нему и сравниваются выпуски.
+    static var shortVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+    }
+
+    /// Номер сборки из даты, например «2608301645».
+    ///
+    /// В сравнении версий не участвует: он про машину сборки, а не про выпуск.
+    /// Нужен, чтобы две сборки одного номера различались в журнале.
+    static var build: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+    }
+
+    /// Своя версия в сравнимом виде. `nil` — в бандле её нет, а значит
+    /// обновляться не от чего: сравнивать не с чем.
+    static var current: AppVersion? {
+        AppVersion(shortVersion)
     }
 
     /// Прежний идентификатор приложения — до переименования в Trunook.

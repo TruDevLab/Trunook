@@ -50,6 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.settings", #selector(openSettings)),
             ("com.trunook.debug.welcome", #selector(openWelcome)),
             ("com.trunook.debug.purr", #selector(testPurr)),
+            ("com.trunook.debug.update", #selector(checkForUpdates)),
+            ("com.trunook.debug.updatePill", #selector(testUpdatePill)),
+            ("com.trunook.debug.updateVerify", #selector(testUpdateVerify)),
+            ("com.trunook.debug.updateInstall", #selector(testUpdateInstall)),
             ("com.trunook.debug.clipboard", #selector(toggleClipboardPanel)),
             ("com.trunook.debug.clipboardUse", #selector(useClipboardSlot3)),
             ("com.trunook.debug.shelf", #selector(showShelf)),
@@ -133,6 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add(to: menu, title: t("Знакомство…"), action: #selector(openWelcome), key: "")
         menu.addItem(.separator())
         add(to: menu, title: t("Обновить сведения о треке"), action: #selector(refreshMusic), key: "r")
+        add(to: menu, title: t("Проверить обновления"), action: #selector(checkForUpdates), key: "")
         if DebugLog.isEnabled {
             menu.addItem(.separator())
             menu.addItem(debugMenu())
@@ -541,6 +546,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             clipboard: controller.clipboard,
             weather: controller.weather,
             notes: controller.notes,
+            updates: controller.updates,
             onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() },
             onLayoutChanged: { [weak self] in self?.controller.relayout() },
             onOpenWelcome: { [weak self] in self?.openWelcome() },
@@ -550,6 +556,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func refreshMusic() {
         controller.music.refresh()
+    }
+
+    /// Проверка рукой идёт всегда, даже при выключенной автопроверке:
+    /// иначе у пункта нет смысла.
+    @objc private func checkForUpdates() {
+        controller.updates.check(manual: true)
+    }
+
+    /// Установить скачанное. Нажать кнопку из отладочной сессии нечем:
+    /// синтетические клики до приложения не доходят.
+    @objc private func testUpdateInstall() {
+        controller.updates.install()
+    }
+
+    /// Плашка обновления с выдуманным номером: ждать настоящего выпуска ради
+    /// одной вёрстки — плохой цикл разработки.
+    @objc private func testUpdatePill() {
+        controller.activities.present(.update(version: "9.9.9"))
+    }
+
+    /// Проверка подписи на образе, лежащем в папке проекта, без установки.
+    ///
+    /// Тестом это не закрыть: нужен подписанный бандл и живая служба Security.
+    /// Проверять надо тем процессом, который этим будет пользоваться, —
+    /// скрипт под `swift` подписан Apple и ответит иначе.
+    @objc private func testUpdateVerify() {
+        let path = NSHomeDirectory() + "/Desktop/Trunook/Trunook-\(AppInfo.shortVersion).dmg"
+        let image = URL(fileURLWithPath: path)
+        guard let mounted = DiskImage.attach(image) else {
+            DebugLog.write("проверка подписи: образ \(path) не смонтировался")
+            return
+        }
+        defer { DiskImage.detach(mounted) }
+        guard let application = DiskImage.application(in: mounted.mountPoint) else {
+            DebugLog.write("проверка подписи: приложения на образе не нашлось")
+            return
+        }
+        switch CodeSignatureCheck.matchesSelf(application) {
+        case .valid:
+            DebugLog.write("проверка подписи: годно — \(application.lastPathComponent)")
+        case let .rejected(reason):
+            DebugLog.write("проверка подписи: отказ — \(reason.message)")
+        }
     }
 
     @objc private func quit() {

@@ -39,6 +39,9 @@ struct Activity: Identifiable, Equatable {
         case powerConnected(percentage: Int)
         case powerDisconnected(percentage: Int)
         case lowBattery(percentage: Int)
+        /// Обновление скачано и проверено, осталось нажать. Номер версии
+        /// строкой: плашке незачем знать про выпуск целиком.
+        case update(version: String)
     }
 
     /// Чем важнее событие, тем выше приоритет. Событие с приоритетом ниже
@@ -67,6 +70,9 @@ struct Activity: Identifiable, Equatable {
         case .caffeine: return 3
         // Ниже разряда: дождь через два часа подождёт, а батарея — нет.
         case .weather: return 2
+        // Вровень с погодой. Обновление ждало сутки и подождёт ещё девять
+        // секунд; встреча и вышедшее время — не подождут.
+        case .update: return 2
         case .powerConnected, .powerDisconnected: return 2
         case .trackChanged: return 1
         }
@@ -95,6 +101,10 @@ struct Activity: Identifiable, Equatable {
         case .shelf: return .infinity
         case .lowBattery: return 4
         case .weather: return 4
+        // Куда дольше прочих: в плашке кнопка, и в неё надо успеть попасть
+        // курсором. Четырёх секунд на это не хватает, а наведение на вырез
+        // уберёт её в любом случае.
+        case .update: return 30
         // Столько же, сколько смене трека, и по той же причине: нажимают
         // по чашке в раскрытой панели, а плашку видно только после того,
         // как курсор ушёл, — ей нужно время пережить этот уход.
@@ -110,7 +120,10 @@ struct Activity: Identifiable, Equatable {
     /// иначе до них было бы физически не дотянуться.
     var isInteractive: Bool {
         switch kind {
-        case .clipboard, .shelf: return true
+        // Обновление здесь по той же причине, что буфер и полка: в плашке
+        // кнопка, и убирайся плашка от первого же движения курсора — до кнопки
+        // было бы не дотянуться.
+        case .clipboard, .shelf, .update: return true
         default: return false
         }
     }
@@ -154,6 +167,7 @@ extension Activity.Kind {
         case .powerConnected: return "зарядка подключена"
         case .powerDisconnected: return "зарядка отключена"
         case .lowBattery: return "низкий заряд"
+        case .update: return "обновление"
         }
     }
 }

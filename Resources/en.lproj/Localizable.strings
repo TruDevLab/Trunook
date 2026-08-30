@@ -220,7 +220,6 @@
 "Нажатие по отсчёту до встречи" = "Clicking the meeting countdown";
 "Пока встреча близко, чёлка раздвигается обратным отсчётом. Нажмите по нему — раскроется главная панель." = "While a meeting is near, the notch widens with a countdown. Click it and the main panel opens.";
 "Что уходит наружу" = "What leaves your Mac";
-"Координаты, округлённые до километра, уходят на open-meteo.com. Это единственное обращение в интернет." = "Coordinates rounded to a kilometre go to open-meteo.com. That is the only request to the internet.";
 "Буфер и полка" = "Clipboard and shelf";
 "Хранятся только у вас: история — в файле приложения, полка — ссылками на ваши же файлы." = "Kept only on your Mac: history in the app's own file, the shelf as links to your own files.";
 "Текст лежит в файле приложения, в формате RTF. Наружу не уходит ничего." = "The text lives in the app's own file, as RTF. Nothing leaves the machine.";
@@ -556,7 +555,6 @@
 "Пока таймер идёт, чёлка показывает счёт." = "While the timer runs, the notch shows the count.";
 "После перезапуска полка пуста." = "The shelf is empty after a restart.";
 "Приложение запросит доступ к геопозиции." = "The app will ask for location access.";
-"Прогноз берётся у open-meteo.com — единственный выход в интернет." = "The forecast comes from open-meteo.com — the only internet access here.";
 "Процессор, память и диск. Нажатие открывает Мониторинг системы." = "CPU, memory and disk. A click opens Activity Monitor.";
 "Работает с любым плеером: сведения читаются из системы." = "Works with any player: track info comes from the system.";
 "Сколько заметок уходит модели. Больше — дольше ответ." = "How many notes go to the model. More means a slower answer.";
@@ -633,3 +631,34 @@
 "Добавить провайдера" = "Add a provider";
 "Ещё провайдер" = "One more provider";
 "Выбрать срок" = "Choose a limit";
+
+/* Обновления */
+"Обновления" = "Updates";
+"Проверять обновления" = "Check for updates";
+"Раз в сутки спрашивает GitHub и скачивает новую версию фоном." = "Asks GitHub once a day and downloads a new version in the background.";
+"Проверить" = "Check";
+"Проверить обновления" = "Check for Updates";
+"Что нового" = "What’s New";
+"Приложение перезапустится. Доступы останутся выданными." = "The app will restart. Permissions stay granted.";
+"Прогноз берётся у open-meteo.com." = "The forecast comes from open-meteo.com.";
+"Координаты, округлённые до километра, уходят на open-meteo.com." = "Coordinates rounded to a kilometre go to open-meteo.com.";
+"Раз в сутки приложение спрашивает у github.com, нет ли новой версии. Проверку можно выключить." = "Once a day the app asks github.com whether a newer version exists. The check can be turned off.";
+"Не удалось связаться с GitHub" = "Could not reach GitHub";
+"Слишком много проверок, попробуйте позже" = "Too many checks, try again later";
+"Ответ GitHub не разобран" = "GitHub’s reply could not be read";
+"Контрольная сумма не сошлась" = "The checksum does not match";
+"Скачанное приложение не подписано" = "The downloaded app is not signed";
+"Обновление подписано другим сертификатом" = "The update is signed with a different certificate";
+"Скачанное приложение повреждено" = "The downloaded app is damaged";
+"Нет прав на запись в папку приложения" = "No permission to write to the app’s folder";
+"Перетащите Trunook в «Программы»" = "Drag Trunook to Applications";
+"Не хватает места на диске" = "Not enough disk space";
+"Установка не удалась" = "Installation failed";
+"Проверяем…" = "Checking…";
+"Версия последняя" = "You have the latest version";
+"Загрузка %d %%" = "Downloading %d %%";
+"Готово к установке %@" = "%@ is ready to install";
+"Устанавливаем…" = "Installing…";
+"Вышла новая версия %@" = "Version %@ is out";
+"Обновляться самому" = "Update itself";
+"Раз в сутки спрашивает GitHub о новой версии и скачивает её фоном. Ставится по нажатию" = "Asks GitHub about a new version once a day and downloads it in the background. Installs at a tap";

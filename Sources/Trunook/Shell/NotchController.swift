@@ -23,6 +23,7 @@ final class NotchController {
     let shelf = ShelfStore()
     let timer = TimerService()
     let monitor = MonitorService()
+    let updates = UpdateService()
     /// Текст телесуфлера. У контроллера, а не у окна: телесуфлер живёт
     /// накладкой в вырезе — у самой камеры, — и своего окна у него нет.
     let teleprompter = TeleprompterStore()
@@ -127,6 +128,7 @@ final class NotchController {
         weather.stop()
         timer.stop()
         monitor.stop()
+        updates.stop()
         alerts.stop()
         calendarObservation = nil
         thingsObservation = nil
@@ -276,6 +278,14 @@ final class NotchController {
             self?.activities.present(.weather(text: text, symbol: symbol))
         }
         weather.start()
+
+        // Плашка показывается один раз за запуск и только на готовом
+        // к установке: загрузка тихая по замыслу, а отказы человек увидит
+        // в настройках, когда сам туда придёт.
+        updates.onReady = { [weak self] release in
+            self?.activities.present(.update(version: release.version.text))
+        }
+        updates.start()
 
         calendar.start()
         things.start()
@@ -1896,6 +1906,7 @@ final class NotchController {
             onTap: { [weak self] in self?.expandPanel() },
             onOpenSettings: { [weak self] in self?.onOpenSettings?() },
             onJoin: { [weak self] url in self?.join(url) },
+            onInstallUpdate: { [weak self] in self?.updates.install() },
             onRunCommand: { [weak self] command in self?.runCommandFromPanel(command) },
             onClearCapture: { [weak self] in self?.assistant.clearCapture() },
             onToggleCapture: { [weak self] in self?.assistant.isCaptureExpanded.toggle() },

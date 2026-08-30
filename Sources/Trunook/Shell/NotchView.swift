@@ -155,6 +155,9 @@ struct NotchView: View {
     let onTap: () -> Void
     let onOpenSettings: () -> Void
     let onJoin: (URL) -> Void
+    /// Поставить скачанное обновление. Приложение при этом выйдет: дальше
+    /// работает подменщик.
+    let onInstallUpdate: () -> Void
     /// Запустить команду из списка под полем вопроса.
     let onRunCommand: (QuickCommand) -> Void
     /// Убрать захваченный текст с плашки.
@@ -506,6 +509,9 @@ struct NotchView: View {
     private func openInteractive(_ activity: Activity) {
         switch activity.kind {
         case .shelf: onOpenShelf()
+        // Тело плашки — «расскажи подробнее», капсула — «ставь». Без этой
+        // ветки `default` открывал бы по обновлению историю буфера.
+        case .update: onOpenSettings()
         default: onOpenClipboard()
         }
     }
@@ -644,6 +650,7 @@ struct NotchView: View {
                     track: music.nowPlaying,
                     metrics: metrics,
                     onJoin: onJoin,
+                    onInstallUpdate: onInstallUpdate,
                     onDismiss: onDismissActivity,
                     onOpen: { openInteractive(activity) },
                     onSaveToNotes: onSaveClipboardToNotes,

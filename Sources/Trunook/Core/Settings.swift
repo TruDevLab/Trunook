@@ -60,6 +60,31 @@ final class Settings: ObservableObject {
         set { store(newValue, "expandOnHover") }
     }
 
+    /// Проверять новые версии на GitHub и скачивать их фоном.
+    ///
+    /// Включено по умолчанию: выключенный автообновлятель бесполезен — про
+    /// переключатель, который надо сперва найти, никто не узнает. Взамен
+    /// про эту проверку прямо сказано в разделе «Инфо»: приложение перестало
+    /// ходить в интернет только за погодой.
+    var autoUpdateEnabled: Bool {
+        get { flag("autoUpdateEnabled", default: true) }
+        set { store(newValue, "autoUpdateEnabled") }
+    }
+
+    /// Когда GitHub спрашивали в последний раз. Пишется только при удачной
+    /// проверке: иначе неделя без сети стала бы неделей без проверок вовсе.
+    var lastUpdateCheck: Date? {
+        get { defaults.object(forKey: "lastUpdateCheck") as? Date }
+        set {
+            guard let newValue else {
+                objectWillChange.send()
+                defaults.removeObject(forKey: "lastUpdateCheck")
+                return
+            }
+            store(newValue, "lastUpdateCheck")
+        }
+    }
+
     // MARK: - Музыка
 
     var musicEnabled: Bool {

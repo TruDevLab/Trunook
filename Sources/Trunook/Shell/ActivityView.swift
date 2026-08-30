@@ -59,11 +59,19 @@ struct ActivityLayout {
 }
 
 /// Плашка события — компактная панель, выпадающая из-под выреза.
+/// Что делает кнопка-капсула справа в плашке.
+enum ActivityButton: Equatable {
+    case join(URL)
+    case installUpdate
+}
+
 struct ActivityView: View {
     let activity: Activity
     let track: NowPlaying?
     let metrics: NotchMetrics
     let onJoin: (URL) -> Void
+    /// Поставить скачанное обновление и перезапуститься.
+    let onInstallUpdate: () -> Void
     /// Убрать плашку крестиком. Есть только у тех, что не уходят сами.
     let onDismiss: () -> Void
     /// Нажатие по самой плашке. У неинтерактивных не вызывается.
@@ -84,7 +92,7 @@ struct ActivityView: View {
             text: text(for: kind, track: track),
             trailing: trailing(for: kind),
             minimumWidth: metrics.closed.width,
-            trailingIsButton: joinLink(for: kind) != nil,
+            trailingIsButton: button(for: kind) != nil,
             trailingExtra: sideButtonCount(kind, notesEnabled: notesEnabled) * sideButtonWidth
         )
     }
@@ -124,10 +132,22 @@ struct ActivityView: View {
         return false
     }
 
-    /// Ссылка, ради которой в плашке появляется кнопка.
-    static func joinLink(for kind: Activity.Kind) -> URL? {
-        guard case let .meeting(item, _) = kind else { return nil }
-        return item.link?.url
+    /// Что делает кнопка-капсула, если она в плашке есть.
+    ///
+    /// Одной функцией на оба применения нарочно: по её ответу и отмеряется
+    /// место под кнопку (`trailingIsButton`), и рисуется сама кнопка. Пока
+    /// это были две отдельные проверки — на ссылку встречи в расчёте ширины
+    /// и на неё же в вёрстке, — им полагалось молча совпадать, а это ровно
+    /// тот сорт уговора, который однажды нарушают.
+    static func button(for kind: Activity.Kind) -> ActivityButton? {
+        switch kind {
+        case let .meeting(item, _):
+            return (item.link?.url).map(ActivityButton.join)
+        case .update:
+            return .installUpdate
+        default:
+            return nil
+        }
     }
 
     private var layout: ActivityLayout {
@@ -220,8 +240,8 @@ struct ActivityView: View {
                 startDate: activity.createdAt
             )
 
-            if let link = Self.joinLink(for: activity.kind) {
-                Button { onJoin(link) } label: {
+            if let action = Self.button(for: activity.kind) {
+                Button { perform(action) } label: {
                     Text(Self.trailing(for: activity.kind) ?? t("Подключиться"))
                         .font(Font(ActivityLayout.trailingFont))
                         .foregroundStyle(.white)
@@ -285,6 +305,8 @@ struct ActivityView: View {
             iconTile("bolt.slash.fill")
         case .lowBattery:
             iconTile("battery.25")
+        case .update:
+            iconTile("arrow.down.circle.fill")
         }
     }
 
@@ -322,6 +344,8 @@ struct ActivityView: View {
             return t("Работа от батареи")
         case .lowBattery:
             return t("Низкий заряд")
+        case let .update(version):
+            return tf("Вышла новая версия %@", version)
         }
     }
 
@@ -349,6 +373,8 @@ struct ActivityView: View {
              let .powerDisconnected(percentage),
              let .lowBattery(percentage):
             return "\(percentage)%"
+        case .update:
+            return t("Обновить")
         }
     }
 
@@ -381,7 +407,17 @@ struct ActivityView: View {
         case let .meeting(item, _): return item.color
         case .powerConnected: return Palette.positive
         case .lowBattery: return Palette.warning
+        // Мятный, а не янтарный: янтарь в этом наборе означает «что-то
+        // не так», а готовое обновление — хорошая новость.
+        case .update: return Palette.positive
         case .powerDisconnected, .trackChanged: return Palette.panel
+        }
+    }
+
+    private func perform(_ action: ActivityButton) {
+        switch action {
+        case let .join(link): onJoin(link)
+        case .installUpdate: onInstallUpdate()
         }
     }
 
