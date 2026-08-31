@@ -662,3 +662,11 @@
 "Вышла новая версия %@" = "Version %@ is out";
 "Обновляться самому" = "Update itself";
 "Раз в сутки спрашивает GitHub о новой версии и скачивает её фоном. Ставится по нажатию" = "Asks GitHub about a new version once a day and downloads it in the background. Installs at a tap";
+"Основные" = "General";
+"В вырезе" = "In the notch";
+"Инструменты" = "Tools";
+"Прозрачнее" = "More transparent";
+"Матовее" = "More frosted";
+"Непрозрачный" = "Opaque";
+"Прозрачность выреза" = "Notch transparency";
+"До упора вправо — сплошной чёрный вырез, как было." = "All the way right brings back the solid black notch.";

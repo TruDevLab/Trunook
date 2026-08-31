@@ -550,7 +550,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() },
             onLayoutChanged: { [weak self] in self?.controller.relayout() },
             onOpenWelcome: { [weak self] in self?.openWelcome() },
-            onPreviewVoice: { [weak self] in self?.controller.speakVoiceSample() }
+            onPreviewVoice: { [weak self] in self?.controller.speakVoiceSample() },
+            // Ползунок прозрачности меняет вид выреза из другого окна —
+            // и держит его раскрытым, пока человек смотрит.
+            onPreviewNotch: { [weak self] seconds in
+                self?.controller.holdOpen(seconds: seconds)
+            }
         )
     }
 

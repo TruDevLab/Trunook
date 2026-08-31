@@ -30,25 +30,38 @@ struct MonitorPanel: View {
         } trailing: {
             NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
         } content: {
-            HStack(spacing: NotchStyle.gridSpacing) {
-                tile(
-                    symbol: "cpu",
-                    name: t("Процессор"),
-                    share: monitor.sample.cpu,
-                    caption: cpuCaption
-                )
-                tile(
-                    symbol: "memorychip",
-                    name: t("Память"),
-                    share: monitor.sample.memoryShare,
-                    caption: memoryCaption
-                )
-                tile(
-                    symbol: "internaldrive",
-                    name: t("Диск"),
-                    share: monitor.sample.diskShare,
-                    caption: diskCaption
-                )
+            // Группа стеклянных поверхностей: три плитки тянутся друг к другу
+            // и читаются одним блоком с тремя долями, а не тремя одинаковыми
+            // прямоугольниками на чёрном.
+            //
+            // Плитки при этом не убраны, хотя разбор и предлагал убрать:
+            // они кнопки, по ним открывается Мониторинг системы. Без подложки
+            // исчезает и признак нажимаемости, и отклик на курсор — а жалоба
+            // была на плоскость, и лечит её стекло, а не отсутствие плитки.
+            //
+            // Группа здесь безопасна: ровно три плитки жёсткой высоты,
+            // содержимое размер панели не задаёт.
+            GlassGroup(spacing: NotchStyle.gridSpacing) {
+                HStack(spacing: NotchStyle.gridSpacing) {
+                    tile(
+                        symbol: "cpu",
+                        name: t("Процессор"),
+                        share: monitor.sample.cpu,
+                        caption: cpuCaption
+                    )
+                    tile(
+                        symbol: "memorychip",
+                        name: t("Память"),
+                        share: monitor.sample.memoryShare,
+                        caption: memoryCaption
+                    )
+                    tile(
+                        symbol: "internaldrive",
+                        name: t("Диск"),
+                        share: monitor.sample.diskShare,
+                        caption: diskCaption
+                    )
+                }
             }
             .frame(height: Self.tileHeight)
         }

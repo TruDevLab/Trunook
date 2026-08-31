@@ -19,6 +19,11 @@ enum WelcomePalette {
     static let cyan = Palette.cyan
     static let violet = Palette.violet
     static let mint = Palette.mint
+    // Янтарный и розовый псевдонимов не имели, и это стоило одной ошибки:
+    // отказанный доступ красился голым `Color.orange` — мимо палитры,
+    // мимо смысла и мимо всего, что `Palette` про это говорит.
+    static let amber = Palette.amber
+    static let rose = Palette.rose
 
     static let accent = LinearGradient(
         colors: [cyan, violet],

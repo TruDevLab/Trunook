@@ -11,24 +11,19 @@ final class SettingsSelection: ObservableObject {
         // на модели держатся и команды, и заметки, и голос. Человек, у которого
         // не работает ни одно из трёх, ищет причину там, где её включают, —
         // а раздел был третьим, за командами, то есть за одним из следствий.
-        case general, model, commands, voice, notes, clipboard, shelf, timer, monitor, teleprompter, calendar, weather, battery, info
+        case general, model, commands, voice, notes, calendar, inNotch, tools, info
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .general: return t("Общие")
+            case .general: return t("Основные")
             case .commands: return t("Команды")
             case .model: return t("ИИ")
             case .voice: return t("Голос")
-            case .clipboard: return t("Буфер")
             case .notes: return t("Заметки")
-            case .shelf: return t("Полка")
-            case .timer: return t("Таймер")
-            case .monitor: return t("Нагрузка")
-            case .teleprompter: return t("Телесуфлер")
             case .calendar: return t("Календарь")
-            case .weather: return t("Погода")
-            case .battery: return t("Батарея")
+            case .inNotch: return t("В вырезе")
+            case .tools: return t("Инструменты")
             case .info: return t("Инфо")
             }
         }
@@ -39,15 +34,12 @@ final class SettingsSelection: ObservableObject {
             case .commands: return "square.grid.2x2.fill"
             case .model: return "sparkles"
             case .voice: return "waveform"
-            case .clipboard: return "doc.on.clipboard.fill"
             case .notes: return "list.bullet.rectangle"
-            case .shelf: return "tray.full.fill"
-            case .timer: return "timer"
-            case .monitor: return "gauge.with.dots.needle.67percent"
-            case .teleprompter: return "text.alignleft"
             case .calendar: return "calendar"
-            case .weather: return "cloud.sun.fill"
-            case .battery: return "battery.100"
+            // Вырез своей формой: раздел про то, что показывает он сам.
+            case .inNotch: return "macbook.gen2"
+            // Ящик с инструментом — то, за чем тянутся рукой.
+            case .tools: return "wrench.and.screwdriver.fill"
             case .info: return "info"
             }
         }
@@ -59,19 +51,12 @@ final class SettingsSelection: ObservableObject {
             case .general: return Palette.neutral
             case .commands: return Palette.commands
             case .model: return Palette.assistant
-            // Тем же цветом, что и модель: голос — это она же, только
-            // услышанная. Свой цвет разводил бы одно занятие на два.
-            case .voice: return Palette.assistant
-            case .clipboard: return Palette.clipboard
-            case .notes: return Palette.assistant
-            case .shelf: return Palette.shelf
-            case .timer: return Palette.timer
-            case .monitor: return Palette.monitor
-            case .teleprompter: return Palette.teleprompter
+            case .voice: return Palette.voice
+            case .notes: return Palette.notes
             case .calendar: return Palette.calendar
-            case .weather: return Palette.weather
-            case .battery: return Palette.positive
-            case .info: return Palette.welcome
+            case .inNotch: return Palette.clipboard
+            case .tools: return Palette.shelf
+            case .info: return Palette.neutral
             }
         }
     }
@@ -131,6 +116,12 @@ struct SettingsView: View {
     /// Прочитать образец выбранным голосом. Выбирать его иначе нечем:
     /// у голосов случайные имена, а разница между ними — только на слух.
     let onPreviewVoice: () -> Void
+    /// Подержать вырез раскрытым, пока человек смотрит на то, что настраивает.
+    ///
+    /// Ползунок прозрачности меняет вид выреза, а живёт в другом окне: панель
+    /// раскрывается по наведению, и курсор в этот миг держит ползунок —
+    /// настройку крутили бы вслепую.
+    let onPreviewNotch: (TimeInterval) -> Void
 
     static var sidebarWidth: CGFloat { SettingsStyle.sidebarWidth }
     static var size: CGSize { SettingsStyle.windowSize }
@@ -230,19 +221,14 @@ struct SettingsView: View {
         Form {
             Group {
                 switch selection.tab {
-                case .timer: timerSection
-                case .monitor: monitorSection
-                case .teleprompter: teleprompterSection
                 case .general: generalSection
-                case .commands: commandsSection
                 case .model: modelSection
+                case .commands: commandsSection
                 case .voice: voiceSection
-                case .clipboard: clipboardSection
                 case .notes: notesSection
-                case .shelf: shelfSection
                 case .calendar: calendarSection
-                case .weather: weatherSection
-                case .battery: batterySection
+                case .inNotch: inNotchSection
+                case .tools: toolsSection
                 case .info: infoSection
                 }
             }
@@ -334,6 +320,47 @@ struct SettingsView: View {
                     Toggle(t("Раскрывать вырез при наведении"), isOn: settings.binding(\.expandOnHover))
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
+                            Text(t("Прозрачность выреза"))
+                            Spacer()
+                            // Слово рядом с ползунком: доля сама по себе
+                            // ничего не значит, мнение бывает о «матовее»,
+                            // а не о «шестидесяти процентах».
+                            Text(Surface.DensityScale.title(for: settings.notchDensity))
+                                .foregroundStyle(SettingsStyle.secondary)
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { Double(settings.notchDensity) },
+                                set: {
+                                    settings.notchDensity = Int($0.rounded())
+                                    // Вырез раскрывается на время правки:
+                                    // иначе прозрачность настраивают вслепую —
+                                    // панель показывается по наведению,
+                                    // а курсор держит ползунок.
+                                    //
+                                    // Срок короткий и продлевается каждым
+                                    // движением: отпустил — через пару секунд
+                                    // вырез сам вернётся к своему делу.
+                                    onPreviewNotch(2)
+                                }
+                            ),
+                            in: 0...Double(Surface.DensityScale.opaque),
+                            // Шаг, а не плавный ход: соседние доли на глаз
+                            // не различаются, и плавный ползунок обещал бы
+                            // разницу, которой нет.
+                            step: 5,
+                            // Раскрыть и в тот миг, когда ползунок только
+                            // взяли: человек мог взяться и держать, ничего
+                            // ещё не сдвинув, — а смотреть уже начал.
+                            onEditingChanged: { editing in
+                                if editing { onPreviewNotch(4) }
+                            }
+                        )
+                        .frame(maxWidth: SettingsStyle.pickerWidth)
+                        hint(t("До упора вправо — сплошной чёрный вырез, как было."))
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
                             Text(t("Раскрыть панель"))
                             Spacer()
                             HotKeyRecorder(spec: Binding(
@@ -386,38 +413,8 @@ struct SettingsView: View {
                         hint(t("Жесты, сочетания и доступы."))
                     }
                 }
-
-                // Выбор срока отсюда ушёл: он появился в самой панели чашки —
-                // там же, где отсчёт и кнопка «Выключить». Настройка «что
-                // предлагать по умолчанию» пережила появление живого выбора
-                // и стала лишней: решение одно, а мест, где его принимают,
-                // стало два. Осталось то, чего в вырезе нет, — сам показ.
-                section(t("Чашка кофе"), icon: "cup.and.saucer") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Toggle(t("Показывать чашку"), isOn: settings.binding(\.caffeineEnabled))
-                        hint(t("Пока включена, экран не гаснет. Срок задаётся нажатием по чашке."))
-                        hint(t("Удержание не переживает перезапуск приложения."))
-                    }
-                }
-
-                section(t("Музыка"), icon: "music.note") {
-                    Toggle(t("Управление музыкой"), isOn: settings.binding(\.musicEnabled))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Toggle(t("Показывать смену трека"), isOn: settings.binding(\.showTrackChanges))
-                            .disabled(!settings.musicEnabled)
-                        hint(t("Работает с любым плеером: сведения читаются из системы."))
-                        hint(t("Свайп двумя пальцами по острову переключает трек."))
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Toggle(t("Поменять стороны свайпа"), isOn: settings.binding(\.swipeInverted))
-                            .disabled(!settings.musicEnabled)
-                    }
-                }
-
         }
     }
-
 
     private var voiceSection: some View {
         Group {
@@ -1134,6 +1131,75 @@ struct SettingsView: View {
             .pickerStyle(.menu)
             .frame(maxWidth: SettingsStyle.resultWidth, alignment: .leading)
             .disabled(!settings.batteryEnabled || !settings.warnOnLowBattery)
+        }
+    }
+
+    /// Чашка кофе. Живёт в «Инструментах»: её включают руками, как таймер
+    /// и полку, — а стояла она в «Общих» просто потому, что туда попала.
+    private var caffeineCard: some View {
+        Group {
+                // Выбор срока отсюда ушёл: он появился в самой панели чашки —
+                // там же, где отсчёт и кнопка «Выключить». Настройка «что
+                // предлагать по умолчанию» пережила появление живого выбора
+                // и стала лишней: решение одно, а мест, где его принимают,
+                // стало два. Осталось то, чего в вырезе нет, — сам показ.
+                section(t("Чашка кофе"), icon: "cup.and.saucer") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(t("Показывать чашку"), isOn: settings.binding(\.caffeineEnabled))
+                        hint(t("Пока включена, экран не гаснет. Срок задаётся нажатием по чашке."))
+                        hint(t("Удержание не переживает перезапуск приложения."))
+                    }
+                }
+        }
+    }
+
+    /// Музыка. Живёт в «В вырезе»: вырез показывает трек сам, без спроса.
+    private var musicCard: some View {
+        Group {
+                section(t("Музыка"), icon: "music.note") {
+                    Toggle(t("Управление музыкой"), isOn: settings.binding(\.musicEnabled))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(t("Показывать смену трека"), isOn: settings.binding(\.showTrackChanges))
+                            .disabled(!settings.musicEnabled)
+                        hint(t("Работает с любым плеером: сведения читаются из системы."))
+                        hint(t("Свайп двумя пальцами по острову переключает трек."))
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(t("Поменять стороны свайпа"), isOn: settings.binding(\.swipeInverted))
+                            .disabled(!settings.musicEnabled)
+                    }
+                }
+        }
+    }
+
+    /// Что вырез показывает **сам**, без спроса: трек, погода, питание.
+    ///
+    /// Признак деления назван словами, и в этом весь смысл перестройки:
+    /// пятнадцать разделов делились по функциям, то есть ни по чему —
+    /// предсказать, где искать музыку, было нельзя, её приходилось помнить.
+    private var inNotchSection: some View {
+        Group {
+            musicCard
+            weatherSection
+            batterySection
+        }
+    }
+
+    /// Что **вызывают руками**: буфер, полка, таймер, нагрузка, телесуфлер,
+    /// чашка.
+    ///
+    /// Шесть карточек — не перегрузка: у каждой один-два переключателя
+    /// и сочетание клавиш. Вместе выходит короче прежних «Общих», где было
+    /// десять переключателей и двенадцать пояснений.
+    private var toolsSection: some View {
+        Group {
+            clipboardSection
+            shelfSection
+            timerSection
+            monitorSection
+            teleprompterSection
+            caffeineCard
         }
     }
 

@@ -25,7 +25,7 @@ struct CaffeinePanel: View {
     static let bodyPadding: CGFloat = NotchStyle.bottomPadding
 
     private static var statusHeight: CGFloat { NotchStyle.scaled(22) }
-    private static var rowHeight: CGFloat { NotchStyle.scaled(28) }
+    private static var rowHeight: CGFloat { NotchStyle.rowHeight }
 
     static func height(notchHeight: CGFloat) -> CGFloat {
         NotchStyle.height(
@@ -37,7 +37,12 @@ struct CaffeinePanel: View {
     var body: some View {
         NotchPanel(metrics: metrics, width: Self.width, bodyPadding: Self.bodyPadding) {
             NotchPanelTitle(
-                symbol: "cup.and.saucer.fill",
+                // Контурная, как во всех шапках: рядом стоит слово, узнавание
+                // держится на нём. Залитая была здесь единственным
+                // нарушением правила на всё приложение — см. `NotchStyle`,
+                // «Начертание значков». В самом вырезе чашка залитая:
+                // там она стоит одна и опереться ей не на что.
+                symbol: "cup.and.saucer",
                 title: t("Бодрость"),
                 tint: Palette.caffeine
             )

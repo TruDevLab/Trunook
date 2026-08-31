@@ -41,13 +41,22 @@ enum WeatherCondition: String, Equatable {
         }
     }
 
+    /// Цвет погоды — из `Palette`, а не системный.
+    ///
+    /// Были `.yellow`, `.cyan` и `.orange` по месту. Системные рассчитаны
+    /// на оба режима и на чёрном теле выреза заметно тусклее собственных;
+    /// а главное — бирюзовый дождя расходился с бирюзовым всего остального
+    /// приложения, оставаясь при этом «тем же самым» цветом на словах.
+    ///
+    /// Гроза розовая, а не янтарная: янтарным светит ясное солнце,
+    /// и два противоположных состояния неба одним цветом не показать.
     var tint: Color {
         switch self {
-        case .clear: return .yellow
+        case .clear: return Palette.amber
         case .cloudy, .fog: return .white.opacity(0.7)
-        case .drizzle, .rain: return .cyan
+        case .drizzle, .rain: return Palette.cyan
         case .snow: return .white
-        case .thunder: return .orange
+        case .thunder: return Palette.rose
         }
     }
 

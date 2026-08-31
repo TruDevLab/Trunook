@@ -332,9 +332,198 @@ struct NotchView: View {
         .easeOut(duration: 0.14).delay(isOpen ? 0.10 : 0)
     }
 
+    /// Рисовать ли стекло в вырезе.
+    ///
+    /// Спрашивается у `Surface`, а не у настроек напрямую: условий три —
+    /// система умеет, человек не отказался, съёмка не идёт, — и держать их
+    /// врозь значит однажды забыть одно.
+    ///
+    /// Пятое условие своё: стекла не получает только свёрнутый вырез —
+    /// он и есть силуэт аппаратной вырезки. Почему остальные получают,
+    /// включая полоски, — у `NotchPresentation.usesGlass`.
+    private var glassInNotch: Bool { Surface.inNotch && presentation.usesGlass }
+
+    /// Растворять ли черноту железа в панели.
+    ///
+    /// Отдельно от `glassInNotch`: растворение — обычный градиент, и режим
+    /// плоской съёмки его не касается. Иначе на снимке вырез сплошь чёрный,
+    /// и длину перехода приходится подбирать вслепую.
+    private var translucentNotch: Bool {
+        Surface.notchIsTranslucent && presentation.usesGlass
+    }
+
+    /// Подложка острова: стекло на всю форму, поверх него — чернота железа.
+    ///
+    /// Полоса высотой с аппаратную вырезку остаётся непрозрачно чёрной
+    /// всегда. Там остров неотличим от самой вырезки — в этом весь его вид, —
+    /// и стекло на этом месте показывало бы обои сквозь железо. Ниже
+    /// начинается панель, и она стеклянная: остров не всплывает поверх
+    /// экрана, он вытекает из железа.
+    ///
+    /// Свёрнутый вырез остаётся чёрным сам собой, без отдельной ветки: его
+    /// высота равна высоте чёлки, и чёрная полоса покрывает его целиком.
+    private var background: some View {
+        ZStack(alignment: .top) {
+            Color.clear.panelGlass(in: shape, glass: glassInNotch)
+            // Общее затемнение под стеклом. Панель несёт текст и без всякой
+            // плитки под ним — заголовок в крыле, подпись под чёлкой, —
+            // а лестница прозрачностей считалась под чёрное. Затемнение
+            // возвращает ей это основание, не отнимая прозрачности.
+            shape.fill(.black.opacity(glassInNotch ? Surface.panelScrim : 0))
+            // Подмена стекла на время съёмки: стекло попадает в снимок
+            // мусором, а без него панель осталась бы дырой в рабочий стол.
+            // В обычной работе — ноль, то есть ничего.
+            shape.fill(.black.opacity(standInFill))
+            // Чернота растворяется в обе стороны сразу: вниз — от чёлки
+            // к низу панели, вбок — от чёлки к крыльям. Маска перемножает
+            // прозрачности, и вместе они дают спад от самой вырезки во все
+            // стороны: остров вытекает из железа, а не выпадает из-под
+            // чёрной планки во всю ширину.
+            LinearGradient(stops: ironStops, startPoint: .top, endPoint: .bottom)
+                .mask(ironMaskAcross)
+        }
+    }
+
+    /// Растворение вбок: непрозрачно над самой чёлкой, к краям панели сходит
+    /// на нет.
+    ///
+    /// Той же кривой, что и вниз: два разных закона спада в одном пятне
+    /// читались бы углом.
+    private var ironMaskAcross: some View {
+        let width = max(1, size.width)
+        // Половина ширины сплошной черноты — ровно половина вырезки, без
+        // запаса. Запас нужен был по высоте, и туда он и ушёл: вбок чернота
+        // и так расходилась верно.
+        //
+        // При непрозрачном вырезе половина — это вся панель: склоны уезжают
+        // за края, и маска остаётся сплошной. Значение вместо ветки.
+        let half = translucentNotch
+            ? min(0.5, (metrics.notchWidth / 2) / width)
+            : 0.5
+        let span = translucentNotch ? min(0.5 - half, NotchStyle.ironFadeX / width) : 0
+
+        let curve = NotchStyle.ironCurve
+        let last = max(1, curve.count - 1)
+        var stops: [Gradient.Stop] = []
+        // Левый склон: снаружи прозрачно, у кромки чёлки непрозрачно.
+        for (index, opacity) in curve.reversed().enumerated() {
+            stops.append(Gradient.Stop(
+                color: .white.opacity(opacity),
+                location: 0.5 - half - span + span * CGFloat(index) / CGFloat(last)
+            ))
+        }
+        // Правый — зеркально. Между склонами обе кромки непрозрачны,
+        // и полоса над чёлкой остаётся сплошной.
+        for (index, opacity) in curve.enumerated() {
+            stops.append(Gradient.Stop(
+                color: .white.opacity(opacity),
+                location: 0.5 + half + span * CGFloat(index) / CGFloat(last)
+            ))
+        }
+        return ZStack(alignment: .top) {
+            LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
+            // Полоса по верхней кромке боковому растворению не подчиняется:
+            // ею остров держится за край экрана вогнутыми плечами формы.
+            // Наложение поверх маски — значит объединение: где полоса
+            // непрозрачна, там непрозрачна и маска, что бы ни говорил
+            // боковой градиент.
+            LinearGradient(stops: attachStops(height: max(1, size.height)),
+                           startPoint: .top, endPoint: .bottom)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// Ступени полосы крепления: непрозрачно у самой кромки, дальше сходит
+    /// на нет той же кривой, что и всё остальное растворение.
+    private func attachStops(height: CGFloat) -> [Gradient.Stop] {
+        guard translucentNotch else {
+            return [Gradient.Stop(color: .white, location: 0),
+                    Gradient.Stop(color: .white, location: 1)]
+        }
+        // Полоса достаётся одной плашке события — почему, у
+        // `NotchPresentation.keepsAttachCorners`. Остальным ноль, и это
+        // значение, а не ветка: нулевая полоса просто ничего не рисует.
+        //
+        // Привязана и к росту фигуры: четырнадцать точек сплошного плюс
+        // растворение съели бы низкую плашку целиком. Растворение вдвое
+        // длиннее сплошной части — полоса обязана удержать кромку,
+        // а не заменить собой весь переход.
+        //
+        // Сплошная часть не короче вогнутого плеча формы: плечо и есть тот
+        // уголок, которым остров держится за кромку. Полоса, оказавшаяся
+        // короче него, оставила бы верх уголка на стекле — а именно он
+        // и виден как место крепления.
+        let attach = presentation.keepsAttachCorners
+            ? max(NotchStyle.shoulderInset,
+                  min(NotchStyle.ironAttach, height * NotchStyle.ironAttachShare))
+            : 0
+        // Потолок на полосу вместе с растворением под ней: на полоске
+        // отсчёта, немногим более высокой, чем сама чёлка, они вдвоём
+        // закрывали всё, и стекла у неё не оставалось вовсе.
+        let ceiling = height * NotchStyle.ironAttachCeiling
+        let solid = min(1, min(attach, ceiling) / height)
+        let span = max(0, min(1 - solid, (ceiling - attach) / height))
+        // Сила полосы — множитель, а не выключатель. Выключенная нулевой
+        // высотой, она всё равно красила самую верхнюю строку: ступени
+        // сходились в точку, а первая из них непрозрачна по построению.
+        // Замер по снимку полоски таймера поймал там альфу 0,94 вместо нуля.
+        let strength: Double = presentation.keepsAttachCorners ? 1 : 0
+
+        let curve = NotchStyle.ironCurve
+        let last = max(1, curve.count - 1)
+        return curve.enumerated().map { index, opacity in
+            Gradient.Stop(
+                color: .white.opacity(opacity * strength),
+                location: solid + span * CGFloat(index) / CGFloat(last)
+            )
+        }
+    }
+
+    /// Чем закрыт низ панели, пока идёт плоская съёмка.
+    ///
+    /// Значение, а не ветка: в обычной работе просто ноль.
+    private var standInFill: Double {
+        translucentNotch && !glassInNotch ? Surface.snapshotStandIn : 0
+    }
+
+    /// Переход от черноты к стеклу.
+    ///
+    /// Отказ от стекла проведён **значением**, а не веткой: при выключенном
+    /// стекле обе точки уезжают в единицу, и градиент становится сплошной
+    /// чернотой — той самой заливкой, что была здесь раньше. Ветка `if`
+    /// поменяла бы тождество вида, и SwiftUI пересобрал бы поддерево вместо
+    /// перехода; на этом уже ловили отрыв острова от кромки при мурчании.
+    private var ironStops: [Gradient.Stop] {
+        let height = max(1, size.height)
+        // По `translucentNotch`, а не по `glassInNotch`: градиент рисуется
+        // и на снимке — иначе его форму нечем проверить.
+        //
+        // Чернота держится на всю высоту вырезки и ещё на запас сверх неё:
+        // растворение, начатое ровно на кромке железа, оставляло у самой
+        // вырезки посветлевшую полосу, и тёмное выглядело у́же чёлки.
+        // Подробности — у `NotchStyle.ironBleed`.
+        let iron = translucentNotch
+            ? min(height, metrics.notchHeight + NotchStyle.ironBleed)
+            : height
+        let solid = min(1, iron / height)
+        let span = translucentNotch ? min(1 - solid, NotchStyle.ironFade / height) : 0
+
+        // Кривая, а не две точки: линейный переход от чёрного к прозрачному
+        // глаз видит полосой — яркость растёт равномерно, а воспринимается
+        // нелинейно, и середина такого перехода читается краем.
+        let curve = NotchStyle.ironCurve
+        let last = max(1, curve.count - 1)
+        return curve.enumerated().map { index, opacity in
+            Gradient.Stop(
+                color: .black.opacity(opacity),
+                location: solid + span * CGFloat(index) / CGFloat(last)
+            )
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
-            shape.fill(.black)
+            background
 
             // Внутри ZStack, а не поверх: обрезка формой съедает внешнюю
             // половину обводки и оставляет ровную линию по краю острова.
@@ -342,6 +531,19 @@ struct NotchView: View {
                 NotchProgressRing(track: music.nowPlaying, shape: shape, tint: music.artworkTint)
             }
 
+            // Группы стеклянных поверхностей живут внутри самих панелей,
+            // а не здесь. Обёртка `GlassEffectContainer` вокруг всей панели
+            // ломает ей высоту: список команд, ограниченный четырьмя
+            // строками, отрисовал все шесть, полоса действий наехала
+            // на две последние, а лишнее ушло под обрезку. Причина —
+            // ровно та, о которой предупреждает `DEVELOPMENT.md`:
+            // содержимое не должно задавать размер панели, а контейнер
+            // перестаёт передавать вниз предложенную высоту.
+            //
+            // Поэтому группы ставятся точечно — там, где состав ограничен
+            // по построению: сетка меню функций, ряд показателей нагрузки.
+            // Прокручиваемым спискам слияние и не нужно: строки в них
+            // разделены нарочно.
             panel
                 .opacity(isOpen ? 1 : 0)
                 .animation(contentAnimation, value: presentation)

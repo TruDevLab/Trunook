@@ -18,7 +18,7 @@ struct TimerPanel: View {
     /// рост при переключении режима, дёргала бы вырез на ровном месте.
     private static var modeHeight: CGFloat { NotchStyle.scaled(24) }
     private static let clockHeight: CGFloat = 46
-    private static var rowHeight: CGFloat { NotchStyle.scaled(28) }
+    private static var rowHeight: CGFloat { NotchStyle.rowHeight }
 
     static func height(notchHeight: CGFloat) -> CGFloat {
         NotchStyle.height(
@@ -56,35 +56,54 @@ struct TimerPanel: View {
 
     // MARK: - Режим
 
+    /// Один выбор из двух — одним элементом управления.
+    ///
+    /// Было две отдельные подложки с зазором: 0.08 у выбранного против 0.02
+    /// у соседа — это 1.12:1, то есть ничем. Разницу держал один цвет текста,
+    /// а читалось всё вместе как два действия, а не как переключатель.
+    ///
+    /// Стало: общая дорожка на оба режима и бегунок, лежащий на ней.
+    /// Невыбранный не рисует ничего — он показан тем, что дорожка под ним
+    /// пуста. Цвет текста остался вторым признаком, а не единственным.
     private var modeSwitch: some View {
-        HStack(spacing: 4) {
-            ForEach(TimerService.Mode.allCases) { mode in
-                let isChosen = timer.mode == mode
-                Button { timer.select(mode: mode) } label: {
-                    Text(mode.title)
-                        .font(.system(size: NotchStyle.rowFontSize, weight: .medium))
-                        // Выбранный — цветом таймера, а не просто ярче.
-                        // Подложки в 0.08 против 0.02 отличаются на 1.12:1,
-                        // то есть ничем; яркость текста разницу держит, но
-                        // одной её мало, когда рядом стоят два одинаковых
-                        // слова. Цвет добавляет второй признак, не заменяя
-                        // первый: невыбранный остаётся и тусклее.
-                        .foregroundStyle(isChosen
-                            ? Palette.timer
-                            : .white.opacity(NotchStyle.secondaryOpacity))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: Self.modeHeight)
-                        .background(
-                            RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
-                                .fill(.white.opacity(isChosen ? NotchStyle.tileFill : 0.02))
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
+        // Группа: бегунок и дорожка сливаются в одну поверхность, а не
+        // лежат стопкой. Состав ограничен по построению — два режима, —
+        // поэтому высоту содержимое здесь не задаёт.
+        GlassGroup(spacing: 0) {
+            HStack(spacing: 4) {
+                ForEach(TimerService.Mode.allCases) { mode in
+                    let isChosen = timer.mode == mode
+                    Button { timer.select(mode: mode) } label: {
+                        Text(mode.title)
+                            .font(.system(size: NotchStyle.rowFontSize, weight: .medium))
+                            .foregroundStyle(isChosen
+                                ? Palette.timer
+                                : .white.opacity(NotchStyle.secondaryOpacity))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: Self.modeHeight)
+                            // Стекло достаётся только бегунку. Это значение,
+                            // а не ветка: невыбранный идёт тем же путём
+                            // и получает пустую поверхность.
+                            .surface(.segment, in: pillShape,
+                                     tint: Palette.timer,
+                                     lit: isChosen,
+                                     glass: Surface.inNotch && isChosen)
+                            .contentShape(pillShape)
+                    }
+                    .buttonStyle(PressableStyle())
+                    .accessibilityAddTraits(isChosen ? [.isSelected] : [])
                 }
-                .buttonStyle(PressableStyle())
-                .accessibilityAddTraits(isChosen ? [.isSelected] : [])
             }
+            .frame(height: Self.modeHeight)
+            // Дорожка под обоими режимами — то, что делает их одним
+            // элементом управления.
+            .surface(.card, in: pillShape, glass: Surface.inNotch)
         }
         .frame(height: Self.modeHeight)
+    }
+
+    private var pillShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
     }
 
     // MARK: - Цифры

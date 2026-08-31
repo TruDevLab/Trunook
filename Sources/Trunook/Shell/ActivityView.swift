@@ -244,10 +244,20 @@ struct ActivityView: View {
                 Button { perform(action) } label: {
                     Text(Self.trailing(for: activity.kind) ?? t("Подключиться"))
                         .font(Font(ActivityLayout.trailingFont))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(actionLabelColor)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(Capsule().fill(.white.opacity(0.22)))
+                        // Цветом события, а не серым. Это единственное
+                        // действие, ради которого плашку и показывают, —
+                        // «Подключиться» к встрече, «Обновить» до новой
+                        // версии, — а серая капсула проигрывала по весу
+                        // даже собственной подписи рядом.
+                        //
+                        // И со стеклом: плашка вокруг стеклянная, и ровная
+                        // заливка на ней читалась наклейкой. Цвет при этом
+                        // остаётся заливкой под стеклом — иначе он зависел бы
+                        // от обоев, а подпись подобрана по нему раз и навсегда.
+                        .accentSurface(in: Capsule(), tint: tint, glass: Surface.inNotch)
                 }
                 .buttonStyle(PressableStyle())
                 .fixedSize()
@@ -412,6 +422,22 @@ struct ActivityView: View {
         case .update: return Palette.positive
         case .powerDisconnected, .trackChanged: return Palette.panel
         }
+    }
+
+    /// Подпись на цветной капсуле: тёмная на светлом цвете, светлая на тёмном.
+    ///
+    /// Считается, а не выбирается по случаю: цвет встречи приходит
+    /// из календаря, и там бывает и бледно-жёлтый, и тёмно-синий. Белая
+    /// подпись, годная для второго, на первом пропадает вовсе.
+    ///
+    /// Порог 0.55, а не 0.5: подпись жирная и мелкая, и на середине шкалы
+    /// ей лучше уйти в чёрное.
+    private var actionLabelColor: Color {
+        let color = NSColor(tint).usingColorSpace(.sRGB) ?? .white
+        let luminance = 0.2126 * color.redComponent
+            + 0.7152 * color.greenComponent
+            + 0.0722 * color.blueComponent
+        return luminance > 0.55 ? .black.opacity(0.85) : .white
     }
 
     private func perform(_ action: ActivityButton) {

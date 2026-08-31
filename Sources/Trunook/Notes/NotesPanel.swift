@@ -40,7 +40,8 @@ struct NotesPanel: View {
 
     /// Строка выше, чем у буфера: в ней два яруса — имя и под ним начало
     /// текста.
-    static var rowHeight: CGFloat { NotchStyle.scaled(40) }
+    /// Двойная ступень: у заметки заголовок и подпись под ним.
+    static var rowHeight: CGFloat { NotchStyle.rowHeightDouble }
     static var searchHeight: CGFloat { NotchStyle.scaled(26) }
     static let rowSpacing = NotchStyle.rowSpacing
 
@@ -76,7 +77,7 @@ struct NotesPanel: View {
                 NotchPanelTitle(
                     symbol: "list.bullet.rectangle",
                     title: t("Заметки"),
-                    tint: Palette.assistant
+                    tint: Palette.notes
                 )
                 if notes.total > 0 {
                     NotchPanelCount(value: notes.total)
@@ -188,7 +189,7 @@ struct NotesPanel: View {
         HStack(spacing: 10) {
             Image(systemName: note.origin.symbol)
                 .font(.system(size: NotchStyle.font(11)))
-                .foregroundStyle(Palette.assistant.opacity(0.9))
+                .foregroundStyle(Palette.notes.opacity(0.9))
                 .frame(width: 16)
                 .accessibilityHidden(true)
 

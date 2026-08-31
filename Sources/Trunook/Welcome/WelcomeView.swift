@@ -731,7 +731,7 @@ struct WelcomeView: View {
         switch state {
         case .granted: tint = WelcomePalette.mint
         case .notAsked: tint = Color.white.opacity(0.45)
-        case .denied: tint = Color.orange
+        case .denied: tint = WelcomePalette.amber
         }
         return HStack(spacing: 4) {
             Circle().fill(tint).frame(width: 5, height: 5)

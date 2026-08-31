@@ -106,6 +106,11 @@ changed in settings or right in the welcome window.
 The interface is in Russian, English and Chinese — by default it follows the
 system.
 
+- **Look.** The panel below the notch is made of glass: the wallpaper shows
+  through it while the notch itself stays black — the island doesn't float
+  above the screen, it flows out of the hardware. A slider sets how
+  transparent it is; all the way right brings back the solid black notch.
+  Glass needs macOS 26; on earlier ones the app looks as it did.
 ## Install
 
 ### Build from source — the reliable path
@@ -172,7 +177,7 @@ separate service.
 
 - A MacBook with a hardware notch. The app does not show up on external
   displays.
-- macOS 14 or newer.
+- macOS 14 or newer. Glass in the notch needs macOS 26; below that the notch is black.
 - Command Line Tools to build.
 - [Ollama](https://ollama.com) or any server with an OpenAI interface for
   model prompts, installed separately.

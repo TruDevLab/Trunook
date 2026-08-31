@@ -51,23 +51,33 @@ struct MeetingControlsView: View {
         .notchHint(action.title)
     }
 
-    /// Выключенные микрофон и камера подсвечены красным — это состояние,
+    /// Выключенные микрофон и камера подсвечены тревожным — это состояние,
     /// о котором важно узнать не читая, а боковым зрением.
+    ///
+    /// Цвета из `Palette`, а не системные `.red` и `.green`. Заголовок
+    /// `Palette` описывает ровно эту ошибку и то, чем она кончилась:
+    /// системные рассчитаны на оба режима и на чёрном теле заметно тусклее
+    /// собственных, а один смысл, покрашенный в двух местах по-разному,
+    /// перестаёт быть цветом смысла. Плашки событий от этого вылечили,
+    /// а управление встречей осталось на прежнем — просто потому,
+    /// что до него не дошли.
     private func foreground(_ action: MeetingAction, isOn: Bool) -> Color {
         switch action {
         case .leave: return .white
         case .copyLink: return .white
-        case .microphone, .camera: return isOn ? .white : .red
-        case .share, .hand: return isOn ? .green : .white
+        case .microphone, .camera: return isOn ? .white : Palette.negative
+        case .share, .hand: return isOn ? Palette.positive : .white
         }
     }
 
     private func background(_ action: MeetingAction, isOn: Bool) -> Color {
         switch action {
-        case .leave: return .red.opacity(0.8)
+        case .leave: return Palette.negative.opacity(0.8)
         case .copyLink: return .white.opacity(0.12)
-        case .microphone, .camera: return isOn ? .white.opacity(0.12) : .red.opacity(0.18)
-        case .share, .hand: return isOn ? .green.opacity(0.18) : .white.opacity(0.12)
+        case .microphone, .camera:
+            return isOn ? .white.opacity(0.12) : Palette.negative.opacity(0.18)
+        case .share, .hand:
+            return isOn ? Palette.positive.opacity(0.18) : .white.opacity(0.12)
         }
     }
 }

@@ -1,5 +1,5 @@
 APP      := Trunook
-VERSION := 0.12.0
+VERSION := 0.13.0
 # Номер сборки растёт со временем: так две сборки одной версии различимы.
 BUILDNO  := $(shell date +%y%m%d%H%M)
 # Провал сборки в конвейере с grep иначе теряется: make видит код последней
@@ -25,6 +25,25 @@ DMG      := $(CURDIR)/$(APP)-$(VERSION).dmg
 HELPER   := $(BUNDLE)/Contents/XPCServices/TrunookHelper.xpc
 BIN       = $(shell swift build -c $(CONF) --show-bin-path 2>/dev/null)
 
+# Штамп SDK в бинарнике: минимум остаётся 14.0, версия SDK ставится 26.0.
+#
+# По этому штампу macOS решает, рисовать ли системные элементы по новому
+# языку. SwiftPM ставит его равным `platforms:` из `Package.swift`, то есть
+# 14.0, — и окно настроек получало вид времён macOS 12: кнопку с градиентом,
+# старую форму переключателей, мелкое скругление карточек. Проверено
+# `vtool -show-build`: было `minos 14.0 / sdk 14.0`.
+#
+# Два числа независимы, и линкер это позволяет: `minos` держит нижнюю
+# границу — macOS 14 и 15 продолжают запускать приложение, — а `sdk`
+# включает новое оформление. Сличено на пробе: одна и та же вёрстка `Form`,
+# собранная с 14 и с 26, отличается формой переключателя, кнопки, списка
+# и скруглениями.
+#
+# Стекло (`glassEffect`) от штампа не зависит вовсе: оно под
+# `if #available(macOS 26, *)` и собирается независимо. Штамп нужен ровно
+# тем элементам, которые рисуем не мы.
+SDKSTAMP := -Xlinker -platform_version -Xlinker macos -Xlinker 14.0 -Xlinker 26.0
+
 .PHONY: all build bundle install run probe stop clean cert identity dmg icon purr chime demo
 
 all: bundle
@@ -36,7 +55,7 @@ all: bundle
 ## с этим и настоящий провал сборки. Скобки гасят только код grep,
 ## а `pipefail` доносит до make код самого swift.
 build:
-	set -o pipefail; swift build -c $(CONF) 2>&1 | { grep -v "ld: warning: search path" || true; }
+	set -o pipefail; swift build -c $(CONF) $(SDKSTAMP) 2>&1 | { grep -v "ld: warning: search path" || true; }
 
 ## Раскладка и подпись .app
 bundle: build

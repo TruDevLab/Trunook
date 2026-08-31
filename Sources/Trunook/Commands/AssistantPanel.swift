@@ -491,7 +491,10 @@ struct AssistantPanel: View {
                     if let error = session.error {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .font(.system(size: NotchStyle.font(11.5)))
-                            .foregroundStyle(.orange)
+                            // Янтарный из палитры, а не системный `.orange`:
+                            // «что-то не так» в этом приложении одного цвета
+                            // везде, и плашка события красит его отсюда же.
+                            .foregroundStyle(Palette.warning)
                     }
                     if transcript.isEmpty {
                         Text(emptyText)
@@ -689,15 +692,23 @@ struct AssistantPanel: View {
         //
         // `.circular`, не `.continuous`: у сглаженной обводка торца рвётся —
         // дуга не доходит до края, и слева остаётся вертикальный огрызок.
-        .background(
+        // Подложка через общий слой: на стекле поле, выкрашенное своей
+        // заливкой, читалось плоским серым прямоугольником среди
+        // преломляющих поверхностей.
+        //
+        // Роль `.card`, а не `.row`: поле не нажимают, в него ставят курсор,
+        // и подсветка под курсором обещала бы кнопку.
+        .surface(.card,
+                 in: RoundedRectangle(cornerRadius: Self.questionRadius, style: .circular),
+                 glass: Surface.inNotch)
+        // Обводка осталась своей и ушла из подложки в наложение: она очерчивает
+        // поле как место для ввода, а не как поверхность, и нужна на обеих
+        // ветках — со стеклом и без.
+        .overlay(
             RoundedRectangle(cornerRadius: Self.questionRadius, style: .circular)
-                .fill(.white.opacity(NotchStyle.tileFill))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Self.questionRadius, style: .circular)
-                        .strokeBorder(
-                            .white.opacity(NotchStyle.dense(0.12)),
-                            lineWidth: 1
-                        )
+                .strokeBorder(
+                    .white.opacity(NotchStyle.dense(0.12)),
+                    lineWidth: 1
                 )
         )
         // Подсказка своим наложением, а не средствами поля: у `NSTextView`
@@ -751,10 +762,11 @@ struct AssistantPanel: View {
             onAttach: draft.attach
         )
         .frame(height: Self.noteFieldHeight)
-        .background(
-            RoundedRectangle(cornerRadius: NotchStyle.cardRadius, style: .continuous)
-                .fill(.white.opacity(NotchButtonStyle.restingFill))
-        )
+        // Через общий слой, как и поле вопроса: они лежат на одном экране,
+        // и разные подложки у двух полей ввода читались бы небрежностью.
+        .surface(.card,
+                 in: RoundedRectangle(cornerRadius: NotchStyle.cardRadius, style: .continuous),
+                 glass: Surface.inNotch)
         // Пустое поле — это пустой прямоугольник с курсором, и по нему
         // не видно ни что сюда кладут, ни что будет дальше. Отступы и кегль
         // берутся из самого поля, а не выписаны заново: порознь они
@@ -831,27 +843,36 @@ struct AssistantPanel: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: Self.actionSpacing) {
-            // Переключатель режима есть и без модели: разговаривать не с кем,
-            // а записать захваченное заметкой — по-прежнему да, и другого
-            // пути в этот режим из панели нет.
-            if notesEnabled {
-                ModeSwitch(mode: draft.mode, onSelect: onSelectMode)
-            }
-            if isNote {
-                // Оформление правит абзац под курсором. В пустом поле абзаца
-                // нет, и кнопки не делают ровно ничего — а нажатие без ответа
-                // человек читает как поломку, а не как «пока рано».
-                Group {
-                    icon("textformat.size.larger", t("Заголовок"), action: draft.toggleHeading)
-                    icon("bold", t("Полужирный"), action: draft.toggleBold)
-                    icon("italic", t("Курсив"), action: draft.toggleItalic)
-                    icon("link", t("Ссылка"), action: draft.askForLink)
+        // Группа стеклянных поверхностей: переключатель режима, кнопки
+        // оформления и главное действие сливаются в один блок управления,
+        // а не лежат россыпью кружков вдоль края панели.
+        //
+        // Состав ряда ограничен по построению, высота задана `rowHeight` —
+        // содержимое размер панели здесь не задаёт, и контейнер безопасен.
+        GlassGroup(spacing: Self.actionSpacing) {
+            HStack(spacing: Self.actionSpacing) {
+                // Переключатель режима есть и без модели: разговаривать
+                // не с кем, а записать захваченное заметкой — по-прежнему да,
+                // и другого пути в этот режим из панели нет.
+                if notesEnabled {
+                    ModeSwitch(mode: draft.mode, onSelect: onSelectMode)
                 }
-                .disabled(draft.isNoteEmpty)
-                .opacity(draft.isNoteEmpty ? 0.4 : 1)
+                if isNote {
+                    // Оформление правит абзац под курсором. В пустом поле
+                    // абзаца нет, и кнопки не делают ровно ничего — а нажатие
+                    // без ответа человек читает как поломку, а не как
+                    // «пока рано».
+                    Group {
+                        icon("textformat.size.larger", t("Заголовок"), action: draft.toggleHeading)
+                        icon("bold", t("Полужирный"), action: draft.toggleBold)
+                        icon("italic", t("Курсив"), action: draft.toggleItalic)
+                        icon("link", t("Ссылка"), action: draft.askForLink)
+                    }
+                    .disabled(draft.isNoteEmpty)
+                    .opacity(draft.isNoteEmpty ? 0.4 : 1)
+                }
+                primaryAction
             }
-            primaryAction
         }
         .frame(height: Self.rowHeight)
     }
@@ -942,7 +963,9 @@ struct AssistantPanel: View {
             .accessibilityLabel(t("Адрес ссылки"))
             .padding(.horizontal, 8)
             .frame(height: Self.actionSize)
-            .background(Capsule().fill(.white.opacity(NotchStyle.tileFill)))
+            // Капсула ссылки стоит в том же ряду, что и круглые кнопки
+            // действий, и подложку берёт оттуда же.
+            .surface(.control, in: Capsule(), glass: Surface.inNotch)
 
             icon("checkmark", t("Применить"), tint: Palette.assistant, action: draft.confirmLink)
             icon("xmark", t("Отмена"), action: draft.cancelPrompt)
@@ -971,7 +994,10 @@ struct AssistantPanel: View {
                 .font(.system(size: NotchStyle.font(11), weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: Self.actionSize, height: Self.actionSize)
-                .background(Circle().fill(.white.opacity(NotchStyle.tileFill)))
+                // Через общий слой: кнопки действий стоят в одном ряду
+                // с круглыми кнопками панели, и своя заливка рядом со стеклом
+                // читалась бы плоским пятном.
+                .surface(.control, in: Circle(), glass: Surface.inNotch)
                 // Подсветка с клавиатуры — обводкой, как у строки команды:
                 // одинаковый признак «сюда сейчас уйдёт Enter» в обоих местах,
                 // иначе их пришлось бы различать по памяти.

@@ -37,10 +37,13 @@ struct CommandRows: View {
 
     // MARK: - Размеры
 
-    /// Высота строки. Как у истории буфера: это тот же список, по которому
-    /// целятся мышью, и разная высота у соседних панелей читалась бы как
-    /// разная важность.
-    static var rowHeight: CGFloat { NotchStyle.scaled(26) }
+    /// Высота строки — общая ступень, а не своё число.
+    ///
+    /// Было 26, подобранных по месту, при 34 у истории буфера: тот же список,
+    /// по которому так же целятся мышью, а высота разная — и читалось это
+    /// как разная важность. Теперь обе берут `NotchStyle.rowHeight`
+    /// и совпадают по построению, а не по договорённости.
+    static var rowHeight: CGFloat { NotchStyle.rowHeight }
 
     static var spacing: CGFloat { NotchStyle.rowSpacing }
 
@@ -80,14 +83,25 @@ struct CommandRows: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: Self.spacing) {
-                    if let id = choosingModelFor, let command = commands.first(where: { $0.id == id }) {
-                        modelChoices(for: command)
-                    } else if commands.isEmpty {
-                        emptyRow
-                    } else {
-                        ForEach(commands) { command in
-                            row(command)
+                // Группа стеклянных поверхностей: строки тянутся друг к другу
+                // и читаются одним списком, а не стопкой отдельных плиток.
+                //
+                // Внутри прокрутки, а не вокруг неё, и это не мелочь.
+                // `.frame(height:)` ниже ограничивает список четырьмя
+                // строками; контейнер, поставленный над этим ограничением,
+                // перестаёт передавать высоту вниз — панель уже ловили
+                // на этом, когда группа обнимала её целиком: список отрисовал
+                // все шесть строк, и полоса действий наехала на две последние.
+                GlassGroup(spacing: Self.spacing) {
+                    VStack(spacing: Self.spacing) {
+                        if let id = choosingModelFor, let command = commands.first(where: { $0.id == id }) {
+                            modelChoices(for: command)
+                        } else if commands.isEmpty {
+                            emptyRow
+                        } else {
+                            ForEach(commands) { command in
+                                row(command)
+                            }
                         }
                     }
                 }

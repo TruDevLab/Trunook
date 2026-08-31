@@ -47,10 +47,10 @@ struct NotchButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(width: diameter, height: diameter)
-            .background(
-                Circle()
-                    .fill(.white.opacity(configuration.isPressed ? Self.pressedFill : Self.restingFill))
-            )
+            // Подложка идёт через общий слой, а не своей заливкой: кнопка
+            // лежит рядом с плитками, и разная плотность читалась
+            // как небрежность ещё до всякого стекла.
+            .surface(.control, in: Circle(), lit: configuration.isPressed, glass: Surface.inNotch)
             .scaleEffect(configuration.isPressed ? PressMotion.buttonScale : 1)
             .animation(.easeOut(duration: PressMotion.duration), value: configuration.isPressed)
             .contentShape(Circle())
