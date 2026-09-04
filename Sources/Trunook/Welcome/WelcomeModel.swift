@@ -8,7 +8,7 @@ import EventKit
 /// он реализован макросом, а плагин SwiftUI-макросов поставляется с Xcode.
 final class WelcomeModel: ObservableObject {
     enum Step: Int, CaseIterable, Identifiable {
-        case intro, gestures, shortcuts, permissions, done
+        case intro, gestures, shortcuts, ai, permissions, done
 
         var id: Int { rawValue }
 
@@ -18,6 +18,7 @@ final class WelcomeModel: ObservableObject {
             case .intro: return t("ЗНАКОМСТВО")
             case .gestures: return t("УПРАВЛЕНИЕ")
             case .shortcuts: return t("СОЧЕТАНИЯ")
+            case .ai: return t("ПОМОЩНИК")
             case .permissions: return t("ДОСТУПЫ")
             case .done: return t("ГОТОВО")
             }
@@ -33,12 +34,24 @@ final class WelcomeModel: ObservableObject {
             case .intro: return t("Знакомство")
             case .gestures: return t("Управление")
             case .shortcuts: return t("Сочетания клавиш")
+            case .ai: return t("Помощник")
             case .permissions: return t("Доступы")
             case .done: return t("Готово")
             }
         }
     }
 
+    /// Чем занято окно: рассказом о приложении или описанием выпусков.
+    ///
+    /// Режим, а не шестой шаг: шаги идут по порядку и ведут к «Начать»,
+    /// а описание читают вразнобой и уходят из него обратно. Шестым шагом
+    /// оно встало бы человеку поперёк знакомства, которое он и открыл.
+    enum Mode: Equatable {
+        case tour
+        case notes
+    }
+
+    @Published var mode: Mode = .tour
     @Published var step: Step = .intro
     @Published private(set) var accessibilityTrusted = AccessibilityAccess.isTrusted
     /// Проверяется опросом по той же причине: TCC своё решение не отдаёт,
@@ -63,7 +76,8 @@ final class WelcomeModel: ObservableObject {
 
     /// Доступы выдаются в Системных настройках, за пределами приложения,
     /// и уведомления об этом не приходит. Пока окно открыто — опрашиваем.
-    func start() {
+    func start(mode: Mode = .tour) {
+        self.mode = mode
         step = .intro
         // Отладочный вход: кликать по кнопкам из сессии нечем, а снимать
         // нужно все четыре шага.
@@ -120,6 +134,16 @@ final class WelcomeModel: ObservableObject {
     }
 
     // MARK: - Шаги
+
+    /// Надпись над заголовком. В режиме описания она своя: шага там нет.
+    var eyebrow: String {
+        mode == .notes ? t("ОПИСАНИЕ") : step.eyebrow
+    }
+
+    func toggleNotes() {
+        mode = mode == .notes ? .tour : .notes
+        Haptics.tap()
+    }
 
     var canGoBack: Bool { step != .intro }
     var isLastStep: Bool { step == .done }

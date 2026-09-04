@@ -150,3 +150,36 @@ struct ModelRef: Equatable, Hashable {
         return String(name[name.index(after: slash)...])
     }
 }
+
+/// Модели, которые приложение предлагает скачать, когда своих ещё нет.
+///
+/// Две, и они разного рода. Первая отвечает словами, вторая не отвечает
+/// вовсе — она считает векторы смысла, и просить её о чём-то текстом
+/// бессмысленно. Человеку это неочевидно, поэтому в настройках они стоят
+/// раздельно и подписаны по делу.
+enum RecommendedModel {
+    /// Отвечает на вопросы. Совпадает со значением `ollamaModel`
+    /// по умолчанию — иначе «рекомендованная» и «стоит по умолчанию»
+    /// оказались бы разными моделями.
+    static let chat = "gemma4:12b"
+
+    /// Считает векторы. Маленькая и быстрая: вектор нужен на каждую заметку,
+    /// и модель на несколько гигабайт считала бы их полдня.
+    static let embed = "nomic-embed-text"
+
+    /// Есть ли такая модель среди уже установленных.
+    ///
+    /// Сравнение по имени без метки версии: Ollama зовёт скачанное
+    /// `nomic-embed-text:latest`, а просят её обычно без метки, и точное
+    /// сравнение отвечало бы «нет» на установленную модель.
+    static func isInstalled(_ name: String, among models: [ModelRef]) -> Bool {
+        let wanted = base(of: name)
+        return models.contains { base(of: $0.name) == wanted }
+    }
+
+    static func base(of name: String) -> String {
+        let text = name.hasPrefix("ollama|") ? String(name.dropFirst(7)) : name
+        guard let colon = text.firstIndex(of: ":") else { return text }
+        return String(text[text.startIndex..<colon])
+    }
+}

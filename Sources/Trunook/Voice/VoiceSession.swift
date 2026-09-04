@@ -45,6 +45,7 @@ final class VoiceSession: ObservableObject {
 
     private let assistant: AssistantSession
     private let notes: NotesService
+    private let retriever: NotesRetriever
     private let settings: Settings
 
     /// Спрашиваем по заметкам. Запоминается на старте: заметки собираются
@@ -55,9 +56,15 @@ final class VoiceSession: ObservableObject {
     /// Сколько тиков подряд заход выглядит законченным, а фаза ещё держится.
     private var idleTicks = 0
 
-    init(assistant: AssistantSession, notes: NotesService, settings: Settings = .shared) {
+    init(
+        assistant: AssistantSession,
+        notes: NotesService,
+        retriever: NotesRetriever = NotesRetriever(),
+        settings: Settings = .shared
+    ) {
         self.assistant = assistant
         self.notes = notes
+        self.retriever = retriever
         self.settings = settings
 
         listener.onFinish = { [weak self] text in self?.ask(text) }
@@ -158,16 +165,18 @@ final class VoiceSession: ObservableObject {
 
         phase = .thinking
 
-        var context: String?
-        if usesNotes {
-            context = notes.contextText(budget: settings.voiceNotesContextLimit)
-            guard context != nil else {
-                fail(t("Заметок пока нет"))
+        guard usesNotes else {
+            assistant.send(text, style: .spoken)
+            return
+        }
+        retriever.context(for: text, budget: settings.voiceNotesContextLimit) { [weak self] context in
+            guard let self else { return }
+            guard let context else {
+                fail(t("В заметках такого нет"))
                 return
             }
+            assistant.send(text, notesContext: context, style: .spoken)
         }
-
-        assistant.send(text, notesContext: context, style: .spoken)
         speaker.begin(
             language: language,
             rate: SpeechSpeaker.rate(forStep: settings.voiceRateStep),

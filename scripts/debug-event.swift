@@ -17,7 +17,9 @@ let known = ["powerConnected", "powerDisconnected", "lowBattery", "trackChanged"
              "notes", "notesFill", "notesAsk", "noteNew", "noteEdit", "noteSave",
              "noteSelection", "noteClipboard", "askLong",
              "voice", "voiceNotes", "voiceGlow", "voiceSpeak", "voiceAnswer",
-             "update", "updatePill", "updateVerify", "updateInstall"]
+             "update", "updatePill", "updateVerify", "updateInstall",
+             "releaseNotes", "confetti", "shotConfetti",
+             "obsidianScan", "obsidianSync", "obsidianLinks"]
 
 guard CommandLine.arguments.count > 1, known.contains(CommandLine.arguments[1]) else {
     print("Использование: swift scripts/debug-event.swift <\(known.joined(separator: "|"))>")

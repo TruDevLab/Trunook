@@ -136,6 +136,16 @@ final class Settings: ObservableObject {
         }
     }
 
+    /// Номер версии, с которым приложение запускалось в прошлый раз.
+    ///
+    /// По нему `LaunchKind` отличает первый запуск после обновления от
+    /// обычного: показать конфетти и описание выпуска нужно один раз, а не
+    /// каждое утро. Пишется при каждом запуске, читается до записи.
+    var lastRunVersion: String? {
+        get { defaults.string(forKey: "lastRunVersion") }
+        set { store(newValue ?? "", "lastRunVersion") }
+    }
+
     // MARK: - Музыка
 
     var musicEnabled: Bool {
@@ -696,6 +706,162 @@ final class Settings: ObservableObject {
     var notesTitleByModel: Bool {
         get { flag("notesTitleByModel", default: true) }
         set { store(newValue, "notesTitleByModel") }
+    }
+
+    // MARK: - Obsidian
+
+    /// Синхронизация с хранилищем Obsidian.
+    ///
+    /// Выключена по умолчанию, и это не осторожность ради осторожности:
+    /// Obsidian есть далеко не у всех, а с выключенной настройкой
+    /// приложение не заводит ни слежения за папкой, ни таймера сверки
+    /// и ведёт себя ровно так же, как до появления этой работы.
+    var obsidianEnabled: Bool {
+        get { flag("obsidianEnabled", default: false) }
+        set { store(newValue, "obsidianEnabled") }
+    }
+
+    /// Путь к папке хранилища.
+    ///
+    /// Пусто по умолчанию и **никогда не угадывается**: стандартного места
+    /// у Obsidian нет, одно хранилище лежит в «Документах», другое
+    /// на внешнем диске, третье внутри iCloud. Папку называет человек.
+    var obsidianVaultPath: String {
+        get { defaults.string(forKey: "obsidianVaultPath") ?? "" }
+        set { store(newValue.trimmingCharacters(in: .whitespacesAndNewlines), "obsidianVaultPath") }
+    }
+
+    /// Имя подпапки внутри хранилища, куда приложение кладёт свои заметки.
+    /// Только её содержимое ходит в обе стороны.
+    var obsidianFolder: String {
+        get {
+            let stored = (defaults.string(forKey: "obsidianFolder") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return stored.isEmpty ? Vault.defaultFolder : stored
+        }
+        set { store(newValue.trimmingCharacters(in: .whitespacesAndNewlines), "obsidianFolder") }
+    }
+
+    /// Читать ли остальное хранилище — ради поиска, контекста модели и связей.
+    var obsidianIndexVault: Bool {
+        get { flag("obsidianIndexVault", default: true) }
+        set { store(newValue, "obsidianIndexVault") }
+    }
+
+    /// Искать смысловые связи между заметками.
+    var obsidianLinksEnabled: Bool {
+        get { flag("obsidianLinksEnabled", default: false) }
+        set { store(newValue, "obsidianLinksEnabled") }
+    }
+
+    /// Искать связи только у новых заметок.
+    ///
+    /// Включено по умолчанию, и это про уважение к чужому времени: у архива
+    /// на пять тысяч заметок первый проход — это пять тысяч запросов
+    /// к чат-модели, часы работы и разогретый вентилятор. Человек, который
+    /// только что включил связи, такого не заказывал.
+    ///
+    /// Векторов это не касается: на них держится поиск по заметкам,
+    /// и считаются они для всех. Вектор — один дешёвый запрос к маленькой
+    /// модели, а связь — разговор с большой.
+    var linksOnlyNew: Bool {
+        get { flag("linksOnlyNew", default: true) }
+        set { store(newValue, "linksOnlyNew") }
+    }
+
+    /// Граница «новизны»: заметки старше неё связями не трогаем.
+    /// Пусто — связывать все.
+    var linksSince: Date? {
+        get { defaults.object(forKey: "linksSince") as? Date }
+        set {
+            guard let newValue else {
+                objectWillChange.send()
+                defaults.removeObject(forKey: "linksSince")
+                return
+            }
+            store(newValue, "linksSince")
+        }
+    }
+
+    /// Дописывать найденные связи в сами файлы хранилища.
+    ///
+    /// Отдельно от поиска связей и тоже выключено: одно дело показать связи
+    /// в панели, другое — писать в личные файлы человека. Второе он
+    /// разрешает отдельно.
+    var obsidianLinksToFiles: Bool {
+        get { flag("obsidianLinksToFiles", default: false) }
+        set { store(newValue, "obsidianLinksToFiles") }
+    }
+
+    /// Модель, считающая векторы смысла. Хранится как `ModelRef`.
+    ///
+    /// Ключ общий, а не «обсидиановский»: по векторам теперь работает
+    /// и поиск по заметкам, а не только связи. Прежнее имя ключа переезжает
+    /// сюда в `migrateEmbedModel`.
+    var embedModel: String {
+        get {
+            let stored = defaults.string(forKey: "embedModel") ?? ""
+            return stored.isEmpty ? "ollama|" + RecommendedModel.embed : stored
+        }
+        set { store(newValue, "embedModel") }
+    }
+
+    /// «Найти в заметках» отбирает нужное по смыслу, а не грузит модели
+    /// все заметки подряд.
+    var notesVectorSearch: Bool {
+        get { flag("notesVectorSearch", default: true) }
+        set { store(newValue, "notesVectorSearch") }
+    }
+
+    /// Сколько заметок отдавать модели при векторном поиске.
+    ///
+    /// Штуками, а не символами: при отборе по смыслу важно **сколько**
+    /// заметок подходит, а не сколько знаков в них влезло. Потолок символов
+    /// остаётся сверху и режет уже отобранное.
+    var notesVectorCount: Int {
+        get {
+            let stored = defaults.object(forKey: "notesVectorCount") as? Int ?? 6
+            return max(2, min(20, stored))
+        }
+        set { store(max(2, min(20, newValue)), "notesVectorCount") }
+    }
+
+    /// Насколько близкими должны быть заметки, чтобы счесть их связанными.
+    /// В сотых долях: 70 — это 0,70.
+    var obsidianLinkThreshold: Int {
+        get {
+            let stored = defaults.object(forKey: "obsidianLinkThreshold") as? Int ?? 70
+            return max(50, min(95, stored))
+        }
+        set { store(max(50, min(95, newValue)), "obsidianLinkThreshold") }
+    }
+
+    /// Переезд модели векторов с обсидианового ключа на общий.
+    ///
+    /// Старый ключ обязательно стирается: оставленный, он однажды переспорил
+    /// бы новый — ровно так уже случалось с настройками провайдеров.
+    func migrateEmbedModel() {
+        guard defaults.string(forKey: "embedModel") == nil,
+              let old = defaults.string(forKey: "obsidianEmbedModel"), !old.isEmpty
+        else {
+            defaults.removeObject(forKey: "obsidianEmbedModel")
+            return
+        }
+        defaults.set(old, forKey: "embedModel")
+        defaults.removeObject(forKey: "obsidianEmbedModel")
+    }
+
+    /// Когда сверка последний раз прошла успешно.
+    var lastObsidianSync: Date? {
+        get { defaults.object(forKey: "lastObsidianSync") as? Date }
+        set {
+            guard let newValue else {
+                objectWillChange.send()
+                defaults.removeObject(forKey: "lastObsidianSync")
+                return
+            }
+            store(newValue, "lastObsidianSync")
+        }
     }
 
     // MARK: - Голос

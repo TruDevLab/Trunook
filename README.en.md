@@ -85,6 +85,12 @@ changed in settings or right in the welcome window.
   you start it, so it stays accurate even if the lid was closed.
 - **System load.** CPU, memory and disk with fill bars. Click any reading
   to open Activity Monitor.
+- **Obsidian.** Notes sync with your vault: yours live in a subfolder inside
+  it and are edited from both sides, while the rest of the vault feeds search
+  and the model's context. The model finds links between notes by meaning
+  rather than by shared words, and writes them into the files as real
+  `[[links]]` visible in the graph. All of it is off by default, and you name
+  the folder yourself.
 - **Weather and power.** An icon with the temperature in the panel's corner,
   chips when the weather changes or the charger is plugged in.
 - **Teleprompter.** Text right under the notch — where the camera is — with
@@ -170,6 +176,13 @@ separate service.
   there and nowhere else.
 - **Notes** live in the app's own file. They go nowhere else; with "search
   notes" on, their text is sent to the same model that answers questions.
+- **Embeddings for note links** are computed by the model whose address is
+  set in the settings. With Ollama on your own machine nothing leaves it;
+  point it at a cloud provider and your note text goes there. Link finding
+  is off by default.
+- **The Obsidian vault** is your own folder on disk: the app reads it and
+  writes into its own subfolder inside. Nothing leaves your machine, and the
+  whole integration is off by default.
 - **Clipboard history and the shelf** stay local: history in the app's own
   file, the shelf as links to your own files.
 

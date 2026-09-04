@@ -17,7 +17,7 @@ final class NotesService: ObservableObject {
     @Published var query = "" {
         didSet {
             guard query != oldValue else { return }
-            reload()
+            scheduleSearch()
         }
     }
 
@@ -28,6 +28,10 @@ final class NotesService: ObservableObject {
     private let store: NotesStore
     private let titler: NoteTitler
     private let settings: Settings
+
+    private var pendingSearch: DispatchWorkItem?
+    private let searchQueue = DispatchQueue(label: "com.trunook.notes.search")
+    private static let searchDelay: TimeInterval = 0.15
 
     init(
         store: NotesStore = NotesStore(),
@@ -50,9 +54,51 @@ final class NotesService: ObservableObject {
 
     private func reload() {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        notes = trimmed.isEmpty ? store.all() : store.search(trimmed)
-        total = store.count
+        // Пустая строка поиска — только свои заметки. Хранилище Obsidian
+        // бывает на тысячи файлов, и своя дюжина утонула бы в нём бесследно;
+        // чужие всплывают, когда человек что-то ищет.
+        notes = trimmed.isEmpty ? store.all(source: .own) : store.search(trimmed)
+        total = store.count(source: .own)
     }
+
+    /// Поиск с задержкой и не на главном потоке.
+    ///
+    /// Раньше `LIKE` по всей базе выполнялся прямо в главном потоке
+    /// на каждое нажатие клавиши. Со своей сотней заметок это незаметно,
+    /// а с хранилищем Obsidian в базе оказываются тысячи строк, и ввод
+    /// начинает заикаться. Задержка гасит промежуточные наборы: пока человек
+    /// печатает «вырез», незачем искать «в», «вы», «выр».
+    private func scheduleSearch() {
+        pendingSearch?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.searchInBackground() }
+        pendingSearch = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.searchDelay, execute: work)
+    }
+
+    private func searchInBackground() {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        searchQueue.async { [weak self] in
+            guard let self else { return }
+            let list = trimmed.isEmpty ? store.all(source: .own) : store.search(trimmed)
+            let count = store.count(source: .own)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                // За время запроса строку могли дописать — тогда ответ уже
+                // не о том, и своё придёт следующим заходом.
+                guard trimmed == query.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+                notes = list
+                total = count
+            }
+        }
+    }
+
+    /// Заметку записали или изменили. По этому поводу пересчитывают
+    /// её вектор смысла и связи — но только если их вообще ищут.
+    var onSaved: ((Int64) -> Void)?
+
+    /// Перечитать список. Зовут снаружи — например, когда синхронизация
+    /// с Obsidian привезла правки из хранилища.
+    func refresh() { reload() }
 
     var isSearching: Bool {
         !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -97,6 +143,7 @@ final class NotesService: ObservableObject {
             // Имя, поставленное запасным расчётом, ещё имеет смысл заменить
             // на настоящее: текст изменился, а имя было временным.
             if !updated.titleByModel { titler.enqueue(id: id, plain: plain) }
+            onSaved?(id)
             return updated
         }
 
@@ -115,6 +162,7 @@ final class NotesService: ObservableObject {
         DebugLog.write("заметки: записана \(id), символов \(plain.count), откуда \(origin.rawValue)")
 
         titler.enqueue(id: id, plain: plain)
+        onSaved?(id)
 
         var saved = note
         saved.id = id
@@ -160,7 +208,18 @@ final class NotesService: ObservableObject {
     /// модели, и у каждой они свои.
     func contextText(budget: Int? = nil) -> String? {
         let limit = budget ?? settings.notesContextLimit
-        let all = store.all()
+        return Self.context(from: store.all(), budget: limit)
+    }
+
+    /// Сборка контекста из готового набора заметок.
+    ///
+    /// Отдельно от выборки, потому что выбирать их можно двумя способами:
+    /// по свежести (как было) и по смыслу вопроса (векторами). Формат
+    /// при этом обязан остаться одним: разойдись он, и ответы модели
+    /// на один и тот же вопрос отличались бы от того, каким путём собрали
+    /// заметки, — а это уже не поиск, а лотерея.
+    static func context(from all: [Note], budget: Int) -> String? {
+        let limit = budget
         guard !all.isEmpty else { return nil }
 
         var blocks: [String] = []
@@ -168,7 +227,7 @@ final class NotesService: ObservableObject {
         var included = 0
 
         for note in all {
-            let block = Self.block(for: note, number: included + 1)
+            let block = block(for: note, number: included + 1)
             // Первая заметка кладётся всегда, даже если одна не влезает
             // в потолок целиком: пустой контекст хуже урезанного.
             if used + block.count > limit, included > 0 { break }
@@ -184,27 +243,27 @@ final class NotesService: ObservableObject {
             included += 1
         }
 
-        var text = Self.preamble + "\n\n" + blocks.joined(separator: "\n\n")
+        var text = preamble + "\n\n" + blocks.joined(separator: "\n\n")
         if included < all.count {
             let oldest = all[included - 1].updatedAt
-            let note = tf("(показаны %d из %d заметок — самые свежие; остальные старше %@)", included, all.count, Self.shortStamp(oldest))
+            let note = tf("(показаны %d из %d заметок — самые свежие; остальные старше %@)", included, all.count, shortStamp(oldest))
             text += "\n\n" + note
         }
         return text
     }
 
-    private static var preamble: String {
+    static var preamble: String {
         t("Ниже заметки пользователя, свежие первыми. Отвечай на вопрос только по ним. Если ответа в заметках нет, так и скажи — не придумывай.")
     }
 
-    private static func block(for note: Note, number: Int) -> String {
+    static func block(for note: Note, number: Int) -> String {
         """
         --- \(number). \(note.title) (\(shortStamp(note.updatedAt))) ---
         \(note.plain)
         """
     }
 
-    private static func shortStamp(_ date: Date) -> String {
+    static func shortStamp(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Localization.shared.resolved.locale
         formatter.setLocalizedDateFormatFromTemplate("d MMMM yyyy")

@@ -15,6 +15,13 @@ struct WelcomeView: View {
     /// Набранное и найденное при поиске города: `@State` в этом SDK
     /// недоступен, держать негде.
     @ObservedObject var placeSearch: WeatherPlaceSearch
+    /// Описания выпусков и README для страницы «Описание». Живут дольше
+    /// окна — вместе с ним живёт только вид, а загруженное переживает
+    /// закрытие и не качается заново.
+    @ObservedObject var releaseNotes: ReleaseNotesService
+    /// Отвечает ли Ollama на шаге «Модель». Живёт снаружи вида: проверка
+    /// идёт по сети и возвращается позже, чем вёрстка строится.
+    @ObservedObject var ai: WelcomeAI
     /// Сочетания заданы пользователем — после правки их надо
     /// перерегистрировать в системе.
     let onHotKeysChanged: () -> Void
@@ -52,11 +59,47 @@ struct WelcomeView: View {
 
     private var header: some View {
         HStack(alignment: .center) {
-            WelcomeEyebrow(text: model.step.eyebrow)
+            WelcomeEyebrow(text: model.eyebrow)
             Spacer(minLength: 0)
+            notesButton
             languagePicker
-            stepIndicator
+            if model.mode == .tour {
+                stepIndicator
+            }
         }
+    }
+
+    /// Переход к описанию выпусков и обратно.
+    ///
+    /// В шапке рядом с языком, а не в шагах: описание — не часть знакомства,
+    /// а справка, за которой приходят отдельно. Знакомство им не начинается
+    /// и не заканчивается, поэтому и места в череде шагов у него нет.
+    private var notesButton: some View {
+        Button {
+            model.toggleNotes()
+            if model.mode == .notes { releaseNotes.load() }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: model.mode == .notes ? "sparkles" : "doc.text")
+                    .font(.system(size: WelcomeStyle.micro, weight: .medium))
+                Text(model.mode == .notes ? t("Знакомство") : t("Описание"))
+                    .font(.system(size: WelcomeStyle.caption, weight: .medium, design: .rounded))
+            }
+            .foregroundStyle(Color.white.opacity(0.7))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.07))
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.13), lineWidth: 0.5))
+            )
+            // Подложка нарисована фоном, а фон в проверке попаданий
+            // не участвует: без этого кнопка нажималась бы только по буквам.
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .padding(.trailing, 8)
     }
 
     /// Язык переключается прямо здесь, а не только в настройках: человек,
@@ -130,10 +173,27 @@ struct WelcomeView: View {
 
     @ViewBuilder
     private var content: some View {
+        switch model.mode {
+        case .notes:
+            WelcomeNotesPage(notes: releaseNotes)
+        case .tour:
+            tourContent
+        }
+    }
+
+    @ViewBuilder
+    private var tourContent: some View {
         switch model.step {
         case .intro: introStep
         case .gestures: gesturesStep
         case .shortcuts: shortcutsStep
+        case .ai:
+            WelcomeAIPage(
+                settings: settings,
+                state: ai,
+                models: .shared,
+                installer: .shared
+            )
         case .permissions: permissionsStep
         case .done: doneStep
         }
@@ -572,7 +632,6 @@ struct WelcomeView: View {
                     weatherRow
                     launchRow
                     updatesRow
-                    ollamaRow
                     Text(t("Доступ выдаётся один раз и переживает обновления приложения. Отказ система запоминает — вернуть его можно только в Системных настройках."))
                         .font(.system(size: WelcomeStyle.caption, design: .rounded))
                         .foregroundStyle(Color.white.opacity(0.4))
@@ -805,30 +864,6 @@ struct WelcomeView: View {
     /// к модели просто не заработают. Сказать об этом надо там же, где
     /// человек настраивает всё остальное: иначе он найдёт пустую команду
     /// и решит, что она сломана.
-    private var ollamaRow: some View {
-        WelcomeCard {
-            HStack(spacing: 13) {
-                WelcomeGlyph(symbol: "sparkles", tint: WelcomePalette.mint, size: WelcomeStyle.tile)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(t("Запросы к модели — через Ollama"))
-                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text(t("Отдельная бесплатная программа: держит модель на вашем компьютере, наружу ничего не уходит. Остальные команды работают и без неё."))
-                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.55))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Button("ollama.com") {
-                    guard let url = URL(string: "https://ollama.com") else { return }
-                    NSWorkspace.shared.open(url)
-                }
-                .buttonStyle(WelcomeGhostButton())
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-        }
-    }
 
     // MARK: Шаг 4 — готово
 
@@ -901,7 +936,21 @@ struct WelcomeView: View {
         }
     }
 
+    @ViewBuilder
     private var footer: some View {
+        if model.mode == .notes {
+            // В описании шагов нет, идти некуда — остаётся только уйти.
+            HStack(spacing: 12) {
+                Spacer(minLength: 0)
+                Button(t("Готово")) { onFinish() }
+                    .buttonStyle(WelcomePrimaryButton())
+            }
+        } else {
+            tourFooter
+        }
+    }
+
+    private var tourFooter: some View {
         HStack(spacing: 12) {
             if !model.isLastStep {
                 Button(t("Пропустить")) { onFinish() }

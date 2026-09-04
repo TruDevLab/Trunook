@@ -15,6 +15,11 @@ struct NotesPanel: View {
     let metrics: NotchMetrics
     let onOpen: (Note) -> Void
     let onDelete: (Note) -> Void
+    /// Есть ли у заметки файл в хранилище Obsidian. Не свойство заметки:
+    /// это знает служба синхронизации, а список о ней ничего не знает
+    /// и знать не должен.
+    let isInVault: (Note) -> Bool
+    let onOpenInObsidian: (Note) -> Void
     let onExportAll: () -> Void
     /// Перейти к созданию заметки. Из списка это первое, чего хочется:
     /// пришёл посмотреть записанное — и вспомнил, что записать ещё.
@@ -205,15 +210,35 @@ struct NotesPanel: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button(action: { onDelete(note) }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: NotchStyle.font(9), weight: .semibold))
-                    .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
+            // Уход в Obsidian стоит у всякой заметки, у которой там есть
+            // файл, — и у своих тоже: своя заметка лежит в хранилище ровно
+            // так же, и открыть её там бывает нужно не реже.
+            if isInVault(note) {
+                Button(action: { onOpenInObsidian(note) }) {
+                    Image(systemName: "arrow.up.forward.app")
+                        .font(.system(size: NotchStyle.font(9), weight: .semibold))
+                        .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PressableStyle())
+                .notchHint(t("Открыть в Obsidian"))
             }
-            .buttonStyle(PressableStyle())
-            .notchHint(t("Удалить заметку"))
+
+            // У заметки хранилища крестика нет: удалять чужой файл из выреза
+            // человек не просил, а править её всё равно можно только
+            // в Obsidian.
+            if !note.isReadOnly {
+                Button(action: { onDelete(note) }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: NotchStyle.font(9), weight: .semibold))
+                        .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PressableStyle())
+                .notchHint(t("Удалить заметку"))
+            }
         }
         .padding(.horizontal, 10)
         .frame(height: Self.rowHeight)
@@ -229,6 +254,6 @@ struct NotesPanel: View {
         // Своё имя у строки уже есть — её текст. Подменять его действием
         // было бы порчей: диктор произносил бы «Открыть заметку» одинаково
         // для всех строк подряд.
-        .notchActionHint(t("Открыть на правку"))
+        .notchActionHint(note.isReadOnly ? t("Открыть в Obsidian") : t("Открыть на правку"))
     }
 }

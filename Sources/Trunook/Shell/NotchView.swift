@@ -158,6 +158,8 @@ struct NotchView: View {
     /// Поставить скачанное обновление. Приложение при этом выйдет: дальше
     /// работает подменщик.
     let onInstallUpdate: () -> Void
+    /// Открыть описание выпуска — страницу окна знакомства.
+    let onOpenReleaseNotes: () -> Void
     /// Запустить команду из списка под полем вопроса.
     let onRunCommand: (QuickCommand) -> Void
     /// Убрать захваченный текст с плашки.
@@ -206,6 +208,8 @@ struct NotchView: View {
     let onOpenNotes: () -> Void
     let onOpenNote: (Note) -> Void
     let onDeleteNote: (Note) -> Void
+    let isNoteInVault: (Note) -> Bool
+    let onOpenNoteInObsidian: (Note) -> Void
     let onExportNotes: () -> Void
     let onRemoveFromShelf: (ShelfItem) -> Void
     let onOpenShelfItem: (ShelfItem) -> Void
@@ -713,7 +717,11 @@ struct NotchView: View {
         case .shelf: onOpenShelf()
         // Тело плашки — «расскажи подробнее», капсула — «ставь». Без этой
         // ветки `default` открывал бы по обновлению историю буфера.
-        case .update: onOpenSettings()
+        //
+        // Подробнее — это описание выпуска, а не настройки: в настройках
+        // человек видел ту же строку состояния, что и в плашке, и на этом
+        // «подробнее» заканчивалось.
+        case .update: onOpenReleaseNotes()
         default: onOpenClipboard()
         }
     }
@@ -762,6 +770,8 @@ struct NotchView: View {
                 metrics: metrics,
                 onOpen: onOpenNote,
                 onDelete: onDeleteNote,
+                isInVault: isNoteInVault,
+                onOpenInObsidian: onOpenNoteInObsidian,
                 onExportAll: onExportNotes,
                 onNewNote: onNewNote,
                 onClose: onCloseOverlay

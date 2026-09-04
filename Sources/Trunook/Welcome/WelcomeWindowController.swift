@@ -14,21 +14,31 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
     /// Поиск города для погоды: `@State` недоступен, набранному и найденному
     /// надо где-то жить, и живут они столько же, сколько окно.
     private let placeSearch = WeatherPlaceSearch()
+    /// Состояние шага «Модель»: живёт с контроллером, а не с видом —
+    /// проверка связи и скачивание переживают закрытие окна.
+    private let ai = WelcomeAI()
+    /// Описания выпусков: живут дольше окна, чтобы повторное открытие
+    /// не качало их заново.
+    private let releaseNotes = ReleaseNotesService()
 
     init(settings: Settings = .shared) {
         self.settings = settings
     }
 
+    /// `mode` открывает окно сразу описанием выпуска — так оно приходит
+    /// после обновления и по нажатию «Что нового» в настройках.
     func show(
         calendar: CalendarService,
         launchAtLogin: LaunchAtLogin,
         weather: WeatherService,
+        mode: WelcomeModel.Mode = .tour,
         onHotKeysChanged: @escaping () -> Void
     ) {
         launchAtLogin.refresh()
+        if mode == .notes { releaseNotes.load() }
 
         if let window, let model {
-            model.start()
+            model.start(mode: mode)
             present(window)
             return
         }
@@ -41,6 +51,8 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
             settings: settings,
             weather: weather,
             placeSearch: placeSearch,
+            releaseNotes: releaseNotes,
+            ai: ai,
             onHotKeysChanged: onHotKeysChanged,
             onFinish: { [weak self] in self?.finish() }
         )
@@ -82,7 +94,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
 
         self.window = window
         self.model = model
-        model.start()
+        model.start(mode: mode)
 
         centerOnActiveScreen(window)
         present(window)

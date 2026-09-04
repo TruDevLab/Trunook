@@ -317,6 +317,190 @@ final class ModelClient {
         }.resume()
     }
 
+    // MARK: - Что модель умеет
+
+    /// Что модель умеет: `completion`, `embedding`, `vision`, `tools`.
+    ///
+    /// Спрашиваем у самой Ollama, а не угадываем по имени. Имя не признак:
+    /// векторную модель зовут и `nomic-embed-text`, и `bge-m3`,
+    /// и `hf.co/Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M` — по подстроке «embed»
+    /// первая найдётся, вторая нет, а третья найдётся только с оглядкой
+    /// на регистр.
+    ///
+    /// Пустой ответ значит «не знаю»: у старой Ollama этого поля нет вовсе,
+    /// а у прочих провайдеров нет и самого запроса.
+    func capabilities(of name: String, from provider: AIProvider, completion: @escaping (Set<String>) -> Void) {
+        guard provider.dialect == .ollama, let url = endpoint("/api/show", of: provider) else {
+            completion([])
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["model": name])
+
+        session.dataTask(with: request) { data, _, _ in
+            completion(data.map(Self.capabilities(in:)) ?? [])
+        }.resume()
+    }
+
+    static func capabilities(in data: Data) -> Set<String> {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = object["capabilities"] as? [String]
+        else { return [] }
+        return Set(list)
+    }
+
+    // MARK: - Установка модели
+
+    /// Отвечает ли сервер этого провайдера.
+    ///
+    /// Нужно окну знакомства: «Ollama не установлена» и «Ollama установлена,
+    /// но не запущена» человек различить не может, а совет для них разный.
+    func ping(_ provider: AIProvider, completion: @escaping (Bool) -> Void) {
+        guard let url = url("/models", ollama: "/api/tags", of: provider) else {
+            completion(false)
+            return
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        authorize(&request, as: provider)
+        session.dataTask(with: request) { data, response, _ in
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            completion(data != nil && (200..<300).contains(code))
+        }.resume()
+    }
+
+    /// Скачивает модель у Ollama.
+    ///
+    /// Только у неё: остальные провайдеры моделей не хранят — там модель
+    /// либо есть у сервера, либо её нет, и скачать её со стороны нечем.
+    ///
+    /// Ответ идёт потоком строк с числом скачанных байт. Долю считаем сами:
+    /// Ollama сообщает `completed` и `total` по каждому слою отдельно,
+    /// и полосе нужна не она, а общая.
+    @discardableResult
+    func pull(
+        _ name: String,
+        from provider: AIProvider = .ollama,
+        onProgress: @escaping (Double) -> Void,
+        onFinish: @escaping (Result<Void, Error>) -> Void
+    ) -> Task<Void, Never> {
+        Task { [self] in
+            guard provider.dialect == .ollama else {
+                await MainActor.run { onFinish(.failure(ModelError.notOllama)) }
+                return
+            }
+            guard let url = endpoint("/api/pull", of: provider) else {
+                await MainActor.run { onFinish(.failure(ModelError.badURL)) }
+                return
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONSerialization.data(
+                withJSONObject: ["name": name, "stream": true]
+            )
+
+            do {
+                let (bytes, response) = try await session.bytes(for: request)
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                guard (200..<300).contains(code) else {
+                    await MainActor.run { onFinish(.failure(ModelError.server(code, name))) }
+                    return
+                }
+                for try await line in bytes.lines {
+                    if Task.isCancelled { return }
+                    if let share = Self.pullProgress(in: line) {
+                        await MainActor.run { onProgress(share) }
+                    }
+                    if let failure = Self.pullError(in: line) {
+                        await MainActor.run { onFinish(.failure(ModelError.server(code, failure))) }
+                        return
+                    }
+                }
+                await MainActor.run {
+                    onProgress(1)
+                    onFinish(.success(()))
+                }
+            } catch {
+                await MainActor.run { onFinish(.failure(error)) }
+            }
+        }
+    }
+
+    /// Доля скачанного из строки ответа. `nil` — строка без чисел
+    /// (их у Ollama больше половины: «pulling manifest», «verifying»).
+    static func pullProgress(in line: String) -> Double? {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let total = (object["total"] as? NSNumber)?.doubleValue, total > 0,
+              let done = (object["completed"] as? NSNumber)?.doubleValue
+        else { return nil }
+        return min(1, max(0, done / total))
+    }
+
+    /// Ollama сообщает об отказе полем `error`, а код ответа при этом
+    /// остаётся успешным: поток уже начался, когда выяснилось, что модели
+    /// с таким именем нет.
+    static func pullError(in line: String) -> String? {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let text = object["error"] as? String, !text.isEmpty
+        else { return nil }
+        return text
+    }
+
+    // MARK: - Векторы смысла
+
+    /// Вектор смысла для куска текста.
+    ///
+    /// Отдельным запросом, а не разговором: модели эмбеддингов не отвечают
+    /// словами вовсе, у них другой путь и другой ответ. Зато они дёшевы
+    /// и считаются один раз на заметку — по ним потом находится близкое,
+    /// уже без единого обращения к модели.
+    func embed(_ text: String, model: ModelRef, completion: @escaping ([Float]?) -> Void) {
+        guard let url = url("/embeddings", ollama: "/api/embed", of: model.provider) else {
+            completion(nil)
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&request, as: model.provider)
+        request.httpBody = try? JSONSerialization.data(
+            withJSONObject: ["model": model.name, "input": text]
+        )
+
+        session.dataTask(with: request) { data, _, error in
+            guard let data, error == nil else {
+                if let error { DebugLog.write("векторы: \(error.localizedDescription)") }
+                completion(nil)
+                return
+            }
+            completion(Self.vector(in: data, dialect: model.provider.dialect))
+        }.resume()
+    }
+
+    /// Вектор из ответа. У Ollama он лежит в `embeddings[0]`,
+    /// у OpenAI-совместимого — в `data[0].embedding`.
+    static func vector(in data: Data, dialect: AIProvider.Dialect) -> [Float]? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        let raw: [Any]?
+        switch dialect {
+        case .ollama:
+            raw = (object["embeddings"] as? [[Any]])?.first
+        case .openAI:
+            raw = ((object["data"] as? [[String: Any]])?.first?["embedding"]) as? [Any]
+        }
+        guard let raw, !raw.isEmpty else { return nil }
+        let numbers = raw.compactMap { ($0 as? NSNumber)?.floatValue }
+        return numbers.count == raw.count ? numbers : nil
+    }
+
     /// Имена моделей из ответа. У Ollama они лежат в `models[].name`,
     /// у OpenAI-совместимого — в `data[].id`.
     static func models(in data: Data, dialect: AIProvider.Dialect) -> [Model] {
@@ -333,12 +517,15 @@ final class ModelClient {
     }
 
     enum ModelError: LocalizedError {
+        /// Модель просили скачать не у Ollama.
+        case notOllama
         case badURL
         case emptyResponse
         case server(Int, String)
 
         var errorDescription: String? {
             switch self {
+            case .notOllama: return t("Модели скачиваются только у Ollama")
             case .badURL: return t("Неверный адрес сервера модели")
             case .emptyResponse: return t("Сервер модели вернул пустой ответ")
             case let .server(code, body):

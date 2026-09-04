@@ -67,10 +67,41 @@ final class NotesStore {
                 createdAt REAL NOT NULL,
                 updatedAt REAL NOT NULL,
                 origin TEXT NOT NULL,
-                titleByModel INTEGER NOT NULL
+                titleByModel INTEGER NOT NULL,
+                uid TEXT NOT NULL DEFAULT ''
             );
             """)
         execute("CREATE INDEX IF NOT EXISTS notes_time ON notes(updatedAt DESC);")
+        migrate()
+    }
+
+    /// Достройка схемы на базе, заведённой прежней версией.
+    ///
+    /// `CREATE TABLE IF NOT EXISTS` существующую таблицу не меняет вовсе,
+    /// поэтому новую колонку приходится добавлять руками — и только если её
+    /// ещё нет: повторный `ALTER TABLE` это ошибка, а не тишина.
+    ///
+    /// Номер разливается всем накопленным заметкам сразу: без него заметка
+    /// не нашла бы свой файл в хранилище после переименования.
+    private func migrate() {
+        guard !columnNames(of: "notes").contains("uid") else { return }
+        execute("ALTER TABLE notes ADD COLUMN uid TEXT NOT NULL DEFAULT '';")
+        execute("UPDATE notes SET uid = lower(hex(randomblob(16))) WHERE uid = '';")
+        DebugLog.write("заметки: схема дополнена номером заметки")
+    }
+
+    private func columnNames(of table: String) -> Set<String> {
+        guard let database else { return [] }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, "PRAGMA table_info(\(table));", -1, &statement, nil) == SQLITE_OK
+        else { return [] }
+        defer { sqlite3_finalize(statement) }
+
+        var names: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let name = sqlite3_column_text(statement, 1) { names.insert(String(cString: name)) }
+        }
+        return names
     }
 
     private var lastError: String {
@@ -98,8 +129,8 @@ final class NotesStore {
             guard let database else { return nil }
 
             let sql = """
-                INSERT INTO notes (title, rtf, plain, folded, createdAt, updatedAt, origin, titleByModel)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                INSERT INTO notes (title, rtf, plain, folded, createdAt, updatedAt, origin, titleByModel, uid)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -113,6 +144,7 @@ final class NotesStore {
             sqlite3_bind_double(statement, 6, note.updatedAt.timeIntervalSince1970)
             sqlite3_bind_text(statement, 7, note.origin.rawValue, -1, Self.transient)
             sqlite3_bind_int(statement, 8, note.titleByModel ? 1 : 0)
+            sqlite3_bind_text(statement, 9, note.uid, -1, Self.transient)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 DebugLog.write("заметки: запись не легла — \(lastError)")
@@ -192,12 +224,24 @@ final class NotesStore {
     // MARK: - Чтение
 
     private static let columns = """
-        id, title, rtf, plain, createdAt, updatedAt, origin, titleByModel
+        id, title, rtf, plain, createdAt, updatedAt, origin, titleByModel, uid
         """
 
+    /// Порядок выдачи: свои впереди, заметки хранилища следом, внутри
+    /// каждой половины — свежие первыми.
+    ///
+    /// Хранилище бывает на тысячи заметок, и вперемешку по одной только дате
+    /// своя заметка тонула бы в чужих: правку в Obsidian человек делает
+    /// каждый день, а в приложении заметки заводит реже.
+    private static let order = "origin = '\(Note.Origin.obsidian.rawValue)' ASC, updatedAt DESC"
+
     /// Все заметки, свежие первыми.
-    func all() -> [Note] {
-        query("SELECT \(Self.columns) FROM notes ORDER BY updatedAt DESC;") { _ in }
+    func all(source: NoteSource = .all) -> [Note] {
+        query("SELECT \(Self.columns) FROM notes\(Self.clause(source)) ORDER BY \(Self.order);") { _ in }
+    }
+
+    private static func clause(_ source: NoteSource) -> String {
+        source.condition.map { " WHERE \($0)" } ?? ""
     }
 
     /// Поиск по ключевым словам.
@@ -208,14 +252,18 @@ final class NotesStore {
     ///
     /// Сравнение идёт по сложенной колонке: `LIKE` в SQLite складывает
     /// регистр только для латиницы, и по-русски поиск иначе молчит.
-    func search(_ text: String) -> [Note] {
+    func search(_ text: String, source: NoteSource = .all) -> [Note] {
         let words = text.folded
             .split(whereSeparator: { $0.isWhitespace })
             .map(String.init)
-        guard !words.isEmpty else { return all() }
+        guard !words.isEmpty else { return all(source: source) }
 
-        let conditions = words.map { _ in "folded LIKE ? ESCAPE '\\'" }.joined(separator: " AND ")
-        let sql = "SELECT \(Self.columns) FROM notes WHERE \(conditions) ORDER BY updatedAt DESC;"
+        var conditions = words.map { _ in "folded LIKE ? ESCAPE '\\'" }
+        if let extra = source.condition { conditions.append(extra) }
+        let sql = """
+            SELECT \(Self.columns) FROM notes \
+            WHERE \(conditions.joined(separator: " AND ")) ORDER BY \(Self.order);
+            """
         return query(sql) { statement in
             for (offset, word) in words.enumerated() {
                 let pattern = "%" + Self.escaped(word) + "%"
@@ -239,11 +287,14 @@ final class NotesStore {
         }.first
     }
 
-    var count: Int {
+    var count: Int { count(source: .all) }
+
+    func count(source: NoteSource) -> Int {
         queue.sync {
             guard let database else { return 0 }
             var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(database, "SELECT COUNT(*) FROM notes;", -1, &statement, nil)
+            let sql = "SELECT COUNT(*) FROM notes\(Self.clause(source));"
+            guard sqlite3_prepare_v2(database, sql, -1, &statement, nil)
                 == SQLITE_OK else { return 0 }
             defer { sqlite3_finalize(statement) }
             guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
@@ -285,6 +336,7 @@ final class NotesStore {
 
         return Note(
             id: sqlite3_column_int64(statement, 0),
+            uid: sqlite3_column_text(statement, 8).map { String(cString: $0) } ?? "",
             title: String(cString: titleText),
             rtf: rtf,
             plain: String(cString: plainText),

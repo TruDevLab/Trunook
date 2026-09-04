@@ -15,6 +15,18 @@ final class ModelList: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var error: String?
 
+    /// Имена моделей, умеющих считать векторы.
+    ///
+    /// Спрашиваем у самой Ollama, а не угадываем по имени: векторную модель
+    /// зовут и `nomic-embed-text`, и `bge-m3`, и
+    /// `hf.co/Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M`.
+    @Published private(set) var embedding: Set<String> = []
+
+    /// Что уже спрашивали. Умения модели не меняются, а `/api/show` —
+    /// отдельный запрос на каждую: без памяти список опрашивал бы сервер
+    /// по десятку раз за открытие настроек.
+    private var known: [String: Set<String>] = [:]
+
     private let client = ModelClient()
     private let settings: Settings
 
@@ -22,9 +34,35 @@ final class ModelList: ObservableObject {
         self.settings = settings
     }
 
+    /// Чем модель занимается. Векторная не отвечает словами, обычная
+    /// не считает векторы — списки у них разные, и путать их нельзя.
+    enum Kind {
+        case any
+        /// Отвечает словами.
+        case chat
+        /// Считает векторы.
+        case embedding
+    }
+
     /// Модели одного провайдера — для выбора в его же настройках.
-    func models(of provider: AIProvider) -> [ModelRef] {
-        models.filter { $0.provider == provider }
+    func models(of provider: AIProvider, kind: Kind = .any) -> [ModelRef] {
+        let found = models.filter { $0.provider == provider }
+        switch kind {
+        case .any:
+            return found
+        case .chat:
+            return found.filter { !isEmbedding($0.name) }
+        case .embedding:
+            return found.filter { isEmbedding($0.name) }
+        }
+    }
+
+    func isEmbedding(_ name: String) -> Bool {
+        if embedding.contains(name) { return true }
+        // Запасной признак — на случай Ollama постарше, где `/api/show`
+        // умений не сообщает вовсе. Ловит не всех, но и не врёт.
+        guard known[name] == nil else { return false }
+        return name.lowercased().contains("embed")
     }
 
     /// Спросить всех включённых разом.
@@ -79,7 +117,60 @@ final class ModelList: ObservableObject {
                 "модели: найдено — \(self.models.count)"
                     + " у \(providers.count) провайдеров"
             )
+            self.askCapabilities()
         }
+    }
+
+    /// Спрашивает у Ollama, что умеет каждая её модель.
+    ///
+    /// Отдельным заходом после списка: сам список приходит одним запросом,
+    /// а умения — по запросу на модель, и ждать их, прежде чем показать
+    /// список, значило бы держать человека перед пустым выбором лишние
+    /// секунды.
+    private func askCapabilities() {
+        let unknown = models.filter { $0.provider.dialect == .ollama && known[$0.name] == nil }
+        guard !unknown.isEmpty else {
+            adoptEmbedModel()
+            return
+        }
+
+        let group = DispatchGroup()
+        for model in unknown {
+            group.enter()
+            client.capabilities(of: model.name, from: model.provider) { [weak self] able in
+                DispatchQueue.main.async {
+                    self?.known[model.name] = able
+                    if able.contains("embedding") { self?.embedding.insert(model.name) }
+                    group.leave()
+                }
+            }
+        }
+        group.notify(queue: .main) { [weak self] in
+            guard let self else { return }
+            DebugLog.write("модели: считают векторы — \(embedding.count)")
+            adoptEmbedModel()
+        }
+    }
+
+    /// Подставляет установленную векторную модель, если выбранной нет.
+    ///
+    /// Иначе получается тупик на ровном месте: у человека векторная модель
+    /// скачана, а в настройках стоит рекомендованная, которой нет, — и
+    /// приложение просит скачать вторую такую же вместо того, чтобы взять
+    /// имеющуюся.
+    private func adoptEmbedModel() {
+        let provider = settings.aiProvider
+        let installed = models(of: provider, kind: .embedding)
+        guard !installed.isEmpty else { return }
+
+        let current = ModelRef.parse(settings.embedModel, fallback: provider)?.name ?? ""
+        guard !installed.contains(where: { $0.name == current }) else { return }
+
+        // Рекомендованная — первой, если она есть: человек мог скачать её же.
+        let pick = installed.first { RecommendedModel.base(of: $0.name) == RecommendedModel.embed }
+            ?? installed[0]
+        settings.embedModel = pick.stored
+        DebugLog.write("модели: для векторов подставлена \(pick.name)")
     }
 
     /// Что сказать про тех, кто ничего не отдал.

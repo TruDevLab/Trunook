@@ -90,6 +90,9 @@ struct SettingsView: View {
     @ObservedObject var weather: WeatherService
     /// Заметки: их число показывается в разделе, а очистка идёт через службу.
     @ObservedObject var notes: NotesService
+    @ObservedObject var obsidian: ObsidianService
+    let linker: NoteLinker
+    @ObservedObject private var installer = ModelInstaller.shared
     /// Обновления: строка состояния и подпись кнопки живут от её состояния.
     @ObservedObject var updates: UpdateService
     /// Поиск города. Живёт снаружи, а не в теле вида: `@State` в этом SDK
@@ -113,6 +116,9 @@ struct SettingsView: View {
     /// только при первом запуске, а вернуться к нему хотят и позже —
     /// перечитать про жесты или переспросить доступы.
     let onOpenWelcome: () -> Void
+    /// Открыть описание выпуска — ту же страницу окна знакомства, что
+    /// показывается сама после обновления.
+    let onOpenReleaseNotes: () -> Void
     /// Прочитать образец выбранным голосом. Выбирать его иначе нечем:
     /// у голосов случайные имена, а разница между ними — только на слух.
     let onPreviewVoice: () -> Void
@@ -261,8 +267,16 @@ struct SettingsView: View {
     private var updateStatusRow: some View {
         let line = UpdateStatusText.line(for: updates.state)
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
+            HStack(spacing: 10) {
                 Text(line.text).foregroundStyle(.secondary)
+                // Раньше здесь стояла ссылка на страницу GitHub, и появлялась
+                // она только у скачанного обновления. В остальное время
+                // карточка обновлений не отзывалась ни на что — а «что там
+                // нового» спрашивают как раз чаще до загрузки, чем после.
+                // Теперь кнопка стоит всегда и ведёт не в браузер, а в окно
+                // знакомства: описание выпусков приложение показывает само.
+                Button(t("Что нового")) { onOpenReleaseNotes() }
+                    .buttonStyle(.link)
                 Spacer()
                 switch line.action {
                 case .check:
@@ -272,9 +286,6 @@ struct SettingsView: View {
                 case .busy:
                     Button(t("Проверить")) {}.disabled(true)
                 }
-            }
-            if case let .ready(release, _) = updates.state, let page = release.pageURL {
-                Link(t("Что нового"), destination: page)
             }
             if case .install = line.action {
                 hint(t("Приложение перезапустится. Доступы останутся выданными."))
@@ -624,6 +635,27 @@ struct SettingsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Искать по смыслу"), isOn: Binding(
+                        get: { settings.notesVectorSearch },
+                        set: { settings.notesVectorSearch = $0; linker.refreshAll() }
+                    ))
+                    hint(t("Модели уходят только подходящие заметки, а не все подряд."))
+                }
+                .disabled(!settings.notesEnabled || !settings.ollamaEnabled)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker(t("Заметок под вопрос"), selection: settings.binding(\.notesVectorCount)) {
+                        ForEach([4, 6, 10, 15, 20], id: \.self) { value in
+                            Text(tf("%d", value)).tag(value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+                    hint(t("Сколько подходящих заметок отдавать модели."))
+                }
+                .disabled(!settings.notesEnabled || !settings.ollamaEnabled || !settings.notesVectorSearch)
+
+                VStack(alignment: .leading, spacing: 4) {
                     Picker(t("Заметок в контекст модели"), selection: settings.binding(\.notesContextLimit)) {
                         ForEach([8_000, 16_000, 24_000, 48_000, 96_000], id: \.self) { value in
                             Text(tf("%d тыс. знаков", value / 1_000)).tag(value)
@@ -647,7 +679,295 @@ struct SettingsView: View {
                     hint(tf("Хранятся в %@. Выгрузка в Markdown — кнопкой в самом списке заметок.", NotesStore.defaultURL.path))
                 }
             }
+
+            obsidianSection
+            linksSection
         }
+    }
+
+    /// Карточка связей.
+    ///
+    /// Связи ищут векторами: совпадение слов на вопрос «о том же ли» не
+    /// отвечает. Запись в файлы — отдельным переключателем: одно дело
+    /// показать связи, другое — писать в личные файлы человека.
+    private var linksSection: some View {
+        section(t("Связи между заметками"), icon: "point.3.filled.connected.trianglepath.dotted") {
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Искать связи"), isOn: Binding(
+                    get: { settings.obsidianLinksEnabled },
+                    set: { settings.obsidianLinksEnabled = $0; linksChanged() }
+                ))
+                hint(t("Модель находит заметки об одном и том же, даже когда общих слов в них нет."))
+            }
+            .disabled(!settings.ollamaEnabled)
+
+            VStack(alignment: .leading, spacing: 4) {
+                embedModelPicker
+                hint(t("Отдельная модель: она не отвечает словами, а считает смысл."))
+                installRow(RecommendedModel.embed)
+            }
+            .disabled(!settings.ollamaEnabled)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Picker(t("Насколько близкими считать"), selection: settings.binding(\.obsidianLinkThreshold)) {
+                    ForEach([60, 70, 80, 90], id: \.self) { value in
+                        Text(tf("%d%%", value)).tag(value)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+                hint(t("Ниже — связей больше, но случайных тоже."))
+            }
+            .disabled(!settings.obsidianLinksEnabled || !settings.ollamaEnabled)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Только у новых заметок"), isOn: settings.binding(\.linksOnlyNew))
+                hint(t("У большого архива первый проход — часы работы модели."))
+                if settings.linksOnlyNew, settings.linksSince != nil {
+                    Button(t("Связать и старые")) {
+                        settings.linksSince = nil
+                        linker.refreshAll()
+                    }
+                }
+            }
+            .disabled(!settings.obsidianLinksEnabled || !settings.ollamaEnabled)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Дописывать связи в файлы Obsidian"), isOn: settings.binding(\.obsidianLinksToFiles))
+                hint(t("Отдельным блоком между невидимыми метками — в графе они станут настоящими ссылками."))
+            }
+            .disabled(!settings.obsidianLinksEnabled || !settings.obsidianEnabled)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Button(t("Убрать блоки связей из файлов"), action: obsidian.removeAllLinkBlocks)
+                    .disabled(!settings.obsidianEnabled)
+                hint(t("Снимает их подчистую. Остальной текст файлов не трогает."))
+            }
+        }
+    }
+
+    /// Выбор модели, считающей векторы.
+    ///
+    /// Список тот же, что и у обычных моделей, — Ollama не разделяет их
+    /// у себя, — но выбранное показывается даже когда список не пришёл:
+    /// пустое поле выглядело бы как «модель не выбрана», а она выбрана,
+    /// просто сервер сейчас молчит.
+    private var embedModelPicker: some View {
+        let provider = settings.aiProvider
+        let found = models.models(of: provider, kind: .embedding)
+        let current = ModelRef.parse(settings.embedModel, fallback: provider)?.name ?? ""
+        return HStack {
+            Picker(t("Модель для векторов"), selection: Binding(
+                get: { current },
+                set: { settings.embedModel = ModelRef(provider: provider, name: $0).stored }
+            )) {
+                if !found.contains(where: { $0.name == current }) {
+                    Text(current.isEmpty ? t("не выбрана") : current).tag(current)
+                }
+                ForEach(found, id: \.self) { model in
+                    Text(model.name).tag(model.name)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Button {
+                models.refresh()
+            } label: {
+                if models.isLoading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
+            .disabled(models.isLoading)
+            .help(t("Обновить список"))
+            .accessibilityLabel(t("Обновить список"))
+        }
+    }
+
+    /// Строка «этой модели нет — скачать».
+    ///
+    /// Показывается только когда модели и правда нет: у того, у кого она уже
+    /// стоит, кнопка была бы предложением сделать сделанное. Пока идёт
+    /// загрузка, на её месте полоса — модель весит гигабайты, и кнопка
+    /// без отклика читалась бы как несработавшая.
+    @ViewBuilder
+    private func installRow(_ name: String) -> some View {
+        if installer.isInstalling(name) {
+            HStack(spacing: 8) {
+                ProgressView(value: installedShare).controlSize(.small)
+                Text(tf("Качаю %@ — %d%%", name, Int(installedShare * 100)))
+                    .foregroundStyle(SettingsStyle.tertiary)
+                Button(t("Отменить"), action: installer.cancel)
+            }
+        } else if !isInstalled(name), settings.aiProvider == .ollama {
+            HStack(spacing: 8) {
+                Button(tf("Скачать %@", name)) { installer.install(name) }
+                    .disabled(installer.isBusy)
+                if case .failed(let text) = installer.state {
+                    Text(text)
+                        .foregroundStyle(Palette.warning)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    /// Есть ли такая модель. Для векторной достаточно **любой** векторной:
+    /// человек мог скачать не рекомендованную, а другую, и предлагать ему
+    /// вторую такую же незачем.
+    private func isInstalled(_ name: String) -> Bool {
+        if name == RecommendedModel.embed {
+            return !models.models(of: settings.aiProvider, kind: .embedding).isEmpty
+        }
+        return RecommendedModel.isInstalled(name, among: models.models(of: .ollama))
+    }
+
+    private var installedShare: Double {
+        if case .pulling(let share) = installer.state { return share }
+        return 0
+    }
+
+    /// Выключенные связи не оставляют за собой ничего: ни векторов, ни связей.
+    private func linksChanged() {
+        guard settings.obsidianLinksEnabled else {
+            settings.linksSince = nil
+            linker.clearLinks()
+            return
+        }
+        // Граница «новизны» ставится в тот миг, когда связи включили:
+        // всё, что человек запишет после, — новое.
+        if settings.linksSince == nil { settings.linksSince = Date() }
+        linker.refreshAll()
+    }
+
+    /// Карточка Obsidian.
+    ///
+    /// Стоит внутри «Заметок», а не отдельным разделом слева: разделов
+    /// и так девять, а это по существу заметки. Всё, кроме переключателя,
+    /// гаснет при выключенной синхронизации — прячется только выбор папки,
+    /// потому что без него остальное бессмысленно.
+    private var obsidianSection: some View {
+        section(t("Obsidian"), icon: "circle.hexagongrid") {
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Синхронизация с Obsidian"), isOn: Binding(
+                    get: { settings.obsidianEnabled },
+                    set: { settings.obsidianEnabled = $0; obsidian.settingsChanged() }
+                ))
+                hint(t("Заметки лягут в хранилище файлами, а его заметки найдутся поиском."))
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(vaultPathTitle)
+                        .foregroundStyle(settings.obsidianVaultPath.isEmpty
+                            ? SettingsStyle.tertiary : SettingsStyle.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                    Spacer()
+                    Button(t("Выбрать папку…"), action: chooseVault)
+                }
+                hint(vaultHint)
+            }
+            .disabled(!settings.obsidianEnabled)
+
+            VStack(alignment: .leading, spacing: 4) {
+                field(
+                    t("Папка для заметок"),
+                    prompt: Vault.defaultFolder,
+                    text: Binding(
+                        get: { settings.obsidianFolder },
+                        set: { settings.obsidianFolder = $0 }
+                    )
+                )
+                hint(t("Внутри хранилища. Можно вложенную: «Заметки/Trunook»."))
+            }
+            .disabled(!settings.obsidianEnabled)
+            .onSubmit { obsidian.folderChanged() }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Искать и по заметкам хранилища"), isOn: Binding(
+                    get: { settings.obsidianIndexVault },
+                    set: { settings.obsidianIndexVault = $0; obsidian.sync(manual: true) }
+                ))
+                hint(t("Они появляются в поиске и уходят в контекст модели. Править их можно только в Obsidian."))
+            }
+            .disabled(!settings.obsidianEnabled)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(obsidianStateText)
+                        .foregroundStyle(obsidianStateColor)
+                    Spacer()
+                    Button(t("Синхронизировать"), action: { obsidian.sync(manual: true) })
+                        .disabled(!settings.obsidianEnabled || settings.obsidianVaultPath.isEmpty)
+                }
+                hint(tf("Свои заметки лежат в подпапке «%@». Остальное хранилище приложение только читает.", settings.obsidianFolder))
+            }
+            .disabled(!settings.obsidianEnabled)
+        }
+    }
+
+    private var vaultPathTitle: String {
+        let path = settings.obsidianVaultPath
+        return path.isEmpty ? t("Папка не выбрана") : (path as NSString).abbreviatingWithTildeInPath
+    }
+
+    /// Предупреждения — короткой фразой и только по делу: папка не выбрана,
+    /// папка пропала, папка не похожа на хранилище.
+    private var vaultHint: String {
+        guard !settings.obsidianVaultPath.isEmpty else {
+            return t("У Obsidian нет постоянного места — папку называете вы.")
+        }
+        guard let vault = obsidian.vault else { return t("У Obsidian нет постоянного места — папку называете вы.") }
+        if !vault.isReachable { return t("Папка не читается: диск отключён или её переименовали.") }
+        if !vault.looksLikeVault { return t("Внутри нет папки .obsidian — на хранилище не похоже.") }
+        return t("Приложение пишет в эту папку. Удаляет только в Корзину.")
+    }
+
+    private var obsidianStateText: String {
+        switch obsidian.state {
+        case .off: return t("Выключено")
+        case .noFolder: return t("Папка не выбрана")
+        case .unreachable: return t("Папка недоступна — ничего не тронуто")
+        case .emptied: return t("Файлов вдруг стало меньше — сверка остановлена")
+        case .syncing: return t("Сверяю…")
+        case .never: return t("Сверки ещё не было")
+        case .synced(let date): return tf("Сверено в %@", Self.timeText(date))
+        }
+    }
+
+    private var obsidianStateColor: Color {
+        switch obsidian.state {
+        case .unreachable, .emptied: return Palette.warning
+        default: return SettingsStyle.secondary
+        }
+    }
+
+    private static func timeText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Localization.shared.resolved.locale
+        formatter.setLocalizedDateFormatFromTemplate("HH:mm")
+        return formatter.string(from: date)
+    }
+
+    /// Папку называет человек. Ни одного предположения о том, где хранилище
+    /// лежит, в коде нет: у Obsidian нет постоянного места, и угаданный путь
+    /// однажды оказался бы не тем.
+    private func chooseVault() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = t("Выбрать")
+        panel.message = t("Где лежит хранилище Obsidian")
+        NSApp.activate(ignoringOtherApps: true)
+
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        settings.obsidianVaultPath = folder.path
+        obsidian.settingsChanged()
+        obsidian.sync(manual: true)
     }
 
     /// Очистка спрашивает подтверждение: это единственный способ потерять
@@ -1336,6 +1656,13 @@ struct SettingsView: View {
             // Удержание модели в памяти — свойство Ollama, а не разговора:
             // у прочих этим распоряжается сервер, и настройка, показанная
             // рядом, обещала бы влияние, которого у неё нет.
+            // Пустой список моделей у свежепоставленной Ollama — обычное
+            // дело: сервер есть, моделей в нём нет. Раньше это был тупик
+            // с уходом в терминал; теперь рядом кнопка.
+            if provider == .ollama {
+                installRow(RecommendedModel.chat)
+            }
+
             if provider == .ollama {
                 VStack(alignment: .leading, spacing: 4) {
                     Picker(t("Держать модель в памяти"), selection: settings.binding(\.ollamaKeepAlive)) {
@@ -1366,7 +1693,9 @@ struct SettingsView: View {
     }
 
     private func providerModelPicker(_ provider: AIProvider) -> some View {
-        let found = models.models(of: provider)
+        // Векторные модели сюда не попадают: они не отвечают словами вовсе,
+        // и выбранная по ошибке молчала бы на каждый вопрос.
+        let found = models.models(of: provider, kind: .chat)
         let current = settings.apiModel(for: provider)
         return VStack(alignment: .leading, spacing: 4) {
             HStack {

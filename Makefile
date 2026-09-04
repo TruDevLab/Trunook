@@ -1,5 +1,5 @@
 APP      := Trunook
-VERSION := 0.13.0
+VERSION := 0.14.0
 # Номер сборки растёт со временем: так две сборки одной версии различимы.
 BUILDNO  := $(shell date +%y%m%d%H%M)
 # Провал сборки в конвейере с grep иначе теряется: make видит код последней
@@ -69,6 +69,10 @@ bundle: build
 	@cp Resources/purr.wav $(BUNDLE)/Contents/Resources/purr.wav
 	@cp Resources/chime.wav $(BUNDLE)/Contents/Resources/chime.wav
 	@cp -R Resources/en.lproj Resources/zh-Hans.lproj $(BUNDLE)/Contents/Resources/
+	@# README едет в бандл: его показывает страница «Описание» в окне
+	@# знакомства. Из бандла, а не из сети — он описывает ровно ту версию,
+	@# которая стоит, и читается без интернета.
+	@cp README.md README.en.md README.zh.md $(BUNDLE)/Contents/Resources/
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" \
 		$(BUNDLE)/Contents/Info.plist
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(BUILDNO)" \

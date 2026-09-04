@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let controller = NotchController()
     private let settingsWindow = SettingsWindowController()
     private let welcomeWindow = WelcomeWindowController()
+    private let confetti = ConfettiWindowController()
     private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -14,12 +15,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // До всего, что спрашивает адрес модели: провайдеры разъезжаются
         // по своим полям, и до переноса общие поля читались бы как чужие.
         settings.migrateProviderSettings()
+        settings.migrateEmbedModel()
         // До всего остального: меню и окна собираются уже переведёнными.
         Localization.shared.apply(settings.language)
         // Невидимое меню: оно раздаёт ⌘C, ⌘V и прочую правку текста.
         // Без него поля ввода в настройках и в вырезе не копировались.
         AppMenu.install()
         controller.onOpenSettings = { [weak self] in self?.openSettings() }
+        controller.onOpenReleaseNotes = { [weak self] in self?.openReleaseNotes() }
         controller.start()
         installStatusItem()
         installDebugTrigger()
@@ -30,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: .trunookLanguageChanged,
             object: nil
         )
-        showWelcomeIfFirstRun()
+        greetLaunch()
         DebugLog.write("запуск \(AppInfo.name) \(AppInfo.version), "
                        + "автозапуск \(launchAtLogin.isEnabled ? "включён" : "выключен")")
     }
@@ -49,6 +52,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.trackChanged", #selector(testTrackChanged)),
             ("com.trunook.debug.settings", #selector(openSettings)),
             ("com.trunook.debug.welcome", #selector(openWelcome)),
+            ("com.trunook.debug.releaseNotes", #selector(openReleaseNotes)),
+            ("com.trunook.debug.confetti", #selector(testConfetti)),
+            ("com.trunook.debug.obsidianScan", #selector(obsidianScan)),
+            ("com.trunook.debug.obsidianSync", #selector(obsidianSync)),
+            ("com.trunook.debug.obsidianLinks", #selector(obsidianLinks)),
+            ("com.trunook.debug.shotConfetti", #selector(shotConfetti)),
             ("com.trunook.debug.purr", #selector(testPurr)),
             ("com.trunook.debug.update", #selector(checkForUpdates)),
             ("com.trunook.debug.updatePill", #selector(testUpdatePill)),
@@ -135,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         add(to: menu, title: t("Настройки…"), action: #selector(openSettings), key: ",")
         add(to: menu, title: t("Знакомство…"), action: #selector(openWelcome), key: "")
+        add(to: menu, title: t("Что нового…"), action: #selector(openReleaseNotes), key: "")
         menu.addItem(.separator())
         add(to: menu, title: t("Обновить сведения о треке"), action: #selector(refreshMusic), key: "r")
         add(to: menu, title: t("Проверить обновления"), action: #selector(checkForUpdates), key: "")
@@ -160,6 +170,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add(to: submenu, title: "Событие: смена трека", action: #selector(testTrackChanged), key: "")
         add(to: submenu, title: "Мурчание", action: #selector(testPurr), key: "")
         add(to: submenu, title: "Окно знакомства", action: #selector(openWelcome), key: "")
+        add(to: submenu, title: "Описание выпусков", action: #selector(openReleaseNotes), key: "")
+        add(to: submenu, title: "Конфетти из чёлки", action: #selector(testConfetti), key: "")
 
         let item = NSMenuItem(title: "Отладка", action: nil, keyEquivalent: "")
         item.submenu = submenu
@@ -519,23 +531,105 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item)
     }
 
-    /// Первый запуск: окно знакомства открывается само и берёт на себя
-    /// запрос доступов. Задержка — чтобы окно не выскочило раньше, чем
-    /// система дорисует рабочий стол после входа в систему.
-    private func showWelcomeIfFirstRun() {
-        guard !settings.hasSeenWelcome else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-            self?.openWelcome()
+    /// Чем встретить этот запуск.
+    ///
+    /// Первый — окном знакомства: оно берёт на себя запрос доступов. Первый
+    /// после обновления — залпом конфетти из чёлки и описанием выпуска: иначе
+    /// обновление проходит совершенно незаметно, и о том, что изменилось,
+    /// человек не узнаёт никогда.
+    ///
+    /// Задержка в обоих случаях — чтобы окно не выскочило раньше, чем система
+    /// дорисует рабочий стол после входа в неё.
+    private func greetLaunch() {
+        let kind = LaunchKind.resolve(
+            current: AppInfo.shortVersion,
+            lastRun: settings.lastRunVersion,
+            hasSeenWelcome: settings.hasSeenWelcome
+        )
+        // Запись сразу за чтением: дальше по коду запуск уже не «первый»,
+        // а падение между показом и записью повторило бы залп на следующем
+        // запуске — мелочь, но необъяснимая для того, кто её увидит.
+        settings.lastRunVersion = AppInfo.shortVersion
+
+        switch kind {
+        case .ordinary:
+            return
+        case .firstEver:
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.openWelcome()
+            }
+        case let .afterUpdate(from):
+            DebugLog.write("запуск после обновления с \(from ?? "неизвестной версии")")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.celebrateUpdate()
+            }
         }
     }
 
+    /// Залп и описание выпуска. Окно открывается сразу за залпом, а не после
+    /// него: конфетти летит поверх всего, и ждать его конца значило бы держать
+    /// человека две секунды перед пустым экраном.
+    private func celebrateUpdate() {
+        confetti.fire()
+        openReleaseNotes()
+    }
+
     @objc private func openWelcome() {
+        showWelcome(mode: .tour)
+    }
+
+    /// Окно знакомства, открытое сразу описанием выпусков.
+    @objc private func openReleaseNotes() {
+        showWelcome(mode: .notes)
+    }
+
+    private func showWelcome(mode: WelcomeModel.Mode) {
         welcomeWindow.show(
             calendar: controller.calendar,
             launchAtLogin: launchAtLogin,
             weather: controller.weather,
+            mode: mode,
             onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() }
         )
+    }
+
+    /// Залп из чёлки без обновления: нажать кнопку и дождаться настоящего
+    /// выпуска ради одной анимации — плохой цикл разработки.
+    @objc private func testConfetti() {
+        confetti.fire()
+    }
+
+    /// Обход хранилища: сколько файлов видно и сколько из них свои.
+    @objc private func obsidianScan() {
+        guard let vault = controller.obsidian.vault else {
+            DebugLog.write("Obsidian: папка не выбрана")
+            return
+        }
+        guard vault.isReachable else {
+            DebugLog.write("Obsidian: папка недоступна — \(vault.url.path)")
+            return
+        }
+        let files = VaultScanner.files(in: vault)
+        let own = files.filter { vault.isOwn($0.path) }.count
+        DebugLog.write(
+            "Obsidian: \(vault.url.path), файлов \(files.count), своих \(own), "
+                + "хранилище=\(vault.looksLikeVault)"
+        )
+    }
+
+    /// Полная сверка прямо сейчас.
+    @objc private func obsidianSync() {
+        controller.obsidian.sync(manual: true)
+    }
+
+    /// Пересчёт векторов и связей.
+    @objc private func obsidianLinks() {
+        controller.linker.refreshAll()
+    }
+
+    /// Снимок залпа в ~/Library/Logs/Trunook-confetti.png.
+    @objc private func shotConfetti() {
+        confetti.snapshotMidflight()
     }
 
     @objc private func openSettings() {
@@ -546,10 +640,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             clipboard: controller.clipboard,
             weather: controller.weather,
             notes: controller.notes,
+            obsidian: controller.obsidian,
+            linker: controller.linker,
             updates: controller.updates,
             onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() },
             onLayoutChanged: { [weak self] in self?.controller.relayout() },
             onOpenWelcome: { [weak self] in self?.openWelcome() },
+            onOpenReleaseNotes: { [weak self] in self?.openReleaseNotes() },
             onPreviewVoice: { [weak self] in self?.controller.speakVoiceSample() },
             // Ползунок прозрачности меняет вид выреза из другого окна —
             // и держит его раскрытым, пока человек смотрит.

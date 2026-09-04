@@ -24,10 +24,13 @@ final class SettingsWindowController {
         clipboard: ClipboardService,
         weather: WeatherService,
         notes: NotesService,
+        obsidian: ObsidianService,
+        linker: NoteLinker,
         updates: UpdateService,
         onHotKeysChanged: @escaping () -> Void,
         onLayoutChanged: @escaping () -> Void,
         onOpenWelcome: @escaping () -> Void,
+        onOpenReleaseNotes: @escaping () -> Void,
         onPreviewVoice: @escaping () -> Void,
         onPreviewNotch: @escaping (TimeInterval) -> Void
     ) {
@@ -66,11 +69,14 @@ final class SettingsWindowController {
             clipboard: clipboard,
             weather: weather,
             notes: notes,
+            obsidian: obsidian,
+            linker: linker,
             updates: updates,
             placeSearch: placeSearch,
             onHotKeysChanged: onHotKeysChanged,
             onLayoutChanged: onLayoutChanged,
             onOpenWelcome: onOpenWelcome,
+            onOpenReleaseNotes: onOpenReleaseNotes,
             onPreviewVoice: onPreviewVoice,
             onPreviewNotch: onPreviewNotch
         )

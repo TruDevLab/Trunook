@@ -19,6 +19,9 @@ struct Note: Identifiable, Equatable {
         case clipboard
         /// Выделенный в чужом окне текст, сохранённый клавишей.
         case selection
+        /// Заметка хранилища Obsidian. Приложение её только показывает
+        /// и ищет по ней: править такую можно лишь в самом Obsidian.
+        case obsidian
 
         var symbol: String {
             switch self {
@@ -26,11 +29,17 @@ struct Note: Identifiable, Equatable {
             case .assistant: return "sparkles"
             case .clipboard: return "doc.on.clipboard"
             case .selection: return "text.viewfinder"
+            case .obsidian: return "circle.hexagongrid"
             }
         }
     }
 
     var id: Int64
+    /// Постоянный номер заметки — он же лежит в шапке её файла в хранилище
+    /// Obsidian. Именно по нему переименование файла остаётся
+    /// переименованием, а не «одну удалили, другую завели»: путь меняется,
+    /// номер — нет.
+    var uid: String = UUID().uuidString
     var title: String
     var rtf: Data
     var plain: String
@@ -46,6 +55,11 @@ struct Note: Identifiable, Equatable {
     static let unsaved: Int64 = 0
 
     var isSaved: Bool { id != Self.unsaved }
+
+    /// Заметку хранилища правят в Obsidian, а не здесь: поле правки знает
+    /// заголовок, жирный, курсив и ссылку, а в чужой заметке бывают таблицы,
+    /// списки задач и вложения. Сохранение из приложения потеряло бы их молча.
+    var isReadOnly: Bool { origin == .obsidian }
 
     // MARK: - Кегли
 
@@ -109,5 +123,28 @@ extension String {
     /// на нём.
     var folded: String {
         folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+}
+
+/// Откуда берутся заметки в списке и в поиске.
+///
+/// Список в вырезе показывает только свои: хранилище Obsidian бывает
+/// на тысячи заметок, и своя дюжина утонула бы в нём бесследно. Заметки
+/// хранилища всплывают в поиске — там их и ищут, — а в контекст модели
+/// уходят обе половины.
+enum NoteSource {
+    case all
+    /// Только свои — те, что завели в приложении.
+    case own
+    /// Только заметки хранилища Obsidian.
+    case vault
+
+    /// Условие для запроса. `nil` — условия нет вовсе.
+    var condition: String? {
+        switch self {
+        case .all: return nil
+        case .own: return "origin <> '\(Note.Origin.obsidian.rawValue)'"
+        case .vault: return "origin = '\(Note.Origin.obsidian.rawValue)'"
+        }
     }
 }

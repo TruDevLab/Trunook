@@ -28,6 +28,15 @@ final class NotchController {
     /// накладкой в вырезе — у самой камеры, — и своего окна у него нет.
     let teleprompter = TeleprompterStore()
     let notes = NotesService()
+    /// Синхронизация заметок с хранилищем Obsidian. По умолчанию выключена
+    /// и в этом состоянии не заводит ни таймера, ни слежения за папкой.
+    let obsidian = ObsidianService()
+    /// Смысловые связи между заметками. Работают только при включённой
+    /// настройке и доступной модели.
+    let linker = NoteLinker()
+    /// Отбор заметок под вопрос по смыслу. Живёт рядом со связями: обе
+    /// работы стоят на одних и тех же векторах.
+    let retriever = NotesRetriever()
     /// Набранное в панели модели. Живёт у контроллера, а не в панели:
     /// панель исчезает вместе с накладкой, а черновик переживать её обязан.
     let draft = NoteDraft()
@@ -36,7 +45,7 @@ final class NotchController {
     let flash = PanelFlash()
     /// Голосовой заход. Разговор берёт существующий: спросить голосом
     /// и дописать текстом — это одна переписка, а не две.
-    lazy var voice = VoiceSession(assistant: assistant, notes: notes)
+    lazy var voice = VoiceSession(assistant: assistant, notes: notes, retriever: retriever)
     /// Жест вызова: модификатор, нажатый дважды. Мимо Carbon — тот умеет
     /// только сочетания с обычной клавишей.
     private let voiceHotKey = VoiceHotKey()
@@ -50,6 +59,9 @@ final class NotchController {
 
     /// Вызывается кнопкой настроек в раскрытой панели.
     var onOpenSettings: (() -> Void)?
+    /// Показать описание выпуска. Окном знакомства владеет `AppDelegate` —
+    /// контроллер выреза о нём не знает и знать не должен.
+    var onOpenReleaseNotes: (() -> Void)?
 
     private let settings: Settings
     private let state = NotchState()
@@ -291,6 +303,19 @@ final class NotchController {
         things.start()
         meeting.start()
         clipboard.start()
+
+        obsidian.onNotesChanged = { [weak self] in
+            self?.notes.refresh()
+            // Сверка могла привезти правки из хранилища — у изменившихся
+            // заметок вектор смысла устарел.
+            self?.linker.refreshAll()
+        }
+        obsidian.start()
+
+        notes.onSaved = { [weak self] id in self?.linker.enqueue(id: id) }
+        linker.writeToVault = { [weak self] id, rows in
+            self?.obsidian.writeLinks(NoteLinker.vaultLines(rows), forNote: id)
+        }
     }
 
     /// Планировщик получает и встречи, и задачи Things: для него это
@@ -1063,18 +1088,26 @@ final class NotchController {
         let text = draft.question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, settings.ollamaEnabled else { return }
 
-        var context: String?
-        if assistant.usesNotes, settings.notesEnabled {
-            context = notes.contextText()
-            if context == nil {
-                // Заметок нет вовсе — сказать об этом честнее, чем задать
-                // вопрос по пустому архиву и выдать общий ответ за найденный.
-                activities.present(.command(text: t("Заметок пока нет"), state: .failed))
+        guard assistant.usesNotes, settings.notesEnabled else {
+            assistant.send(text)
+            draft.clearQuestion()
+            return
+        }
+
+        // Поле очищаем сразу, не дожидаясь отбора: вопрос уже принят,
+        // и оставленный в поле текст читается как несработавшая отправка.
+        draft.clearQuestion()
+        retriever.context(for: text) { [weak self] context in
+            guard let self else { return }
+            guard let context else {
+                // Заметок нет вовсе или ни одна к вопросу не подошла —
+                // сказать об этом честнее, чем задать вопрос по пустому
+                // архиву и выдать общий ответ за найденный.
+                activities.present(.command(text: t("В заметках такого нет"), state: .failed))
                 return
             }
+            assistant.send(text, notesContext: context)
         }
-        assistant.send(text, notesContext: context)
-        draft.clearQuestion()
     }
 
     /// Набранное уходит в заметки. Открытая на правку — переписывается,
@@ -1196,9 +1229,34 @@ final class NotchController {
     /// Заметка открывается на правку там же, где её набирали, — в панели
     /// модели. Отдельного окна правки нет: поле ввода уже есть.
     private func openNote(_ note: Note) {
+        // Заметку хранилища в поле правки не открываем вовсе. Поле знает
+        // заголовок, жирный, курсив и ссылку, а в чужой заметке бывают
+        // таблицы, списки задач и вложения: сохранение потеряло бы их молча.
+        guard !note.isReadOnly else {
+            openInObsidian(note)
+            return
+        }
         draft.load(note)
         router.set(.assistant)
         takeKeyboard()
+    }
+
+    /// Уводит заметку хранилища в сам Obsidian.
+    private func openInObsidian(_ note: Note) {
+        guard let vault = obsidian.vault,
+              let path = obsidianPath(of: note),
+              let url = vault.openURL(for: path),
+              ObsidianApp.isInstalled
+        else {
+            activities.present(.command(text: t("Эту заметку правят в Obsidian"), state: .failed))
+            return
+        }
+        router.close()
+        NSWorkspace.shared.open(url)
+    }
+
+    private func obsidianPath(of note: Note) -> String? {
+        obsidian.path(ofNote: note.id)
     }
 
     private func exportNotes() {
@@ -1907,6 +1965,7 @@ final class NotchController {
             onOpenSettings: { [weak self] in self?.onOpenSettings?() },
             onJoin: { [weak self] url in self?.join(url) },
             onInstallUpdate: { [weak self] in self?.updates.install() },
+            onOpenReleaseNotes: { [weak self] in self?.onOpenReleaseNotes?() },
             onRunCommand: { [weak self] command in self?.runCommandFromPanel(command) },
             onClearCapture: { [weak self] in self?.assistant.clearCapture() },
             onToggleCapture: { [weak self] in self?.assistant.isCaptureExpanded.toggle() },
@@ -1938,6 +1997,8 @@ final class NotchController {
             onOpenNotes: { [weak self] in self?.openNotes() },
             onOpenNote: { [weak self] note in self?.openNote(note) },
             onDeleteNote: { [weak self] note in self?.notes.delete(note) },
+            isNoteInVault: { [weak self] note in self?.obsidian.path(ofNote: note.id) != nil },
+            onOpenNoteInObsidian: { [weak self] note in self?.openInObsidian(note) },
             onExportNotes: { [weak self] in self?.exportNotes() },
             onRemoveFromShelf: { [weak self] item in self?.removeFromShelf(item) },
             onOpenShelfItem: { [weak self] item in self?.openShelfItem(item) },
@@ -2164,15 +2225,18 @@ final class NotchController {
             DebugLog.write("заметки: Ollama выключена, спрашивать нечем")
             return
         }
-        guard let context = notes.contextText() else {
-            DebugLog.write("заметки: пусто, сперва notesFill")
-            return
-        }
         assistant.usesNotes = true
         assistant.ask(target: NSWorkspace.shared.frontmostApplication)
         router.set(.assistant)
-        assistant.send(t("О чём мои заметки? Перечисли коротко."), notesContext: context)
-        DebugLog.write("заметки: вопрос по контексту в \(context.count) симв.")
+        let question = t("О чём мои заметки? Перечисли коротко.")
+        retriever.context(for: question) { [weak self] context in
+            guard let context else {
+                DebugLog.write("заметки: пусто, сперва notesFill")
+                return
+            }
+            DebugLog.write("заметки: вопрос по контексту в \(context.count) симв.")
+            self?.assistant.send(question, notesContext: context)
+        }
     }
 
     func debugUseClipboardSlot(_ index: Int) {
