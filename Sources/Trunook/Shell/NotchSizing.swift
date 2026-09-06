@@ -95,6 +95,7 @@ struct NotchContent: Equatable {
     var track: NowPlaying?
     var chip: CalendarItem?
     /// Полоска идущего таймера.
+    var recordingChip: RecordingChip?
     var timerChip: TimerChip?
     /// Полоска горящей чашки.
     var caffeineChip: CaffeineChip?
@@ -225,6 +226,15 @@ enum NotchSizing {
         case .collapsed:
             return metrics.closed
         case .chip:
+            // Порядок тот же, что в расчёте состояния и в вёрстке. Запись
+            // первой: её потеря дороже всех остальных полосок.
+            if let recording = content.recordingChip {
+                return metrics.chip(
+                    width: RecorderChipView.width(
+                        metrics: metrics, showsHours: recording.showsHours
+                    )
+                )
+            }
             // Таймер важнее отсчёта до встречи: его завели руками. Чашка ниже
             // обоих: она горит часами, а те двое живут минутами.
             if let timer = content.timerChip {

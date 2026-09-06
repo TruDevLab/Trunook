@@ -62,7 +62,7 @@ final class NotesRetriever {
         budget: Int? = nil,
         completion: @escaping (String?) -> Void
     ) {
-        let limit = budget ?? settings.notesContextLimit
+        let limit = budget ?? NotesService.contextBudget
         guard isAvailable, let model else {
             completion(fallback(limit))
             return

@@ -22,6 +22,8 @@ struct Note: Identifiable, Equatable {
         /// Заметка хранилища Obsidian. Приложение её только показывает
         /// и ищет по ней: править такую можно лишь в самом Obsidian.
         case obsidian
+        /// Расшифрованный разговор: встреча или аудиозаметка.
+        case recording
 
         var symbol: String {
             switch self {
@@ -30,6 +32,7 @@ struct Note: Identifiable, Equatable {
             case .clipboard: return "doc.on.clipboard"
             case .selection: return "text.viewfinder"
             case .obsidian: return "circle.hexagongrid"
+            case .recording: return "waveform"
             }
         }
     }
@@ -50,6 +53,20 @@ struct Note: Identifiable, Equatable {
     /// какие заметки ещё ждут своего имени, — и их можно переименовать
     /// позже, когда Ollama включат.
     var titleByModel: Bool
+
+    /// Где лежит запись, из которой заметка получилась. Пусто — записи нет.
+    ///
+    /// Путь, а не сам звук: час разговора занимает мегабайты, и складывать
+    /// их в ту же базу, что читается на каждое нажатие клавиши в поиске,
+    /// значило бы платить за это всё время.
+    ///
+    /// Путь может быть двух видов, и различить их можно по первому знаку:
+    /// внутри хранилища Obsidian он относительный (`Trunook/Записи/…`),
+    /// вне его — полный, от корня. Это не небрежность: хранилище переезжает
+    /// вместе с папкой, и полный путь в нём протух бы при первом переносе.
+    var audio: String = ""
+
+    var hasAudio: Bool { !audio.isEmpty }
 
     /// Ещё не записанная заметка. Идентификатор назначит база.
     static let unsaved: Int64 = 0

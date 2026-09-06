@@ -23,6 +23,16 @@ enum VoiceTrigger: String, CaseIterable, Identifiable {
     case control
     case option
     case command
+    /// Своё сочетание клавиш вместо жеста.
+    ///
+    /// Жест ловится по времени между двумя нажатиями, и выдержать его
+    /// выходит не у всех и не всегда. Тогда за вызов отвечает обычное
+    /// сочетание — оно срабатывает без разговоров, но отнимает букву.
+    ///
+    /// Пункт списка, а не отдельное поле рядом: вызов у голоса **один**,
+    /// и два всегда видимых поля рядом обещали бы два разных вызова,
+    /// работающих сразу. Здесь же выбор: жест или клавиша.
+    case hotKey
     case off
 
     var id: String { rawValue }
@@ -33,7 +43,8 @@ enum VoiceTrigger: String, CaseIterable, Identifiable {
         case .control: return .control
         case .option: return .option
         case .command: return .command
-        case .off: return nil
+        // Жест не слушаем: вызов ушёл на сочетание клавиш.
+        case .hotKey, .off: return nil
         }
     }
 
@@ -44,6 +55,7 @@ enum VoiceTrigger: String, CaseIterable, Identifiable {
         case .control: return "⌃⌃"
         case .option: return "⌥⌥"
         case .command: return "⌘⌘"
+        case .hotKey: return t("Своё сочетание")
         case .off: return t("Выключен")
         }
     }

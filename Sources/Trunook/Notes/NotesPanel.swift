@@ -20,6 +20,11 @@ struct NotesPanel: View {
     /// и знать не должен.
     let isInVault: (Note) -> Bool
     let onOpenInObsidian: (Note) -> Void
+    /// Проигрыватель записей. Ссылкой, а не признаком: строка обязана
+    /// перерисоваться, когда запись доиграет сама.
+    @ObservedObject var player: RecordingPlayer
+    /// Пустить или остановить запись заметки.
+    let onPlayRecording: (Note) -> Void
     let onExportAll: () -> Void
     /// Перейти к созданию заметки. Из списка это первое, чего хочется:
     /// пришёл посмотреть записанное — и вспомнил, что записать ещё.
@@ -209,6 +214,25 @@ struct NotesPanel: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Запись — первой из кнопок строки: её слушают вместо того,
+            // чтобы читать заметку, и это самое частое, зачем к такой
+            // заметке возвращаются.
+            if note.hasAudio {
+                Button(action: { onPlayRecording(note) }) {
+                    Image(systemName: player.isPlaying(note.id) ? "stop.fill" : "play.fill")
+                        .font(.system(size: NotchStyle.font(9), weight: .semibold))
+                        .foregroundStyle(
+                            player.isPlaying(note.id)
+                                ? Palette.notes
+                                : .white.opacity(NotchStyle.secondaryOpacity)
+                        )
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PressableStyle())
+                .notchHint(player.isPlaying(note.id) ? t("Остановить") : t("Прослушать запись"))
+            }
 
             // Уход в Obsidian стоит у всякой заметки, у которой там есть
             // файл, — и у своих тоже: своя заметка лежит в хранилище ровно

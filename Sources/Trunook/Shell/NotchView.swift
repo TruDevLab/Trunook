@@ -130,6 +130,11 @@ struct NotchView: View {
     @ObservedObject var draft: NoteDraft
     /// Голосовой заход: фаза, громкость и чем его оборвать.
     @ObservedObject var voice: VoiceSession
+    /// Запись разговора. Ею живёт полоска в свёрнутом вырезе и кнопки
+    /// записи в панели встречи и в панели заметки.
+    @ObservedObject var recorder: RecorderService
+    /// Проигрыватель записей — им живёт кнопка в строке списка заметок.
+    @ObservedObject var player: RecordingPlayer
     /// Короткое подтверждение внутри панели: обычные плашки из-под накладки
     /// не видны вовсе.
     @ObservedObject var flash: PanelFlash
@@ -188,6 +193,14 @@ struct NotchView: View {
     let onSaveClipboardToNotes: (ClipboardEntry) -> Void
     /// Оборвать голосовой заход — кнопкой в мини-виде или в панели.
     let onStopVoice: () -> Void
+    /// Остановить запись — нажатием по полоске в вырезе.
+    let onStopRecording: () -> Void
+    /// Начать или закончить аудиозаметку — кнопкой в панели заметки.
+    let onToggleRecording: () -> Void
+    /// То же для встречи: пишется и микрофон, и звук системы.
+    let onToggleMeetingRecording: () -> Void
+    /// Пустить или остановить запись заметки.
+    let onPlayRecording: (Note) -> Void
     let onDeleteClipboard: (ClipboardEntry) -> Void
     let onClearClipboard: () -> Void
     let onCopyAnswer: () -> Void
@@ -736,6 +749,7 @@ struct NotchView: View {
                 session: assistant,
                 draft: draft,
                 flash: flash,
+                recorder: recorder,
                 metrics: metrics,
                 modelEnabled: settings.ollamaEnabled,
                 notesEnabled: settings.notesEnabled,
@@ -754,6 +768,7 @@ struct NotchView: View {
                 onCycleModel: onCycleModel,
                 onEscapeHighlight: onEscapeHighlight,
                 onSaveNote: onSaveDraft,
+                onToggleRecording: onToggleRecording,
                 onCopy: onCopyAnswer,
                 onPaste: onPasteAnswer,
                 onSaveAnswer: onSaveAnswer,
@@ -772,6 +787,8 @@ struct NotchView: View {
                 onDelete: onDeleteNote,
                 isInVault: isNoteInVault,
                 onOpenInObsidian: onOpenNoteInObsidian,
+                player: player,
+                onPlayRecording: onPlayRecording,
                 onExportAll: onExportNotes,
                 onNewNote: onNewNote,
                 onClose: onCloseOverlay
@@ -848,7 +865,9 @@ struct NotchView: View {
             // Порядок тот же, что в расчёте размера, и это не совпадение:
             // разойдись они — вырез рисовал бы одно, а размер считал
             // по другому.
-            if timer.isRunning {
+            if recorder.phase.isBusy {
+                RecorderChipView(recorder: recorder, metrics: metrics, onStop: onStopRecording)
+            } else if timer.isRunning {
                 TimerChipView(timer: timer, metrics: metrics, onOpen: onOpenTimer)
             } else if let chip = state.chipItem {
                 ChipView(item: chip, metrics: metrics, onOpen: onOpenExpanded)
@@ -883,7 +902,12 @@ struct NotchView: View {
                 view
             }
         case .preview where !meeting.availableActions.isEmpty:
-            MeetingControlsView(meeting: meeting, metrics: metrics)
+            MeetingControlsView(
+                meeting: meeting,
+                recorder: recorder,
+                metrics: metrics,
+                onToggleRecording: onToggleMeetingRecording
+            )
 
         case .preview:
             PreviewPanel(

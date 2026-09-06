@@ -49,6 +49,13 @@ final class NotchController {
     /// Жест вызова: модификатор, нажатый дважды. Мимо Carbon — тот умеет
     /// только сочетания с обычной клавишей.
     private let voiceHotKey = VoiceHotKey()
+    /// Запись разговора с расшифровкой в заметку. Берёт готовые заметки
+    /// и хранилище: результат её работы — обычная заметка, и заводить
+    /// ей свой путь в базу незачем.
+    lazy var recorder = RecorderService(notes: notes, obsidian: obsidian)
+    /// Проигрыватель записей. Отдельно от записи: слушают потом и независимо
+    /// от того, идёт ли новая запись.
+    let player = RecordingPlayer()
     /// Удержание экрана от гашения — чашка кофе в раскрытой панели.
     let wake: WakeGuard
 
@@ -313,6 +320,16 @@ final class NotchController {
         obsidian.start()
 
         notes.onSaved = { [weak self] id in self?.linker.enqueue(id: id) }
+
+        // Заметка из записи готова — показать её так же, как показывают
+        // сохранённое выделение: плашкой, если панель закрыта, и вспышкой
+        // внутри панели, если открыта.
+        recorder.onNote = { [weak self] note, warning in
+            self?.announceRecording(note, warning: warning)
+        }
+        recorder.onFailure = { [weak self] reason in
+            self?.announce(reason)
+        }
         linker.writeToVault = { [weak self] id, rows in
             self?.obsidian.writeLinks(NoteLinker.vaultLines(rows), forNote: id)
         }
@@ -411,6 +428,31 @@ final class NotchController {
         if settings.notesEnabled, let selectionKey = settings.noteSelectionHotKey {
             HotKeyCenter.shared.register(selectionKey, name: "выделенное в заметки") { [weak self] in
                 self?.saveSelectionToNotes()
+            }
+        }
+
+        // Голос сочетанием — только если человек выбрал в списке «Своё
+        // сочетание». Иначе вызов идёт жестом, и занимать ещё и букву
+        // за человека нельзя.
+        if settings.voiceEnabled, settings.voiceTrigger == .hotKey,
+           let voiceKey = settings.voiceHotKey {
+            HotKeyCenter.shared.register(voiceKey, name: "голос") { [weak self] in
+                self?.toggleVoice(usesNotes: false)
+            }
+        }
+        if settings.voiceEnabled, settings.notesEnabled,
+           settings.voiceNotesTrigger == .hotKey, let key = settings.voiceNotesHotKey {
+            HotKeyCenter.shared.register(key, name: "голос по заметкам") { [weak self] in
+                self?.toggleVoice(usesNotes: true)
+            }
+        }
+
+        // Аудиозаметка. Одна клавиша на начать и закончить: пока идёт
+        // запись, других дел у неё нет, а искать вторую клавишу ради
+        // остановки — лишняя работа памяти.
+        if settings.notesEnabled, settings.recordEnabled, let recordKey = settings.recordHotKey {
+            HotKeyCenter.shared.register(recordKey, name: "аудиозаметка") { [weak self] in
+                self?.recorder.toggleNote()
             }
         }
 
@@ -626,6 +668,7 @@ final class NotchController {
             isHovered: state.isHovered,
             isPinnedOpen: state.isPinnedOpen,
             chip: state.chipItem,
+            recordingChip: recorder.chip,
             timerChip: timerChip,
             caffeineChip: wake.chip,
             activity: activities.current,
@@ -1115,6 +1158,16 @@ final class NotchController {
     private func saveNote() {
         guard settings.notesEnabled else { return }
         let wasEditing = draft.editingID != nil
+
+        // Заметку открыли и не тронули — закрываем, а не переписываем.
+        // Перезапись тем же текстом сдвинула бы время правки, а по нему
+        // список и сортируется: заметка выпрыгнула бы наверх ни за что.
+        if wasEditing, !draft.isNoteEdited {
+            draft.clearNote()
+            DebugLog.write("заметки: правка закрыта без изменений")
+            return
+        }
+
         guard let saved = notes.save(draft.attributed, origin: .typed, editing: draft.editingID)
         else { return }
         // Подтверждение внутри панели, а не плашкой в вырезе: плашку из-под
@@ -1585,6 +1638,86 @@ final class NotchController {
         }
     }
 
+    // MARK: - Запись разговора
+
+    /// Пускает запись заметки прямо в вырезе.
+    ///
+    /// Путь у заметки бывает двух видов, и превратить относительный
+    /// в настоящий может только тот, кто знает, где хранилище, — поэтому
+    /// разбор здесь, а не в проигрывателе.
+    private func playRecording(_ note: Note) {
+        guard let url = audioURL(of: note) else {
+            flash.show(t("Записи нет на месте"))
+            return
+        }
+        player.toggle(note: note, url: url)
+    }
+
+    /// Где лежит запись этой заметки. `nil` — файла не найти.
+    private func audioURL(of note: Note) -> URL? {
+        guard note.hasAudio else { return nil }
+        let url = note.audio.hasPrefix("/")
+            ? URL(fileURLWithPath: note.audio)
+            : obsidian.vault?.fileURL(for: note.audio)
+        guard let url, FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    /// Удаляет заметку вместе с её записью.
+    ///
+    /// Запись уносится в Корзину, а не стирается: удаление в этой части кода
+    /// всегда обратимо — то же правило, что у сверки с хранилищем, и по той
+    /// же причине. Час разговора не восстановить ничем, а нажатие «удалить»
+    /// бывает и промахом.
+    ///
+    /// Не в `NotesService`: путь внутри хранилища относительный, и превратить
+    /// его в настоящий может только тот, кто знает, где хранилище. Служба
+    /// заметок этого не знает и знать не должна.
+    private func deleteNote(_ note: Note) {
+        if note.hasAudio { trashAudio(of: note) }
+        notes.delete(note)
+    }
+
+    private func trashAudio(of note: Note) {
+        guard let url = audioURL(of: note) else {
+            // Файла на месте нет: хранилище отключено или запись убрали
+            // руками. Молча — человек удаляет заметку, а не разбирается
+            // с хранилищем.
+            DebugLog.write("запись: файла \(note.audio) нет, удалять нечего")
+            return
+        }
+        // Играющую запись сперва глушим: удалять то, что звучит, — верный
+        // способ получить тишину без объяснений.
+        if player.isPlaying(note.id) { player.stop() }
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            DebugLog.write("запись: файл заметки \(note.id) унесён в Корзину")
+        } catch {
+            DebugLog.write("запись: файл не унёсся — \(error.localizedDescription)")
+        }
+    }
+
+    /// Заметка из записи готова.
+    ///
+    /// Показывается ровно так же, как сохранённое выделение, и по той же
+    /// причине: мест два. При открытой накладке плашка события не видна
+    /// вовсе — накладка важнее плашки по расчёту состояния; при закрытой,
+    /// наоборот, не видно панели.
+    private func announceRecording(_ note: Note, warning: String?) {
+        // Предупреждение вместо имени заметки, а не вместе с ним: место
+        // в плашке одно, и «почему нет текста» человеку нужнее, чем название,
+        // которое он и так увидит в списке.
+        announce(warning ?? tf("Заметка готова: %@", note.title))
+    }
+
+    private func announce(_ text: String) {
+        if state.overlay == nil {
+            activities.present(.command(text: text, state: .done))
+        } else {
+            flash.show(text)
+        }
+    }
+
     /// Свежую запись истории — в заметки. То же, что кнопка в строке списка
     /// и на плашке о копировании; нажать их из сессии нечем.
     func debugSaveNewestClipboardToNotes() {
@@ -1950,6 +2083,8 @@ final class NotchController {
             notes: notes,
             draft: draft,
             voice: voice,
+            recorder: recorder,
+            player: player,
             flash: flash,
             wake: wake,
             settings: settings,
@@ -1983,6 +2118,10 @@ final class NotchController {
             onUseClipboard: { [weak self] entry in self?.useClipboard(entry) },
             onSaveClipboardToNotes: { [weak self] entry in self?.saveClipboardToNotes(entry) },
             onStopVoice: { [weak self] in self?.voice.stop() },
+            onStopRecording: { [weak self] in self?.recorder.stop() },
+            onToggleRecording: { [weak self] in self?.recorder.toggleNote() },
+            onToggleMeetingRecording: { [weak self] in self?.recorder.toggleMeeting() },
+            onPlayRecording: { [weak self] note in self?.playRecording(note) },
             onDeleteClipboard: { [weak self] entry in self?.clipboard.delete(entry) },
             onClearClipboard: { [weak self] in self?.clipboard.clear() },
             onCopyAnswer: { [weak self] in self?.copyAnswer() },
@@ -1996,7 +2135,7 @@ final class NotchController {
             onCloseAssistant: { [weak self] in self?.closeAssistant() },
             onOpenNotes: { [weak self] in self?.openNotes() },
             onOpenNote: { [weak self] note in self?.openNote(note) },
-            onDeleteNote: { [weak self] note in self?.notes.delete(note) },
+            onDeleteNote: { [weak self] note in self?.deleteNote(note) },
             isNoteInVault: { [weak self] note in self?.obsidian.path(ofNote: note.id) != nil },
             onOpenNoteInObsidian: { [weak self] note in self?.openInObsidian(note) },
             onExportNotes: { [weak self] in self?.exportNotes() },

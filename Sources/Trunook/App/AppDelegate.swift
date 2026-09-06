@@ -114,6 +114,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.meetingButtons", #selector(dumpMeetingButtons)),
             ("com.trunook.debug.meetingHand", #selector(toggleMeetingHand)),
             ("com.trunook.debug.meetingLink", #selector(copyMeetingLink)),
+            ("com.trunook.debug.audioProbe", #selector(audioProbe)),
+            ("com.trunook.debug.devices", #selector(dumpAudioDevices)),
+            ("com.trunook.debug.recordStart", #selector(startRecording)),
+            ("com.trunook.debug.recordStop", #selector(stopRecording)),
+            ("com.trunook.debug.recordNote", #selector(runRecording)),
+            ("com.trunook.debug.installLanguage", #selector(installLanguage)),
+            ("com.trunook.debug.transcribeLast", #selector(transcribeLast)),
         ]
         for (name, action) in triggers {
             center.addObserver(self, selector: action, name: Notification.Name(name), object: nil)
@@ -493,6 +500,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func copyMeetingLink() {
         controller.meeting.perform(.copyLink)
+    }
+
+    /// Проба захвата звука и расшифровки — тем процессом, который ими
+    /// и пользуется. Из скрипта ответ был бы чужой: у него другая подпись.
+    @objc private func audioProbe() {
+        AudioProbe.run()
+    }
+
+    /// Список звуковых устройств в журнал: кнопки перебора в панели встречи
+    /// нажать из сессии нечем, а увидеть, между чем они перебирают, нужно.
+    @objc private func dumpAudioDevices() {
+        DebugLog.write("звук: вывод — "
+            + AudioDevices.outputs().map(\.name).joined(separator: ", "))
+        DebugLog.write("звук: ввод — "
+            + AudioDevices.inputs().map(\.name).joined(separator: ", "))
+        DebugLog.write("звук: сейчас вывод \(AudioDevices.defaultOutput?.name ?? "—"), "
+            + "ввод \(AudioDevices.defaultInput?.name ?? "—")")
+    }
+
+    /// Качает языковой набор расшифровки — тот же путь, что у кнопки
+    /// «Скачать язык» в настройках. Нажать её из сессии нечем, а проверить
+    /// надо: без набора расшифровка молча отдаёт пустой текст.
+    @objc private func installLanguage() {
+        guard #available(macOS 26, *) else { return }
+        let locale = settings.transcribeLocale
+        DebugLog.write("расшифровка: прошу набор для \(locale.identifier)")
+        Task { @MainActor in
+            do {
+                try await Transcriber.install(for: locale) { share in
+                    if Int(share * 100) % 20 == 0 {
+                        DebugLog.write("расшифровка: \(Int(share * 100))%")
+                    }
+                }
+                DebugLog.write("расшифровка: набор готов")
+            } catch {
+                DebugLog.write("расшифровка: набор не поставился — \(error)")
+            }
+        }
+    }
+
+    /// Расшифровывает последнюю сделанную запись, ничего не создавая.
+    ///
+    /// Проверять расшифровку новой записью значило бы класть в хранилище
+    /// человека ещё одну заметку на каждый заход. Здесь берётся то, что уже
+    /// записано, и результат уходит в журнал.
+    @objc private func transcribeLast() {
+        guard #available(macOS 26, *) else { return }
+        guard let url = controller.recorder.newestRecording() else {
+            DebugLog.write("расшифровка: записей не нашлось")
+            return
+        }
+        DebugLog.write("расшифровка: беру \(url.lastPathComponent)")
+        Task { @MainActor in
+            do {
+                let text = try await Transcriber.text(
+                    of: url, locale: self.settings.transcribeLocale
+                )
+                DebugLog.write("расшифровка: вышло — «\(text.prefix(300))»")
+            } catch {
+                DebugLog.write("расшифровка: не вышла — \(error)")
+            }
+        }
+    }
+
+    /// Начинает запись встречи — микрофон и звук системы.
+    @objc private func startRecording() {
+        controller.recorder.start(withSystemAudio: true)
+    }
+
+    @objc private func stopRecording() {
+        controller.recorder.stop()
+    }
+
+    /// Весь путь целиком: пишем десять секунд и останавливаемся сами.
+    ///
+    /// Десять секунд — чтобы успеть что-нибудь сказать и включить звук,
+    /// а дальше проверяется всё остальное: сведение, расшифровка, пересказ
+    /// и готовая заметка. Нажимать «стоп» из сессии нечем.
+    @objc private func runRecording() {
+        controller.recorder.start(withSystemAudio: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            self?.controller.recorder.stop()
+        }
     }
 
     @objc private func ollamaEcho() {

@@ -21,6 +21,9 @@ struct AssistantPanel: View {
     @ObservedObject var session: AssistantSession
     @ObservedObject var draft: NoteDraft
     @ObservedObject var flash: PanelFlash
+    /// Запись разговора. Кнопка стоит в полосе действий режима заметки:
+    /// надиктованное — та же заметка, только набранная голосом.
+    @ObservedObject var recorder: RecorderService
     let metrics: NotchMetrics
     /// Модель включена. Без неё панель остаётся местом для заметок: набрать
     /// и сохранить можно и так, а кнопки, которым нечего делать, прячутся.
@@ -54,6 +57,8 @@ struct AssistantPanel: View {
     let onCycleModel: () -> Bool
     let onEscapeHighlight: () -> Bool
     let onSaveNote: () -> Void
+    /// Начать или закончить аудиозаметку.
+    let onToggleRecording: () -> Void
     let onCopy: () -> Void
     let onPaste: () -> Void
     let onSaveAnswer: () -> Void
@@ -77,11 +82,11 @@ struct AssistantPanel: View {
 
     /// Сколько кнопок бывает в крыле разом.
     ///
-    /// Три, а не две: к списку заметок и крестику добавилась остановка
-    /// голоса. Считается по самому полному составу, а не по обычному —
-    /// панель, рассчитанная на два значка, обрезала бы третий ровно тогда,
+    /// Четыре: список заметок, крестик, остановка голоса и запись.
+    /// Считается по самому полному составу, а не по обычному — панель,
+    /// рассчитанная на три значка, обрезала бы четвёртый ровно тогда,
     /// когда он и нужен.
-    static let wingButtons = 3
+    static let wingButtons = 4
 
     /// Ширина панели.
     ///
@@ -375,6 +380,19 @@ struct AssistantPanel: View {
                         hint: t("Замолчать"),
                         action: onStopVoice
                     )
+                }
+                // Запись — в крыле, рядом со списком, а не в полосе
+                // действий внизу. В полосе она стояла пятым значком
+                // и отнимала место у главной кнопки: подпись «Сохранить»
+                // переставала помещаться на свою подложку.
+                if recorder.isAvailable {
+                    NotchPanelButton(
+                        symbol: recorder.phase.isRecording ? "stop.circle.fill" : "mic.circle",
+                        hint: recordHint,
+                        tint: recorder.phase.isRecording ? Palette.negative : .white,
+                        action: onToggleRecording
+                    )
+                    .disabled(recorder.phase.isBusy && !recorder.phase.isRecording)
                 }
                 if notesEnabled {
                     NotchPanelButton(
@@ -801,12 +819,22 @@ struct AssistantPanel: View {
     /// под главную кнопку, и это же число проверяется тестом.
     static let actionSpacing: CGFloat = 6
 
+    /// Сколько кнопок-значков стоит в полосе действий режима заметки.
+    ///
+    /// Четыре кнопки оформления. Числом, а не литералом в расчёте: оно
+    /// участвует и в вёрстке, и в остатке под главную кнопку, и разъехаться
+    /// этим двум нельзя — тогда подпись «Сохранить» полезет за край.
+    /// На пятой кнопке это уже случилось: запись стояла здесь и съедала
+    /// у главной кнопки ровно столько, чтобы подпись перестала помещаться.
+    static let noteIconCount = 4
+
     /// Сколько останется главной кнопке при самой тесной раскладке —
-    /// в режиме заметки, где рядом ещё четыре кнопки оформления.
+    /// в режиме заметки, где рядом ещё кнопки оформления и записи.
     static func primaryWidth(notchWidth: CGFloat) -> CGFloat {
         let available = width(notchWidth: notchWidth) - 2 * (bodyPadding + NotchStyle.shoulderInset)
-        let formatting = 4 * actionSize + 3 * actionSpacing
-        return available - ModeSwitch.width - formatting - 2 * actionSpacing
+        let icons = CGFloat(noteIconCount) * actionSize
+            + CGFloat(noteIconCount - 1) * actionSpacing
+        return available - ModeSwitch.width - icons - 2 * actionSpacing
     }
 
     /// Ширина кнопки отправки в разговоре.
@@ -877,6 +905,28 @@ struct AssistantPanel: View {
         .frame(height: Self.rowHeight)
     }
 
+    /// Подпись кнопки записи: она меняется вместе с тем, что кнопка делает.
+    private var recordHint: String {
+        if recorder.phase.isRecording { return t("Остановить запись") }
+        if recorder.phase.isBusy { return t("Расшифровываю…") }
+        return t("Надиктовать")
+    }
+
+    /// Подпись главной кнопки в режиме заметки.
+    ///
+    /// Три состояния, а не два: новая заметка, правленая и открытая
+    /// не тронутой. Последнее — то, ради чего подпись и стала считаться:
+    /// «Сохранить» на нетронутой заметке обещает работу, которой нет.
+    private var primaryTitle: String {
+        guard isEditingNote else { return t("В заметки") }
+        return draft.isNoteEdited ? t("Сохранить") : t("Закрыть")
+    }
+
+    private var primarySymbol: String {
+        guard isEditingNote else { return "square.and.pencil" }
+        return draft.isNoteEdited ? "checkmark.circle.fill" : "xmark.circle"
+    }
+
     /// Главное действие режима: одна широкая овальная кнопка с подписью.
     ///
     /// Не значок в ряду значков: она одна на весь режим, её ищут глазами,
@@ -886,9 +936,13 @@ struct AssistantPanel: View {
     private var primaryAction: some View {
         if isNote {
             if notesEnabled {
+                // Открытая, но нетронутая заметка закрывается, а не
+                // сохраняется. Иначе выйти из правки можно было только двумя
+                // путями, и оба плохи: перезаписать запись тем же текстом
+                // либо очистить поле, то есть потерять её.
                 wideAction(
-                    symbol: isEditingNote ? "checkmark.circle.fill" : "square.and.pencil",
-                    title: isEditingNote ? t("Сохранить") : t("В заметки"),
+                    symbol: primarySymbol,
+                    title: primaryTitle,
                     isEnabled: !draft.isNoteEmpty,
                     action: onSaveNote
                 )

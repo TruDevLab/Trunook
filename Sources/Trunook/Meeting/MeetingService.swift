@@ -7,6 +7,12 @@ import ApplicationServices
 enum MeetingAction: String, CaseIterable, Identifiable {
     case microphone
     case camera
+    /// Куда система шлёт звук: динамики или наушники.
+    case output
+    /// Какой микрофон система слушает.
+    case input
+    /// Записать разговор и превратить его в заметку.
+    case record
     case share
     case hand
     case copyLink
@@ -14,10 +20,28 @@ enum MeetingAction: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Действия, которые не ищутся на странице встречи.
+    ///
+    /// Они меняют устройство системы, а не состояние звонка, и потому есть
+    /// всегда — как только встреча нашлась. Ровно так же устроена
+    /// «Скопировать ссылку»: она берёт адрес вкладки, а не кнопку страницы.
+    var isDevice: Bool { self == .output || self == .input }
+
+    /// Действия, которые делает само приложение, а не страница встречи.
+    ///
+    /// Их не ищут в дереве браузера и они есть всегда, раз встреча идёт.
+    /// `copyLink` сюда не входит: ссылка хоть и берётся из адреса вкладки,
+    /// но без вкладки её нет вовсе — а запись и устройства живут
+    /// независимо от того, что на странице.
+    var isOwn: Bool { isDevice || self == .record }
+
     var title: String {
         switch self {
         case .microphone: return t("Микрофон")
         case .camera: return t("Камера")
+        case .output: return t("Куда идёт звук")
+        case .input: return t("Что слушает система")
+        case .record: return t("Записать разговор")
         case .share: return t("Демонстрация")
         case .hand: return t("Поднять руку")
         case .copyLink: return t("Скопировать ссылку")
@@ -30,6 +54,14 @@ enum MeetingAction: String, CaseIterable, Identifiable {
         switch self {
         case .microphone: return isOn ? "mic.fill" : "mic.slash.fill"
         case .camera: return isOn ? "video.fill" : "video.slash.fill"
+        // Устройства не бывают включёнными или выключенными: у них
+        // не состояние, а имя, и его показывает плашка под чёлкой.
+        case .output: return "speaker.wave.2.fill"
+        case .input: return "mic.and.signal.meter.fill"
+        // Здесь `isOn` означает «идёт запись»: точка на кнопке — начать,
+        // квадрат — закончить. Это единственное действие в ряду, где
+        // состояние кнопки говорит о самом приложении, а не о встрече.
+        case .record: return isOn ? "stop.circle.fill" : "record.circle"
         case .share: return isOn ? "rectangle.inset.filled.on.rectangle" : "rectangle.on.rectangle"
         case .hand: return isOn ? "hand.raised.fill" : "hand.raised"
         case .copyLink: return "link"
@@ -48,8 +80,9 @@ enum MeetingAction: String, CaseIterable, Identifiable {
         case .camera: return ["камер", "camera", "video", "видео"]
         case .share: return ["демонстрац", "поделит", "share", "present"]
         case .hand: return ["руку", "рука", "hand", "raise"]
-        // Не кнопка страницы: ссылка берётся из адреса вкладки.
-        case .copyLink: return []
+        // Не кнопки страницы: ссылка берётся из адреса вкладки,
+        // устройства — у звуковой подсистемы.
+        case .copyLink, .output, .input, .record: return []
         case .leave: return ["выйти", "покинуть", "завершить", "leave", "end call", "hang up"]
         }
     }
@@ -187,6 +220,12 @@ final class MeetingService: ObservableObject {
         var available: [MeetingAction] = []
 
         for action in MeetingAction.allCases {
+            // Устройства звука к странице отношения не имеют: они есть
+            // всегда, раз встреча идёт.
+            if action.isOwn {
+                available.append(action)
+                continue
+            }
             if action == .copyLink {
                 if address != nil { available.append(action) }
                 continue
@@ -195,6 +234,11 @@ final class MeetingService: ObservableObject {
             available.append(action)
             states[action] = isOn(labels: match.labels)
         }
+
+        // Встреча считается найденной по кнопкам самой страницы. Свои две
+        // кнопки в счёт не идут: иначе любая открытая вкладка сервиса — хоть
+        // главная страница без звонка — выдавала бы себя за встречу.
+        guard available.contains(where: { !$0.isOwn }) else { return nil }
 
         return Scan(
             pid: found.pid, window: found.window, tabTitle: found.tabTitle,
@@ -281,6 +325,13 @@ final class MeetingService: ObservableObject {
     // MARK: - Управление
 
     func perform(_ action: MeetingAction) {
+        if action.isDevice {
+            switchDevice(action)
+            return
+        }
+        // Запись ведёт не встреча: у службы встречи нет ни доступа
+        // к звуку, ни права его заводить. Кнопку обрабатывает сама панель.
+        if action == .record { return }
         if action == .copyLink {
             guard let url else { return }
             NSPasteboard.general.clearContents()
@@ -302,6 +353,44 @@ final class MeetingService: ObservableObject {
                 self?.refresh()
             }
         }
+    }
+
+    // MARK: - Устройства звука
+
+    /// Имя нынешнего устройства для подписи под чёлкой.
+    ///
+    /// Подпись, а не состояние кнопки: у устройства нет «включено» и
+    /// «выключено», у него есть имя, и другого способа показать выбранное
+    /// в круглой кнопке нет. Читается заново на каждое наведение —
+    /// устройство меняют и мимо приложения, из системной панели звука.
+    func deviceName(for action: MeetingAction) -> String? {
+        switch action {
+        case .output: return AudioDevices.defaultOutput?.name
+        case .input: return AudioDevices.defaultInput?.name
+        default: return nil
+        }
+    }
+
+    /// Следующее устройство по кругу.
+    ///
+    /// Список читается в момент нажатия, а не хранится: наушники втыкают
+    /// и вынимают посреди встречи, и сохранённый список отправил бы звук
+    /// в то, чего уже нет.
+    private func switchDevice(_ action: MeetingAction) {
+        let devices = action == .output ? AudioDevices.outputs() : AudioDevices.inputs()
+        let current = action == .output ? AudioDevices.defaultOutput : AudioDevices.defaultInput
+        guard let next = AudioDevices.next(after: current, in: devices) else {
+            DebugLog.write("встреча: устройств для «\(action.title)» нет")
+            return
+        }
+        if action == .output {
+            AudioDevices.setDefaultOutput(next)
+        } else {
+            AudioDevices.setDefaultInput(next)
+        }
+        // Подпись под чёлкой читает имя сама, но перерисовать её надо:
+        // без этого человек нажал, звук уехал, а в плашке прежнее имя.
+        objectWillChange.send()
     }
 
     /// Действие на открытой вкладке — без переключений. Только обход и нажатие,

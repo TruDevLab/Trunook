@@ -185,6 +185,7 @@ struct WelcomeView: View {
     private var tourContent: some View {
         switch model.step {
         case .intro: introStep
+        case .features: featuresStep
         case .gestures: gesturesStep
         case .shortcuts: shortcutsStep
         case .ai:
@@ -302,6 +303,112 @@ struct WelcomeView: View {
         }
     }
 
+    // MARK: - Возможности
+
+    /// Разделы возможностей: список слева, описание справа.
+    ///
+    /// Вертикально, а не сеткой плиток, как на первом экране: плитка отвечает
+    /// на «что это умеет» одним взглядом и больше ни на что, а под словом
+    /// «Полка» не угадать, что файлы кладут перетаскиванием на чёлку. Плиток
+    /// к тому же стало больше, чем помещается в ряд.
+    ///
+    /// Читают этот шаг вразнобой — человек ищет то, чего не понял, — поэтому
+    /// список и описание видны разом, а не сменяют друг друга.
+    private var featuresStep: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            stepTitle(t("Возможности"),
+                      subtitle: t("Выберите слева — справа расскажем подробнее."))
+            HStack(alignment: .top, spacing: 12) {
+                featureList
+                // Описание по содержимому и прижато к верху: растянутое
+                // на всю высоту, оно оставляло под тремя строками текста
+                // пустое поле в пол-экрана.
+                VStack(spacing: 0) {
+                    featureDetail
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    private var featureList: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 3) {
+                ForEach(WelcomeModel.Feature.allCases) { feature in
+                    featureRow(feature)
+                }
+            }
+        }
+        .frame(width: WelcomeStyle.featureSidebar)
+    }
+
+    private func featureRow(_ feature: WelcomeModel.Feature) -> some View {
+        let isCurrent = model.feature == feature
+        return Button {
+            model.feature = feature
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: feature.symbol)
+                    .font(.system(size: WelcomeStyle.glyph))
+                    .foregroundStyle(isCurrent ? Color.white : Color.white.opacity(0.5))
+                    .frame(width: WelcomeStyle.glyph * 1.6)
+                Text(feature.title)
+                    .font(.system(size: WelcomeStyle.title,
+                                  weight: isCurrent ? .semibold : .regular,
+                                  design: .rounded))
+                    .foregroundStyle(isCurrent ? Color.white : Color.white.opacity(0.65))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            // Плотнее обычного: разделов шестнадцать, и чем больше их видно
+            // без прокрутки, тем меньше шанс, что до нужного не доберутся.
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isCurrent ? Color.white.opacity(0.09) : .clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        // Диктору важно не только имя, но и то, что выбрано сейчас:
+        // подсветку он не видит.
+        .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
+    }
+
+    private var featureDetail: some View {
+        WelcomeCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 11) {
+                    WelcomeGlyph(
+                        symbol: model.feature.symbol,
+                        tint: WelcomePalette.violet,
+                        size: WelcomeStyle.tile
+                    )
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.feature.title)
+                            .font(.system(size: WelcomeStyle.title, weight: .semibold,
+                                          design: .rounded))
+                            .foregroundStyle(.white)
+                        Text(model.feature.summary)
+                            .font(.system(size: WelcomeStyle.caption, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.5))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                Text(model.feature.detail)
+                    .font(.system(size: WelcomeStyle.body, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     /// Сочетания — своим шагом. Каждое правится прямо здесь: набирать его
     /// заново в настройках после того, как оно уже названо, — лишний шаг.
     private var shortcutsStep: some View {
@@ -317,6 +424,11 @@ struct WelcomeView: View {
                     monitorHotKeyRow
                     teleprompterHotKeyRow
                     notesHotKeyRow
+                    recordHotKeyRow
+                    // Голос последним: у него не одно поле, а четыре, и
+                    // строка вдвое выше остальных. Посреди ровного списка
+                    // она читалась разрывом, в конце — итогом.
+                    voiceTriggerRow
                 }
             }
         }
@@ -501,6 +613,145 @@ struct WelcomeView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
+        }
+    }
+
+    /// Голосовой заход — единственная строка списка, где вызов не сочетание,
+    /// а **модификатор, нажатый дважды**. Клавише здесь взяться неоткуда:
+    /// вопрос задают вслух, не отрывая рук от того, чем заняты, и лишняя
+    /// буква в сочетании этому мешает.
+    ///
+    /// Строка была потеряна: голос появился позже остальных функций, а список
+    /// сочетаний с тех пор не пересматривали — и единственный способ узнать
+    /// про вызов оставался в настройках, куда за этим не идут.
+    private var voiceTriggerRow: some View {
+        WelcomeCard {
+            HStack(spacing: 13) {
+                WelcomeGlyph(
+                    symbol: "waveform",
+                    tint: WelcomePalette.violet,
+                    size: WelcomeStyle.tile
+                )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Спросить голосом"))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(t("Модификатор, нажатый дважды подряд. Вопрос вслух, ответ вслух — панель не раскрывается, светится сам вырез. Второй модификатор спрашивает по вашим заметкам"))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 5) {
+                    voiceCallRow(
+                        hint: t("Спросить"),
+                        trigger: Binding(
+                            get: { settings.voiceTrigger },
+                            set: { settings.voiceTrigger = $0; onHotKeysChanged() }
+                        ),
+                        key: Binding(
+                            get: { settings.voiceHotKey },
+                            set: { settings.voiceHotKey = $0; onHotKeysChanged() }
+                        )
+                    )
+                    voiceCallRow(
+                        hint: t("По заметкам"),
+                        trigger: Binding(
+                            get: { settings.voiceNotesTrigger },
+                            set: { settings.voiceNotesTrigger = $0; onHotKeysChanged() }
+                        ),
+                        key: Binding(
+                            get: { settings.voiceNotesHotKey },
+                            set: { settings.voiceNotesHotKey = $0; onHotKeysChanged() }
+                        )
+                    )
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+        }
+    }
+
+    /// Один вызов голоса: жест **или** сочетание клавиш.
+    ///
+    /// Выбор, а не оба сразу: «Своё сочетание» — такой же пункт списка,
+    /// как ⌃⌃ и ⌥⌥, и поле ввода появляется только под него. Два всегда
+    /// видимых поля рядом обещали бы два разных вызова, работающих заодно.
+    ///
+    /// Подпись у каждой строки своя: два одинаковых набора полей рядом
+    /// иначе не различить.
+    private func voiceCallRow(
+        hint: String,
+        trigger: Binding<VoiceTrigger>,
+        key: Binding<HotKeySpec?>
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text(hint)
+                .font(.system(size: WelcomeStyle.detail, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.45))
+            Picker("", selection: trigger) {
+                ForEach(VoiceTrigger.allCases) { value in
+                    Text(value.title).tag(value)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(width: WelcomeStyle.voiceTriggerField)
+            // Поле появляется только под свой выбор: постоянно висящее,
+            // оно обещало бы второй вызов, работающий заодно с жестом.
+            if trigger.wrappedValue == .hotKey {
+                HotKeyRecorder(spec: key, placeholder: t("Не назначено"))
+                    .frame(width: WelcomeStyle.shortcutField.width,
+                           height: WelcomeStyle.shortcutField.height)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(hint)
+    }
+
+    /// Запись разговора: единственная строка списка, где клавиша не
+    /// открывает панель, а начинает работу. Поэтому и сказано не «что
+    /// откроется», а что произойдёт после — иначе человек нажмёт и станет
+    /// ждать окна, которого нет.
+    ///
+    /// Показывается только там, где работает: расшифровка на устройстве
+    /// появилась в macOS 26, и обещать её на старой системе нельзя.
+    @ViewBuilder
+    private var recordHotKeyRow: some View {
+        if RecorderService.isSupported {
+            WelcomeCard {
+                HStack(spacing: 13) {
+                    WelcomeGlyph(
+                        symbol: "waveform.circle.fill",
+                        tint: WelcomePalette.mint,
+                        size: WelcomeStyle.tile
+                    )
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(t("Записать разговор"))
+                            .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text(t("Клавиша начинает и заканчивает запись. Сказанное станет заметкой с пересказом и списком задач; на встрече кнопка в вырезе пишет и собеседников"))
+                            .font(.system(size: WelcomeStyle.detail, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.55))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    HotKeyRecorder(
+                        spec: Binding(
+                            get: { settings.recordHotKey },
+                            set: { spec in
+                                settings.recordHotKey = spec
+                                onHotKeysChanged()
+                            }
+                        ),
+                        placeholder: t("Не назначено")
+                    )
+                    .frame(width: WelcomeStyle.shortcutField.width,
+                           height: WelcomeStyle.shortcutField.height)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+            }
         }
     }
 

@@ -708,6 +708,42 @@ final class Settings: ObservableObject {
         set { store(newValue, "notesTitleByModel") }
     }
 
+    // MARK: - Запись и расшифровка
+
+    /// Запись разговора с расшифровкой в заметку.
+    ///
+    /// Выключена по умолчанию по той же причине, что и синхронизация
+    /// с Obsidian: с выключенной настройкой приложение не просит доступа
+    /// к звуку системы, не заводит отвода и ведёт себя ровно так же,
+    /// как до появления этой работы.
+    var recordEnabled: Bool {
+        get { flag("recordEnabled", default: false) }
+        set { store(newValue, "recordEnabled") }
+    }
+
+    /// Начать и закончить аудиозаметку.
+    var recordHotKey: HotKeySpec? {
+        get { hotKey("recordHotKey", default: .record) }
+        set { storeHotKey(newValue, "recordHotKey") }
+    }
+
+    /// Язык расшифровки. Пусто — язык интерфейса.
+    ///
+    /// Отдельно от языка интерфейса, потому что это разные вещи: интерфейс
+    /// держат на родном языке, а встречи бывают на чужом, и расшифровывать
+    /// английский разговор русской моделью бессмысленно.
+    var transcribeLanguage: String {
+        get { defaults.string(forKey: "transcribeLanguage") ?? "" }
+        set { store(newValue, "transcribeLanguage") }
+    }
+
+    /// Язык, которым расшифровывать, с учётом умолчания.
+    var transcribeLocale: Locale {
+        transcribeLanguage.isEmpty
+            ? Localization.shared.resolved.locale
+            : Locale(identifier: transcribeLanguage)
+    }
+
     // MARK: - Obsidian
 
     /// Синхронизация с хранилищем Obsidian.
@@ -890,6 +926,27 @@ final class Settings: ObservableObject {
     /// Отдельно от языка интерфейса, потому что это разные вещи: интерфейс
     /// держат на одном языке, а говорить могут на другом, и заставлять
     /// человека переключать всё приложение ради одного вопроса незачем.
+    /// Спросить голосом обычным сочетанием клавиш.
+    ///
+    /// В дополнение к модификатору, нажатому дважды, а не вместо него.
+    /// Жест удобен тем, что не занимает буквы, но он же и капризен: двойное
+    /// нажатие ловится по времени между нажатиями, а его человек выдерживает
+    /// не всегда. Сочетание срабатывает без разговоров.
+    ///
+    /// По умолчанию не назначено: свободных букв в ⌃⌥ почти не осталось,
+    /// и занимать одну из них за человека нельзя. Жест при этом работает
+    /// из коробки, так что голос доступен и без этой настройки.
+    var voiceHotKey: HotKeySpec? {
+        get { hotKey("voiceHotKey", default: nil) }
+        set { storeHotKey(newValue, "voiceHotKey") }
+    }
+
+    /// То же для вопроса по заметкам.
+    var voiceNotesHotKey: HotKeySpec? {
+        get { hotKey("voiceNotesHotKey", default: nil) }
+        set { storeHotKey(newValue, "voiceNotesHotKey") }
+    }
+
     var voiceLanguage: Language? {
         get { Language(rawValue: defaults.string(forKey: "voiceLanguage") ?? "") }
         set { store(newValue?.rawValue ?? "", "voiceLanguage") }
@@ -934,17 +991,6 @@ final class Settings: ObservableObject {
     var voiceNotesContextLimit: Int {
         get { defaults.object(forKey: "voiceNotesContextLimit") as? Int ?? 6_000 }
         set { store(max(1_000, newValue), "voiceNotesContextLimit") }
-    }
-
-    /// Сколько символов заметок уходит в контекст модели при поиске по ним.
-    ///
-    /// В символах, а не в токенах: токенов не сосчитать без самой модели,
-    /// а разные модели считают их по-разному. Для кириллицы 24 000 символов —
-    /// это примерно 10 000 токенов, и в окно любой ходовой модели такое
-    /// влезает с запасом.
-    var notesContextLimit: Int {
-        get { defaults.object(forKey: "notesContextLimit") as? Int ?? 24_000 }
-        set { store(max(2_000, newValue), "notesContextLimit") }
     }
 
     // MARK: - Погода

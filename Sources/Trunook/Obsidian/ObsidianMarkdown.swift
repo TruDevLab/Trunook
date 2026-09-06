@@ -34,6 +34,16 @@ enum ObsidianMarkdown {
     static let linksStart = "<!-- trunook:связи:начало -->"
     static let linksEnd = "<!-- trunook:связи:конец -->"
 
+    /// Те же метки для блока с записью разговора.
+    ///
+    /// Блоком, а не строкой в тексте заметки, и по той же причине, что
+    /// у связей: `![[запись.m4a]]` посреди пересказа — это приписка, которую
+    /// человек не писал. В Obsidian она разворачивается в проигрыватель,
+    /// а в вырезе осталась бы голой разметкой. Поэтому ссылка живёт
+    /// в файле хранилища, а приложение показывает вместо неё кнопку.
+    static let audioStart = "<!-- trunook:запись:начало -->"
+    static let audioEnd = "<!-- trunook:запись:конец -->"
+
     // MARK: - Шапка свойств
 
     /// Разрезает файл на шапку свойств и тело.
@@ -136,6 +146,40 @@ enum ObsidianMarkdown {
         return ([linksStart, "## " + t("Связанное")] + rows + [linksEnd]).joined(separator: "\n")
     }
 
+    // MARK: - Блок записи
+
+    /// Текст без блока записи.
+    ///
+    /// Пустые строки обрезаются с **обеих** сторон, а не только с хвоста,
+    /// как у связей. Разница не косметическая, а от места: связи стоят
+    /// внизу, и после них остаётся хвост; запись стоит вверху, и после неё
+    /// остаётся пустая строка в начале — та самая, что отделяла блок
+    /// от текста. Незамеченная, она уезжала бы в заметку при каждой сверке
+    /// и копилась там.
+    static func stripAudio(from text: String) -> String {
+        let lines = self.lines(of: text)
+        guard let start = lines.firstIndex(of: audioStart),
+              let end = lines[start...].firstIndex(of: audioEnd)
+        else { return text }
+        var kept = Array(lines[..<start])
+        kept.append(contentsOf: lines[(end + 1)...])
+        return trimmingTrailingBlankLines(kept.joined(separator: "\n"))
+            .trimmingCharacters(in: .newlines)
+    }
+
+    /// Ставит блок записи в начало тела, заменяя прежний.
+    ///
+    /// В начало, а не в конец, как связи: запись слушают вместо чтения,
+    /// и проигрыватель под расшифровкой на тысячу строк человек не найдёт.
+    /// Связи, наоборот, читают последними — потому они и внизу.
+    static func settingAudio(_ path: String?, in text: String) -> String {
+        let clean = stripAudio(from: text)
+        guard let path, !path.isEmpty else { return clean }
+        let block = [audioStart, "## " + t("Запись"), "![[" + path + "]]", audioEnd]
+            .joined(separator: "\n")
+        return clean.isEmpty ? block : block + "\n\n" + clean
+    }
+
     // MARK: - Файл своей заметки
 
     /// Имя файла своей заметки в хранилище.
@@ -162,7 +206,9 @@ enum ObsidianMarkdown {
         var updated = setting(Key.uid, to: uid, in: front)
         updated = setting(Key.created, to: stamp(note.createdAt), in: updated)
 
-        let body = settingLinks(linksBlock(in: oldBody), in: NoteMarkdown.body(note.attributed))
+        var body = NoteMarkdown.body(note.attributed)
+        body = settingAudio(note.audio.isEmpty ? nil : note.audio, in: body)
+        body = settingLinks(linksBlock(in: oldBody), in: body)
         return join(front: updated, body: body.isEmpty ? "" : body + "\n")
     }
 
@@ -171,7 +217,7 @@ enum ObsidianMarkdown {
     /// Связи показывают отдельным разделом панели, а не строчками в тексте:
     /// в теле они выглядели бы припиской, которую человек не писал.
     static func readableBody(of text: String) -> String {
-        stripLinks(from: split(text).body)
+        stripAudio(from: stripLinks(from: split(text).body))
     }
 
     // MARK: - Разметка в оформленный текст

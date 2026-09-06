@@ -68,7 +68,8 @@ final class NotesStore {
                 updatedAt REAL NOT NULL,
                 origin TEXT NOT NULL,
                 titleByModel INTEGER NOT NULL,
-                uid TEXT NOT NULL DEFAULT ''
+                uid TEXT NOT NULL DEFAULT '',
+                audio TEXT NOT NULL DEFAULT ''
             );
             """)
         execute("CREATE INDEX IF NOT EXISTS notes_time ON notes(updatedAt DESC);")
@@ -84,10 +85,18 @@ final class NotesStore {
     /// Номер разливается всем накопленным заметкам сразу: без него заметка
     /// не нашла бы свой файл в хранилище после переименования.
     private func migrate() {
-        guard !columnNames(of: "notes").contains("uid") else { return }
-        execute("ALTER TABLE notes ADD COLUMN uid TEXT NOT NULL DEFAULT '';")
-        execute("UPDATE notes SET uid = lower(hex(randomblob(16))) WHERE uid = '';")
-        DebugLog.write("заметки: схема дополнена номером заметки")
+        let columns = columnNames(of: "notes")
+        if !columns.contains("uid") {
+            execute("ALTER TABLE notes ADD COLUMN uid TEXT NOT NULL DEFAULT '';")
+            execute("UPDATE notes SET uid = lower(hex(randomblob(16))) WHERE uid = '';")
+            DebugLog.write("заметки: схема дополнена номером заметки")
+        }
+        // Путь к записи. Разливать нечего: у накопленных заметок записи
+        // не было и быть не могло, пустая строка — их честное значение.
+        if !columns.contains("audio") {
+            execute("ALTER TABLE notes ADD COLUMN audio TEXT NOT NULL DEFAULT '';")
+            DebugLog.write("заметки: схема дополнена путём к записи")
+        }
     }
 
     private func columnNames(of table: String) -> Set<String> {
@@ -129,8 +138,9 @@ final class NotesStore {
             guard let database else { return nil }
 
             let sql = """
-                INSERT INTO notes (title, rtf, plain, folded, createdAt, updatedAt, origin, titleByModel, uid)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                INSERT INTO notes
+                    (title, rtf, plain, folded, createdAt, updatedAt, origin, titleByModel, uid, audio)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -145,6 +155,7 @@ final class NotesStore {
             sqlite3_bind_text(statement, 7, note.origin.rawValue, -1, Self.transient)
             sqlite3_bind_int(statement, 8, note.titleByModel ? 1 : 0)
             sqlite3_bind_text(statement, 9, note.uid, -1, Self.transient)
+            sqlite3_bind_text(statement, 10, note.audio, -1, Self.transient)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 DebugLog.write("заметки: запись не легла — \(lastError)")
@@ -163,7 +174,8 @@ final class NotesStore {
 
             let sql = """
                 UPDATE notes
-                SET title = ?, rtf = ?, plain = ?, folded = ?, updatedAt = ?, titleByModel = ?
+                SET title = ?, rtf = ?, plain = ?, folded = ?, updatedAt = ?, titleByModel = ?,
+                    audio = ?
                 WHERE id = ?;
                 """
             var statement: OpaquePointer?
@@ -176,7 +188,8 @@ final class NotesStore {
             bindBody(note, to: statement, from: 1)
             sqlite3_bind_double(statement, 5, note.updatedAt.timeIntervalSince1970)
             sqlite3_bind_int(statement, 6, note.titleByModel ? 1 : 0)
-            sqlite3_bind_int64(statement, 7, note.id)
+            sqlite3_bind_text(statement, 7, note.audio, -1, Self.transient)
+            sqlite3_bind_int64(statement, 8, note.id)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 DebugLog.write("заметки: правка не легла — \(lastError)")
@@ -224,7 +237,7 @@ final class NotesStore {
     // MARK: - Чтение
 
     private static let columns = """
-        id, title, rtf, plain, createdAt, updatedAt, origin, titleByModel, uid
+        id, title, rtf, plain, createdAt, updatedAt, origin, titleByModel, uid, audio
         """
 
     /// Порядок выдачи: свои впереди, заметки хранилища следом, внутри
@@ -343,7 +356,8 @@ final class NotesStore {
             createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 4)),
             updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 5)),
             origin: origin,
-            titleByModel: sqlite3_column_int(statement, 7) != 0
+            titleByModel: sqlite3_column_int(statement, 7) != 0,
+            audio: sqlite3_column_text(statement, 9).map { String(cString: $0) } ?? ""
         )
     }
 

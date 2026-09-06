@@ -128,6 +128,13 @@ struct HotKeySpec: Codable, Equatable, Hashable {
         modifiers: own | UInt32(shiftKey)
     )
 
+    /// ⌃⌥R — начать и закончить аудиозаметку.
+    ///
+    /// R от «record». Мнемоника не сходится в русской раскладке — там под
+    /// этой клавишей «К», — но свободных букв в ⌃⌥ почти не осталось,
+    /// а из свободных эта ближе всех по смыслу хотя бы в одном языке.
+    static let record = HotKeySpec(keyCode: UInt32(kVK_ANSI_R), modifiers: own)
+
     /// Цифра для номерной строки истории буфера.
     static func clipboardSlot(_ index: Int, modifiers: UInt32) -> HotKeySpec? {
         guard digits.indices.contains(index) else { return nil }

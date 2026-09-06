@@ -36,6 +36,10 @@ struct NotchInputs: Equatable {
     var isHovered = false
     var isPinnedOpen = false
     var chip: CalendarItem?
+    /// Полоска идущей записи. Выше всех прочих полосок: запись легко
+    /// забыть выключенной, и цена этому — час звука мимо заметки, тогда как
+    /// пропущенный таймер стоит одного взгляда на часы.
+    var recordingChip: RecordingChip?
     /// Полоска идущего таймера. Важнее отсчёта до встречи: таймер заводят
     /// руками и смотрят на него нарочно, а отсчёт всплывает сам.
     var timerChip: TimerChip?
@@ -109,7 +113,9 @@ struct NotchInputs: Equatable {
         if isPinnedOpen { return .expanded }
         if isHovered { return .preview }
         if activity != nil { return .activity }
-        return chip == nil && timerChip == nil && caffeineChip == nil ? .collapsed : .chip
+        let hasChip = chip != nil || timerChip != nil || caffeineChip != nil
+            || recordingChip != nil
+        return hasChip ? .chip : .collapsed
     }
 
     private var content: NotchContent {
@@ -117,6 +123,7 @@ struct NotchInputs: Equatable {
             activity: activity,
             track: track,
             chip: chip,
+            recordingChip: recordingChip,
             timerChip: timerChip,
             caffeineChip: caffeineChip,
             events: events,

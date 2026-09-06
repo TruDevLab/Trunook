@@ -63,6 +63,18 @@ final class NoteDraft: ObservableObject {
     /// переписать эту заметку, а не завести рядом вторую такую же.
     @Published private(set) var editingID: Int64?
 
+    /// Открытую заметку правили с тех пор, как её открыли.
+    ///
+    /// Нужно ровно для одного: пока правки нет, главная кнопка панели должна
+    /// **закрывать**, а не сохранять. Открыв заметку просто посмотреть,
+    /// человек оказывался запертым в правке — выйти из неё можно было либо
+    /// перезаписав запись тем же текстом, либо очистив поле, то есть
+    /// потеряв заметку.
+    @Published private(set) var isNoteEdited = false
+
+    /// Текст заметки в момент открытия — с ним и сравниваем.
+    private var editingOriginal: String?
+
     /// Что панель спрашивает у человека прямо сейчас.
     ///
     /// Спрашивает своей же строкой, а не всплывающим окном: окно система
@@ -141,6 +153,7 @@ final class NoteDraft: ObservableObject {
 
     func textDidChange() {
         refreshEmptiness()
+        refreshEdited()
         scheduleSave()
     }
 
@@ -156,7 +169,31 @@ final class NoteDraft: ObservableObject {
     func didPaste() {
         editor.normalizeColors()
         refreshEmptiness()
+        refreshEdited()
         scheduleSave()
+    }
+
+    /// Сверяет нынешний текст с тем, что было при открытии.
+    ///
+    /// По строке, а не по оформлению: сравнивать RTF на каждое нажатие
+    /// клавиши — работа на пустом месте. Оформление отмечает правку само,
+    /// через `markEdited`: кнопок оформления четыре, и позвать их иначе
+    /// как нарочно нельзя.
+    private func refreshEdited() {
+        guard let original = editingOriginal else {
+            if isNoteEdited { isNoteEdited = false }
+            return
+        }
+        let text = pendingText?.string ?? editor.attributed.string
+        let edited = text != original
+        guard edited != isNoteEdited else { return }
+        isNoteEdited = edited
+    }
+
+    /// Правка, которую по тексту не видно: жирный, курсив, заголовок, ссылка.
+    private func markEdited() {
+        guard editingID != nil, !isNoteEdited else { return }
+        isNoteEdited = true
     }
 
     private func refreshEmptiness() {
@@ -175,9 +212,20 @@ final class NoteDraft: ObservableObject {
 
     // MARK: - Оформление
 
-    func toggleHeading() { editor.toggleHeading() }
-    func toggleBold() { editor.toggleBold() }
-    func toggleItalic() { editor.toggleItalic() }
+    func toggleHeading() {
+        editor.toggleHeading()
+        markEdited()
+    }
+
+    func toggleBold() {
+        editor.toggleBold()
+        markEdited()
+    }
+
+    func toggleItalic() {
+        editor.toggleItalic()
+        markEdited()
+    }
 
     func askForLink() {
         linkAddress = ""
@@ -189,6 +237,7 @@ final class NoteDraft: ObservableObject {
         prompt = nil
         linkAddress = ""
         editor.applyLink(address)
+        markEdited()
     }
 
     func cancelPrompt() {
@@ -214,6 +263,8 @@ final class NoteDraft: ObservableObject {
         } else {
             editor.setAttributed(text)
         }
+        editingOriginal = text.string
+        isNoteEdited = false
         refreshEmptiness()
         saveNow()
         DebugLog.write("заметки: правка \(note.id) открыта в панели")
@@ -227,11 +278,15 @@ final class NoteDraft: ObservableObject {
     func startNewNote() {
         setMode(.note)
         editingID = nil
+        editingOriginal = nil
+        isNoteEdited = false
     }
 
     /// Набранное ушло — вопросом модели или заметкой.
     func clearNote() {
         editingID = nil
+        editingOriginal = nil
+        isNoteEdited = false
         pendingText = nil
         editor.clear()
         refreshEmptiness()
@@ -247,6 +302,8 @@ final class NoteDraft: ObservableObject {
     /// открывали, нельзя.
     func endEditing() {
         editingID = nil
+        editingOriginal = nil
+        isNoteEdited = false
     }
 
     // MARK: - Хранение

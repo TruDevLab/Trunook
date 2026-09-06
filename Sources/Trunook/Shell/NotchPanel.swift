@@ -125,6 +125,10 @@ struct NotchPanelButton: View {
     /// Обязательным поле сделано, чтобы четырнадцатую кнопку без подписи
     /// поймал компилятор, а не следующий аудит.
     let hint: String
+    /// Цвет значка. Нужен одной кнопке из двадцати — записи: пока она идёт,
+    /// значок горит тревожным, и это единственное состояние в шапке, о
+    /// котором надо узнать не читая.
+    var tint: Color = .white
     let action: () -> Void
 
     /// Сторона области нажатия.
@@ -142,7 +146,7 @@ struct NotchPanelButton: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: NotchStyle.font(10), weight: .medium))
-                .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
+                .foregroundStyle(tint.opacity(NotchStyle.secondaryOpacity))
                 .frame(width: Self.size, height: Self.size)
                 .contentShape(Rectangle())
         }

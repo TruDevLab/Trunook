@@ -113,10 +113,18 @@ final class NotesService: ObservableObject {
     /// Возвращает записанное — с назначенным идентификатором и поставленным
     /// именем, — чтобы вызвавший мог показать человеку, что именно вышло.
     /// `nil` значит, что записывать было нечего.
+    ///
+    /// `title` — готовое имя, если оно уже известно. Так приходит заметка
+    /// из записанного разговора: название модель дала вместе с пересказом,
+    /// одним ответом, и просить его вторым заходом значило бы гонять ту же
+    /// работу дважды — а заодно устроить гонку, в которой второе имя
+    /// перебивает первое.
     @discardableResult
     func save(
         _ text: NSAttributedString,
         origin: Note.Origin,
+        title: String? = nil,
+        audio: String = "",
         editing id: Int64? = nil,
         now: Date = Date()
     ) -> Note? {
@@ -137,6 +145,7 @@ final class NotesService: ObservableObject {
             updated.rtf = rtf
             updated.plain = plain
             updated.updatedAt = now
+            if !audio.isEmpty { updated.audio = audio }
             store.update(updated)
             reload()
             DebugLog.write("заметки: правка \(id), символов \(plain.count)")
@@ -147,21 +156,25 @@ final class NotesService: ObservableObject {
             return updated
         }
 
+        let ready = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasTitle = ready?.isEmpty == false
         let note = Note(
             id: Note.unsaved,
-            title: NoteTitler.fallback(for: plain, at: now),
+            title: hasTitle ? ready! : NoteTitler.fallback(for: plain, at: now),
             rtf: rtf,
             plain: plain,
             createdAt: now,
             updatedAt: now,
             origin: origin,
-            titleByModel: false
+            titleByModel: hasTitle,
+            audio: audio
         )
         guard let id = store.insert(note) else { return nil }
         reload()
         DebugLog.write("заметки: записана \(id), символов \(plain.count), откуда \(origin.rawValue)")
 
-        titler.enqueue(id: id, plain: plain)
+        // Имя уже есть — второй раз его не просят.
+        if !hasTitle { titler.enqueue(id: id, plain: plain) }
         onSaved?(id)
 
         var saved = note
@@ -197,6 +210,20 @@ final class NotesService: ObservableObject {
 
     // MARK: - Контекст для модели
 
+    /// Потолок объёма заметок, уходящих модели, в символах.
+    ///
+    /// Константа, а не настройка, и это исправление: настройка была, стояла
+    /// рядом с «Заметок под вопрос» и спрашивала про то же самое разными
+    /// словами. Отбирает заметки векторный поиск, и решает он числом заметок;
+    /// потолок символов — не выбор человека, а защита от того, что среди
+    /// отобранных попадётся заметка на сорок тысяч знаков.
+    ///
+    /// В символах, а не в токенах: токенов не сосчитать без самой модели,
+    /// а разные модели считают их по-разному. Для кириллицы 24 000 символов —
+    /// это примерно 10 000 токенов, и в окно любой ходовой модели такое
+    /// влезает с запасом.
+    static let contextBudget = 24_000
+
     /// Заметки, собранные в текст для модели.
     ///
     /// Свежие идут первыми и целиком, пока не упрётся потолок. Что не влезло,
@@ -207,7 +234,7 @@ final class NotesService: ObservableObject {
     /// Потолок в символах, а не в токенах: токены не сосчитать без самой
     /// модели, и у каждой они свои.
     func contextText(budget: Int? = nil) -> String? {
-        let limit = budget ?? settings.notesContextLimit
+        let limit = budget ?? Self.contextBudget
         return Self.context(from: store.all(), budget: limit)
     }
 

@@ -170,9 +170,29 @@ final class NoteTitler {
         line = line.trimmingCharacters(in: CharacterSet(charactersIn: ".!…;:"))
         line = line.trimmingCharacters(in: quotes.union(.whitespaces))
         line = Note.oneLine(from: line)
+        line = deshouted(line)
 
         guard !line.isEmpty else { return nil }
         return truncated(line, to: maxLength)
+    }
+
+    /// Убирает крик: название, набранное целиком заглавными.
+    ///
+    /// Модель повторяет вид метки из промта — та написана заглавными, — и
+    /// отвечает так же: «ХЛЕБ И ЧЕЛЮСКИНЦЫ». В списке заметок это кричит,
+    /// а у записей уезжает ещё и в имя файла хранилища.
+    ///
+    /// Только целиком заглавные и только длиннее четырёх букв: короткое
+    /// «API» или «НДС» — аббревиатура, и опускать её нельзя. Остальное
+    /// приводится к обычному виду: первая заглавная, прочие строчные.
+    /// Пословная капитализация здесь хуже — по-русски «Хлеб И Челюскинцы»
+    /// читается ещё страннее, чем крик.
+    static func deshouted(_ title: String) -> String {
+        let letters = title.filter(\.isLetter)
+        guard letters.count > 4, !letters.contains(where: \.isLowercase) else { return title }
+        let lowered = title.lowercased()
+        guard let first = lowered.first else { return title }
+        return String(first).uppercased() + lowered.dropFirst()
     }
 
     /// Срезает «Название: …» и подобное.

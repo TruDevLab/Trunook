@@ -93,6 +93,8 @@ struct SettingsView: View {
     @ObservedObject var obsidian: ObsidianService
     let linker: NoteLinker
     @ObservedObject private var installer = ModelInstaller.shared
+    /// Языковые наборы расшифровки: что установлено и как поставить.
+    @ObservedObject private var transcripts = TranscriptAssets()
     /// Обновления: строка состояния и подпись кнопки живут от её состояния.
     @ObservedObject var updates: UpdateService
     /// Поиск города. Живёт снаружи, а не в теле вида: `@State` в этом SDK
@@ -451,6 +453,22 @@ struct SettingsView: View {
                     .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
                     .disabled(!settings.voiceEnabled)
 
+                    // Поле только под свой выбор: постоянно висящее, оно
+                    // обещало бы второй вызов, работающий заодно с жестом.
+                    if settings.voiceTrigger == .hotKey {
+                        HStack {
+                            Text(t("Сочетание"))
+                            Spacer()
+                            HotKeyRecorder(spec: Binding(
+                                get: { settings.voiceHotKey },
+                                set: { settings.voiceHotKey = $0; onHotKeysChanged() }
+                            ))
+                            .frame(width: SettingsStyle.hotKeyField.width,
+                                   height: SettingsStyle.hotKeyField.height)
+                        }
+                        .disabled(!settings.voiceEnabled)
+                    }
+
                     Picker(t("Спросить по заметкам"), selection: Binding(
                         get: { settings.voiceNotesTrigger },
                         set: { settings.voiceNotesTrigger = $0; onHotKeysChanged() }
@@ -463,7 +481,22 @@ struct SettingsView: View {
                     .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
                     .disabled(!settings.voiceEnabled || !settings.notesEnabled)
 
+                    if settings.voiceNotesTrigger == .hotKey {
+                        HStack {
+                            Text(t("Сочетание по заметкам"))
+                            Spacer()
+                            HotKeyRecorder(spec: Binding(
+                                get: { settings.voiceNotesHotKey },
+                                set: { settings.voiceNotesHotKey = $0; onHotKeysChanged() }
+                            ))
+                            .frame(width: SettingsStyle.hotKeyField.width,
+                                   height: SettingsStyle.hotKeyField.height)
+                        }
+                        .disabled(!settings.voiceEnabled || !settings.notesEnabled)
+                    }
+
                     hint(t("Модификатор, нажатый дважды подряд, без других клавиш между нажатиями."))
+                    hint(t("«Своё сочетание» в списке меняет жест на обычные клавиши."))
                     hint(t("Нужен Универсальный доступ."))
                     if settings.voiceTrigger == settings.voiceNotesTrigger,
                        settings.voiceTrigger != .off {
@@ -634,6 +667,8 @@ struct SettingsView: View {
                     hint(t("Сразу ставится из даты и первой строки, потом модель уточняет."))
                 }
 
+                recordCard
+
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle(t("Искать по смыслу"), isOn: Binding(
                         get: { settings.notesVectorSearch },
@@ -655,17 +690,6 @@ struct SettingsView: View {
                 }
                 .disabled(!settings.notesEnabled || !settings.ollamaEnabled || !settings.notesVectorSearch)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Picker(t("Заметок в контекст модели"), selection: settings.binding(\.notesContextLimit)) {
-                        ForEach([8_000, 16_000, 24_000, 48_000, 96_000], id: \.self) { value in
-                            Text(tf("%d тыс. знаков", value / 1_000)).tag(value)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
-                    .disabled(!settings.notesEnabled || !settings.ollamaEnabled)
-                    hint(t("Сколько заметок уходит модели. Больше — дольше ответ."))
-                }
             }
 
             section(t("Что с ними делать"), icon: "square.and.arrow.up") {
@@ -782,6 +806,99 @@ struct SettingsView: View {
             .disabled(models.isLoading)
             .help(t("Обновить список"))
             .accessibilityLabel(t("Обновить список"))
+        }
+    }
+
+    // MARK: - Запись и расшифровка
+
+    /// Карточка записи разговора.
+    ///
+    /// Целиком в разделе «Заметки», а не своим разделом: результат записи —
+    /// обычная заметка, и человек ищет её там же, где остальное про заметки.
+    @ViewBuilder
+    private var recordCard: some View {
+        section(t("Запись разговора"), icon: "waveform") {
+            if !RecorderService.isSupported {
+                hint(t("Расшифровка на устройстве появилась в macOS 26."))
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Записывать разговор"), isOn: settings.binding(\.recordEnabled))
+                        .disabled(!settings.notesEnabled)
+                    hint(t("Кнопка записи появится в панели встречи и в заметке."))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(t("Аудиозаметка"))
+                        Spacer()
+                        HotKeyRecorder(spec: Binding(
+                            get: { settings.recordHotKey },
+                            set: { settings.recordHotKey = $0; onHotKeysChanged() }
+                        ))
+                        .frame(width: SettingsStyle.hotKeyField.width,
+                               height: SettingsStyle.hotKeyField.height)
+                    }
+                    hint(t("Нажатие начинает запись, повторное — заканчивает."))
+                }
+                .disabled(!settings.notesEnabled || !settings.recordEnabled)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker(t("Язык расшифровки"), selection: Binding(
+                        get: { settings.transcribeLanguage },
+                        set: {
+                            settings.transcribeLanguage = $0
+                            transcripts.refresh(for: settings.transcribeLocale)
+                        }
+                    )) {
+                        Text(t("Как в системе")).tag("")
+                        ForEach(transcripts.locales, id: \.identifier) { locale in
+                            Text(TranscriptAssets.name(of: locale)).tag(locale.identifier)
+                        }
+                    }
+                    transcriptRow
+                }
+                .disabled(!settings.notesEnabled || !settings.recordEnabled)
+                .onAppear {
+                    transcripts.loadLocales()
+                    transcripts.refresh(for: settings.transcribeLocale)
+                }
+
+                hint(tf("Записи лежат рядом с заметками, в папке «%@».", RecorderService.folderName))
+            }
+        }
+    }
+
+    /// Состояние языкового набора и кнопка «Скачать».
+    ///
+    /// Набор нужен обязательно: без него расшифровка молча отдаёт пустой
+    /// текст, и заметка выходит с одним аудиофайлом. Поэтому состояние
+    /// показывается всегда, а не только когда что-то пошло не так.
+    @ViewBuilder
+    private var transcriptRow: some View {
+        switch transcripts.state {
+        case let .downloading(share):
+            HStack(spacing: 8) {
+                ProgressView(value: share).controlSize(.small)
+                Text(tf("Качаю язык — %d%%", Int(share * 100)))
+                    .foregroundStyle(SettingsStyle.tertiary)
+            }
+        case .installed:
+            hint(t("Язык установлен, расшифровка идёт на этом компьютере."))
+        case .missing:
+            HStack(spacing: 8) {
+                Button(t("Скачать язык")) { transcripts.install(for: settings.transcribeLocale) }
+                Text(t("Без него расшифровки не будет"))
+                    .foregroundStyle(SettingsStyle.tertiary)
+            }
+        case .unsupportedLanguage:
+            hint(t("Этот язык расшифровка не знает."))
+        case let .failed(text):
+            HStack(spacing: 8) {
+                Button(t("Скачать язык")) { transcripts.install(for: settings.transcribeLocale) }
+                Text(text).foregroundStyle(Palette.warning)
+            }
+        case .unknown, .unsupported:
+            EmptyView()
         }
     }
 
