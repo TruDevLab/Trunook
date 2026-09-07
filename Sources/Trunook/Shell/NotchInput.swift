@@ -50,6 +50,12 @@ final class NotchInput {
     var onDragChanged: ((Bool) -> Void)?
     var onPettingStart: (() -> Void)?
     var onPettingStop: (() -> Void)?
+    /// Кнопку держат на вырезе дольше порога — раскрывается кольцо.
+    var onQuickRingOpen: (() -> Void)?
+    /// Рука ведёт по кольцу. Смещение от нижней кромки чёлки, `y` вниз.
+    var onQuickRingMove: ((CGPoint) -> Void)?
+    /// Кнопку отпустили.
+    var onQuickRingClose: (() -> Void)?
 
     private var monitors: [Any] = []
     private var pollTimer: Timer?
@@ -65,6 +71,22 @@ final class NotchInput {
 
     /// До какого момента отладочное раскрытие держится вопреки курсору.
     private var holdUntil = Date.distantPast
+
+    /// Сколько держать кнопку, чтобы вышло кольцо.
+    ///
+    /// Треть секунды. Меньше — и обычное нажатие по чёлке начинало бы
+    /// раскрывать кольцо у всякого, кто нажимает не спеша; больше — и
+    /// удержание перестаёт читаться как жест и начинает читаться как
+    /// задумчивость приложения.
+    private static let ringDelay: TimeInterval = 0.34
+
+    /// Когда кнопку нажали на вырезе. `nil` — не нажата или нажата не там.
+    private var pressStartedAt: Date?
+    /// Была ли кнопка нажата на прошлом тике: кольцо заводится **по краю**
+    /// нажатия, а не по тому, что кнопка нажата и курсор над вырезом.
+    private var wasPressed = false
+    /// Открыто ли кольцо прямо сейчас.
+    private var ringIsOpen = false
 
 
     init(state: NotchState, settings: Settings, host: NotchWindowHost) {
@@ -107,8 +129,13 @@ final class NotchInput {
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.handleMouse(at: NSEvent.mouseLocation)
+            let pressed = NSEvent.pressedMouseButtons & 1 != 0
+            // До `drag.update`: кольцо и приём файлов смотрят на одну и ту же
+            // кнопку, и порядок здесь важен только тем, что кольцо должно
+            // узнать об отпускании тем же тиком, каким оно случилось.
+            self.updateQuickRing(pressed: pressed, at: NSEvent.mouseLocation)
             self.drag.update(
-                isPressed: NSEvent.pressedMouseButtons & 1 != 0,
+                isPressed: pressed,
                 at: NSEvent.mouseLocation
             )
             self.expirePendingSwipe()
@@ -123,6 +150,10 @@ final class NotchInput {
         if let global = NSEvent.addGlobalMonitorForEvents(matching: events, handler: { [weak self] event in
             self?.handleMouse(at: NSEvent.mouseLocation)
             if event.type == .leftMouseDragged { self?.drag.note() }
+            // Пока кнопка зажата, `.mouseMoved` не приходит вовсе — движение
+            // едет в `.leftMouseDragged`. Без этого кольцо подсвечивало бы
+            // кружок десять раз в секунду вместо каждого движения руки.
+            self?.trackQuickRing(at: NSEvent.mouseLocation)
         }) {
             monitors.append(global)
         }
@@ -130,6 +161,7 @@ final class NotchInput {
         if let local = NSEvent.addLocalMonitorForEvents(matching: events, handler: { [weak self] event in
             self?.handleMouse(at: NSEvent.mouseLocation)
             if event.type == .leftMouseDragged { self?.drag.note() }
+            self?.trackQuickRing(at: NSEvent.mouseLocation)
             return event
         }) {
             monitors.append(local)
@@ -199,6 +231,57 @@ final class NotchInput {
         // Поглаживание проверяется на каждом движении, а не только на смене
         // состояния: пока курсор ходит внутри выреза, наведение не меняется.
         updatePetting(at: location)
+    }
+
+    // MARK: - Кольцо быстрого доступа
+
+    /// Кнопку держат на вырезе — считаем, дошло ли до порога.
+    ///
+    /// Всё решается опросом положения курсора и состояния кнопки, а не
+    /// событиями. Причина та же, по которой на опросе держится и наведение:
+    /// монитор нажатий молчит, когда событие ушло в чужое приложение, а
+    /// кнопку на вырезе как раз и держат, водя рукой далеко от него.
+    /// `NSEvent.pressedMouseButtons` отвечает всегда и всем.
+    private func updateQuickRing(pressed: Bool, at location: CGPoint) {
+        let justPressed = pressed && !wasPressed
+        wasPressed = pressed
+        guard pressed else {
+            pressStartedAt = nil
+            guard ringIsOpen else { return }
+            ringIsOpen = false
+            onQuickRingClose?()
+            return
+        }
+        if ringIsOpen {
+            trackQuickRing(at: location)
+            return
+        }
+        guard let startedAt = pressStartedAt else {
+            // Кольцо заводится **по краю** нажатия, а не по тому, что кнопка
+            // нажата и курсор над вырезом. Разница ровно в перетаскивании:
+            // файл ведут на чёлку с зажатой кнопкой и держат там, целясь
+            // в полку, — и кольцо выскакивало бы у всякого, кто это делает.
+            // Нажатие, начавшееся не здесь, кольцу не принадлежит.
+            guard justPressed else { return }
+            // Только с самой чёлки: нажатие в открытой панели — это работа
+            // с ней, а не жест.
+            guard state.overlay == nil, host.openTriggerRect.contains(location) else { return }
+            pressStartedAt = Date()
+            return
+        }
+        guard Date().timeIntervalSince(startedAt) >= Self.ringDelay else { return }
+        ringIsOpen = true
+        onQuickRingOpen?()
+        trackQuickRing(at: location)
+    }
+
+    /// Куда метит рука — в смещениях от нижней кромки чёлки, `y` вниз.
+    private func trackQuickRing(at location: CGPoint) {
+        guard ringIsOpen, let notch = host.geometry?.notchRect else { return }
+        onQuickRingMove?(CGPoint(
+            x: location.x - notch.midX,
+            y: notch.minY - location.y
+        ))
     }
 
     private func setHovered(_ hovered: Bool) {

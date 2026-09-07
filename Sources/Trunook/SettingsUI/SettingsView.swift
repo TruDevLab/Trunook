@@ -1204,9 +1204,9 @@ struct SettingsView: View {
                 .disabled(!settings.timerEnabled)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle(t("Сигнал по окончании"), isOn: settings.binding(\.timerSoundEnabled))
+                    Toggle(t("Звук"), isOn: settings.binding(\.timerSoundEnabled))
                         .disabled(!settings.timerEnabled)
-                    hint(t("Один короткий сигнал, не будильник."))
+                    hint(t("Щелчки при выборе времени и один сигнал по окончании."))
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -2506,8 +2506,22 @@ struct SettingsView: View {
                 set: { enabled in
                     settings.calendarEnabled = enabled
                     if enabled { calendar.requestAccessIfNeeded() }
+                    onHotKeysChanged()
                 }
             ))
+
+            HStack {
+                Text(t("Открыть календарь"))
+                Spacer()
+                HotKeyRecorder(spec: Binding(
+                    get: { settings.calendarHotKey },
+                    set: { settings.calendarHotKey = $0; onHotKeysChanged() }
+                ))
+                .frame(width: SettingsStyle.hotKeyField.width,
+                       height: SettingsStyle.hotKeyField.height)
+            }
+            .disabled(!settings.calendarEnabled)
+
             Toggle(t("Напоминания"), isOn: Binding(
                 get: { settings.remindersEnabled },
                 set: { enabled in

@@ -37,6 +37,24 @@ struct HubEntryTests {
         #expect(HubEntry.teleprompter.isEnabled(Settings.shared))
     }
 
+    /// Сетка в четыре колонки и два ряда. Третий ряд панель себе позволить
+    /// не может: она вызывается правой кнопкой поверх чужих окон, и лишние
+    /// семьдесят четыре точки закрывают то, ради чего её и открыли.
+    @Test("Состав укладывается в два ряда сетки")
+    func дваРяда() {
+        #expect(HubEntry.count <= HubPanel.columns * 2)
+    }
+
+    /// Заметки стоят сразу за командами: спросить и записать — соседние
+    /// половины одного дела.
+    @Test("Заметки идут следом за командами")
+    func заметкиРядомСКомандами() {
+        let order = HubEntry.allCases.map(\.rawValue)
+        let commands = order.firstIndex(of: "assistant")
+        let notes = order.firstIndex(of: "notes")
+        #expect(notes == commands.map { $0 + 1 })
+    }
+
     @Test("Настроек, знакомства и главного экрана среди плиток нет")
     func лишнихПлитокНет() {
         // Настройки открываются значком в правом крыле, знакомство — из меню

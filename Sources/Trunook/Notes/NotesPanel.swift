@@ -28,20 +28,23 @@ struct NotesPanel: View {
     let onExportAll: () -> Void
     /// Перейти к созданию заметки. Из списка это первое, чего хочется:
     /// пришёл посмотреть записанное — и вспомнил, что записать ещё.
-    let onNewNote: () -> Void
+    ///
+    /// Строкой передаётся затравка — то, что уже набрано в поиске. Пустая
+    /// строка означает чистый лист.
+    let onNewNote: (String) -> Void
     let onClose: () -> Void
 
     // MARK: - Размеры
 
     private static var minimumWidth: CGFloat { NotchStyle.scaled(440) }
 
-    /// Ширина считается от чёлки, а не берётся числом: в крыле три кнопки,
+    /// Ширина считается от чёлки, а не берётся числом: в крыле две кнопки,
     /// а ширина крыла у каждой модели MacBook своя.
     static func width(notchWidth: CGFloat) -> CGFloat {
         max(
             minimumWidth,
             NotchStyle.width(
-                fittingWing: NotchStyle.wingRow(buttons: 3),
+                fittingWing: NotchStyle.wingRow(buttons: 2),
                 notchWidth: notchWidth,
                 bodyPadding: NotchStyle.bottomPadding
             )
@@ -60,9 +63,26 @@ struct NotesPanel: View {
     /// он вырастет и обрежется.
     static let visibleRows = 5
 
+    /// Высота кнопки «Новая заметка».
+    static var newNoteHeight: CGFloat { NotchStyle.scaled(32) }
+    /// Полоса, которую кнопка занимает внизу списка вместе с зазором.
+    static var newNoteBand: CGFloat { newNoteHeight + rowSpacing }
+
+    /// Высота списка вместе с полосой кнопки.
+    ///
+    /// Кнопка лежит **поверх** списка, а не под ним, и от этого зависит,
+    /// прибавлять ли её полосу к высоте.
+    ///
+    /// Пока строк меньше, чем помещается, прибавлять надо: иначе стекло легло
+    /// бы на единственную строку и закрыло её целиком — при том, что места
+    /// на экране сколько угодно. Как только список перерос окно, прибавлять
+    /// нечего: последние строки уходят под стекло, видны сквозь него
+    /// и достаются прокруткой. Высота панели на полном списке от кнопки
+    /// не меняется вовсе — а полный список и есть обычный случай.
     static func listHeight(rows: Int) -> CGFloat {
         let shown = max(1, min(rows, visibleRows))
-        return CGFloat(shown) * rowHeight + CGFloat(shown - 1) * rowSpacing
+        let stack = CGFloat(shown) * rowHeight + CGFloat(shown - 1) * rowSpacing
+        return rows < visibleRows ? stack + newNoteBand : stack
     }
 
     static func height(notchHeight: CGFloat, rows: Int) -> CGFloat {
@@ -95,21 +115,16 @@ struct NotesPanel: View {
             }
         } trailing: {
             HStack(spacing: 2) {
-                // Новая заметка — первой: из списка чаще всего идут именно
-                // сюда, а не в выгрузку.
-                NotchPanelButton(
-                    symbol: "square.and.pencil",
-                    hint: t("Новая заметка"),
-                    action: onNewNote
-                )
+                // Новой заметки здесь больше нет: она стоит большой кнопкой
+                // внизу списка. Два способа одного действия на одном экране
+                // человек читает как два разных.
                 NotchPanelButton(
                     symbol: "square.and.arrow.up",
                     hint: t("Выгрузить все заметки в папку"),
                     action: onExportAll
                 )
-                // Выгружать нечего, пока заметок нет. Крестик и новая заметка
-                // от этого не гаснут: закрыть панель и начать писать нужно
-                // в любом случае.
+                // Выгружать нечего, пока заметок нет. Крестик от этого
+                // не гаснет: закрыть панель нужно в любом случае.
                 .disabled(notes.total == 0)
                 .opacity(notes.total == 0 ? 0.5 : 1)
 
@@ -118,11 +133,7 @@ struct NotesPanel: View {
         } content: {
             VStack(spacing: NotchStyle.gridSpacing) {
                 search
-                if notes.notes.isEmpty {
-                    empty
-                } else {
-                    list
-                }
+                listArea
             }
         }
     }
@@ -140,7 +151,7 @@ struct NotesPanel: View {
             FocusedTextField(
                 text: Binding(get: { notes.query }, set: { notes.query = $0 }),
                 placeholder: t("Поиск по заметкам"),
-                onSubmit: {}
+                onSubmit: submitSearch
             )
             .accessibilityLabel(t("Поиск по заметкам"))
             if notes.isSearching {
@@ -159,30 +170,71 @@ struct NotesPanel: View {
         .background(Capsule().fill(.white.opacity(NotchStyle.tileFill)))
     }
 
+    /// Enter в поиске, когда искомого нет.
+    ///
+    /// Искать заметку и не найти её — самый частый повод её завести: человек
+    /// уже сформулировал, о чём она, и набрал это в строке. Заставлять его
+    /// после этого нажимать кнопку и набирать то же самое второй раз незачем.
+    ///
+    /// Когда что-то нашлось, Enter не делает ничего: заводить рядом вторую
+    /// заметку с тем же именем — не то, чего от него ждут.
+    private func submitSearch() {
+        let query = notes.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, notes.notes.isEmpty else { return }
+        onNewNote(query)
+    }
+
     // MARK: - Пустые состояния
 
     /// Их два, и это разные слова. «Заметок нет» объясняет, что делать;
     /// «ничего не нашлось» объясняет, что искали не то. Одна строка на оба
     /// случая врала бы в одном из них.
     private var empty: some View {
+        VStack(spacing: 0) {
+            message
+            // Полоса кнопки — не место для объяснения: стекло легло ровно
+            // на середину строки, и половина слов пропала. Видно это было
+            // только на снимке: в вёрстке оба вида законны, они просто
+            // лежат в одном прямоугольнике.
+            Color.clear.frame(height: Self.newNoteBand)
+        }
+    }
+
+    private var message: some View {
         VStack(spacing: 4) {
             Image(systemName: notes.isSearching ? "magnifyingglass" : "square.and.pencil")
                 .font(.system(size: NotchStyle.font(18)))
                 .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
                 .accessibilityHidden(true)
             Text(notes.isSearching
-                ? t("По этому запросу ничего нет")
-                : t("Заметок пока нет — начните новую кнопкой сверху"))
+                ? t("Ничего не нашлось — Enter заведёт заметку с этим текстом")
+                : t("Заметок пока нет — начните новую кнопкой снизу"))
                 .font(.system(size: NotchStyle.font(11.5)))
                 .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: Self.listHeight(rows: 0))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Список
+
+    /// Список и лежащая на нём кнопка.
+    ///
+    /// Высоту задаёт эта обёртка, а не содержимое: панель, размер которой
+    /// определяет содержимое, растит `ZStack` и вылезает вверх поверх
+    /// соседей — на этом в проекте ловились уже дважды.
+    private var listArea: some View {
+        ZStack(alignment: .bottom) {
+            if notes.notes.isEmpty {
+                empty
+            } else {
+                list
+            }
+            newNoteButton
+        }
+        .frame(height: Self.listHeight(rows: notes.notes.count))
+    }
 
     private var list: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -190,9 +242,75 @@ struct NotesPanel: View {
                 ForEach(notes.notes) { note in
                     row(note)
                 }
+                // Место под кнопкой в самой прокрутке: без него последняя
+                // строка остаётся под стеклом навсегда, и добраться до её
+                // крестика нечем.
+                Color.clear.frame(height: Self.newNoteBand)
             }
         }
-        .frame(height: Self.listHeight(rows: notes.notes.count))
+        // Строки растворяются, уходя под кнопку, а не обрываются под ней
+        // ровным краем: обрубленный список читается обрезанной вёрсткой.
+        .mask(listFade)
+    }
+
+    private var listFade: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .black, location: 0),
+                .init(color: .black, location: 1 - Self.newNoteBand / Self.listHeight(rows: notes.notes.count)),
+                // Не до нуля: кнопка теперь круг в середине, и строка
+                // под ней закрыта не вся. Растворять её целиком значило бы
+                // прятать то, что прекрасно видно рядом с кнопкой.
+                .init(color: .black.opacity(0.4), location: 1),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    // MARK: - Новая заметка
+
+    /// Главное действие списка — большой кнопкой внизу, поверх строк.
+    ///
+    /// Раньше оно стояло значком в крыле, вторым из трёх, и там его надо было
+    /// сперва найти: крыло — это место закрытия и настроек, а не начала
+    /// работы. Внизу списка кнопка попадается на глаза ровно тогда, когда
+    /// человек дочитал список и не нашёл того, что искал.
+    ///
+    /// **Один плюс, без подписи.** Подпись жила в самой кнопке и делала
+    /// её широкой полосой поперёк списка: круг того же роста закрывает вчетверо
+    /// меньше строк под собой, а сказать «Новая заметка» есть чем — всплывающая
+    /// подпись под чёлкой, ровно как у всех кнопок без слов в этом приложении.
+    ///
+    /// **Стекло обычной кнопки, а не цветное.** Цветное стекло здесь пробовали:
+    /// оно не пускает сквозь себя строки, и кнопка выходила наклейкой поверх
+    /// списка вместо стекла над ним. Цвет остался у оттенка стекла.
+    ///
+    /// **Кнопку держит кольцо, а не плотность.** Первый заход был прозрачным
+    /// целиком — и кнопка перестала быть кнопкой: зелёный плюс сел прямо
+    /// на текст строки и прочитался значком строки, а не действием. Обводка
+    /// в одну точку очерчивает круг, ничего не закрывая; плюс от неё стал
+    /// белым — зелёный на зелёном значке заметки не различался.
+    private var newNoteButton: some View {
+        NotchTile(
+            id: "notes-new",
+            radius: Self.newNoteHeight / 2,
+            role: .tile,
+            tint: Palette.notes
+        ) {
+            Button(action: { onNewNote("") }) {
+                Image(systemName: "plus")
+                    .font(.system(size: NotchStyle.font(16), weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: Self.newNoteHeight, height: Self.newNoteHeight)
+                    .background(Circle().fill(.white.opacity(0.10)))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.28), lineWidth: 1))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(PressableStyle())
+            .notchHint(t("Новая заметка"))
+        }
+        .fixedSize()
     }
 
     private func row(_ note: Note) -> some View {

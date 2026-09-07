@@ -282,6 +282,42 @@ final class NoteDraft: ObservableObject {
         isNoteEdited = false
     }
 
+    /// Новая заметка с готовой первой строкой.
+    ///
+    /// Так заводится заметка из поиска: искали и не нашли — набранное
+    /// в строке поиска и есть то, о чём заметка. Набирать его второй раз
+    /// человеку незачем.
+    ///
+    /// Текст **дописывается**, а не подменяет набранное: правило то же, что
+    /// у обычной новой заметки — начатое не трогаем.
+    func startNewNote(seededWith text: String) {
+        startNewNote()
+        let seed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !seed.isEmpty else { return }
+        let body = NSMutableAttributedString(attributedString: current())
+        if body.length > 0 { body.append(NSAttributedString(string: "\n")) }
+        body.append(NSAttributedString(string: seed))
+        let seeded = RichTextEditor.normalized(body, tint: editor.style.tint)
+        if editor.view == nil {
+            // Поля ещё нет — панель показывает список. Текст подождёт.
+            pendingText = seeded
+        } else {
+            editor.setAttributed(seeded)
+        }
+        refreshEmptiness()
+        saveNow()
+    }
+
+    /// Что набрано прямо сейчас — из поля, из ждущего текста или с диска.
+    ///
+    /// Диск нужен именно здесь: поля в этот миг нет, `attach` подставит
+    /// в него ждущий текст **вместо** черновика, и не слив их сейчас,
+    /// набранное потеряли бы молча.
+    private func current() -> NSAttributedString {
+        if let pendingText { return pendingText }
+        return editor.view == nil ? loadFromDisk() : editor.attributed
+    }
+
     /// Набранное ушло — вопросом модели или заметкой.
     func clearNote() {
         editingID = nil

@@ -13,9 +13,14 @@ struct TimerPanel: View {
     /// См. `NotchStyle.shoulderInset`.
     static let bodyPadding: CGFloat = NotchStyle.bottomPadding
 
-    /// Высота одна на оба режима. Секундомеру ряд готовых длительностей
-    /// не нужен, но его место остаётся занятым подсказкой: панель, меняющая
-    /// рост при переключении режима, дёргала бы вырез на ровном месте.
+    /// Ширина содержимого — то, по чему шкала считает своё растворение
+    /// у краёв. Тело панели у́же рамки на вогнутое плечо с каждой стороны,
+    /// см. `NotchStyle.bodyInset`.
+    static var contentWidth: CGFloat { width - 2 * NotchStyle.bodyInset }
+
+    /// Высота одна на оба режима: шкала стоит в обоих, только у секундомера
+    /// её не тянут — она едет сама. Панель, меняющая рост при переключении
+    /// режима, дёргала бы вырез на ровном месте.
     private static var modeHeight: CGFloat { NotchStyle.scaled(24) }
     private static let clockHeight: CGFloat = 46
     private static var rowHeight: CGFloat { NotchStyle.rowHeight }
@@ -23,7 +28,7 @@ struct TimerPanel: View {
     static func height(notchHeight: CGFloat) -> CGFloat {
         NotchStyle.height(
             notchHeight: notchHeight,
-            contentHeight: modeHeight + clockHeight + rowHeight * 2
+            contentHeight: modeHeight + clockHeight + TimerDial.height + rowHeight
                 + NotchStyle.gridSpacing * 3
         )
     }
@@ -41,7 +46,6 @@ struct TimerPanel: View {
             VStack(spacing: NotchStyle.gridSpacing) {
                 modeSwitch
                 clock
-                middleRow
                 controls
             }
         }
@@ -64,7 +68,14 @@ struct TimerPanel: View {
     ///
     /// Стало: общая дорожка на оба режима и бегунок, лежащий на ней.
     /// Невыбранный не рисует ничего — он показан тем, что дорожка под ним
-    /// пуста. Цвет текста остался вторым признаком, а не единственным.
+    /// пуста.
+    ///
+    /// Цвета в переключателе нет намеренно. Розовый оттенок таймера стоит
+    /// в шапке панели и на шкале — там он значит «это таймер». На бегунке
+    /// он значил бы совсем другое — «выбрано», — и один цвет отвечал бы
+    /// в одной панели на два разных вопроса. Выбранный режим показан тем,
+    /// что под ним есть подложка, а невыбранный — тем, что её нет; текст
+    /// различает их яркостью.
     private var modeSwitch: some View {
         // Группа: бегунок и дорожка сливаются в одну поверхность, а не
         // лежат стопкой. Состав ограничен по построению — два режима, —
@@ -76,16 +87,15 @@ struct TimerPanel: View {
                     Button { timer.select(mode: mode) } label: {
                         Text(mode.title)
                             .font(.system(size: NotchStyle.rowFontSize, weight: .medium))
-                            .foregroundStyle(isChosen
-                                ? Palette.timer
-                                : .white.opacity(NotchStyle.secondaryOpacity))
+                            .foregroundStyle(.white.opacity(isChosen
+                                ? 1
+                                : NotchStyle.secondaryOpacity))
                             .frame(maxWidth: .infinity)
                             .frame(height: Self.modeHeight)
                             // Стекло достаётся только бегунку. Это значение,
                             // а не ветка: невыбранный идёт тем же путём
                             // и получает пустую поверхность.
                             .surface(.segment, in: pillShape,
-                                     tint: Palette.timer,
                                      lit: isChosen,
                                      glass: Surface.inNotch && isChosen)
                             .contentShape(pillShape)
@@ -106,72 +116,92 @@ struct TimerPanel: View {
         RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
     }
 
-    // MARK: - Цифры
+    // MARK: - Цифры и шкала
 
     /// Цифры перерисовывает `TimelineView`, а не тик службы: пока панель
     /// закрыта, обновлять нечего, и приложение не будит процессор впустую.
     ///
     /// Ход времени берётся у `TimerService`, который считает его от момента
     /// запуска, — поэтому пропущенный кадр ничего не сдвигает.
+    ///
+    /// Один `TimelineView` на цифры и на шкалу: это два вида одного и того же
+    /// значения, и обновляться врозь им незачем. Четверти секунды хватает
+    /// обоим — шкала за секунду проезжает пятую часть точки.
     private var clock: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(TimerService.clock(timer.mode == .timer ? timer.remaining : timer.elapsed))
-                    // Моноширинные цифры: пропорциональные дёргают строку
-                    // на каждой смене секунды.
-                    .font(.system(size: NotchStyle.font(34), weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                    .contentTransition(.identity)
-
-                if timer.mode == .timer, timer.harvest > 0 {
-                    Label("\(timer.harvest)", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: NotchStyle.captionFontSize, weight: .semibold))
-                        .foregroundStyle(Palette.timer.opacity(0.8))
-                }
-                Spacer(minLength: 0)
+            VStack(spacing: NotchStyle.gridSpacing) {
+                digits
+                TimerDial(
+                    centerMinutes: centerMinutes,
+                    range: range,
+                    onScrub: canScrub ? { timer.select(minutes: $0, quietly: true) } : nil
+                )
             }
-            .frame(height: Self.clockHeight)
         }
     }
 
-    // MARK: - Средний ряд
+    /// Цифры по центру, а урожай помидоров — поверх, у правого края.
+    ///
+    /// Раньше они стояли рядом в одной строке, и цифры от этого оказывались
+    /// не по середине панели, а левее на ширину значка — причём только тогда,
+    /// когда помидоры уже собраны. Середина, которая ездит, перестаёт быть
+    /// серединой: под ней стоит метка шкалы, и расходились они на глазах.
+    private var digits: some View {
+        Text(TimerService.clock(timer.mode == .timer ? timer.remaining : timer.elapsed))
+            // Моноширинные цифры: пропорциональные дёргают строку
+            // на каждой смене секунды.
+            .font(.system(size: NotchStyle.font(34), weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .contentTransition(.identity)
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.clockHeight)
+            .overlay(alignment: .trailing) { harvest }
+    }
 
     @ViewBuilder
-    private var middleRow: some View {
-        if timer.mode == .timer {
-            HStack(spacing: 6) {
-                ForEach(TimerService.presets, id: \.self) { minutes in
-                    Button { timer.select(minutes: minutes) } label: {
-                        Text(tf("%d мин", minutes))
-                            .font(.system(size: NotchStyle.captionFontSize, weight: .medium))
-                            .foregroundStyle(isChosen(minutes)
-                                ? Palette.timer
-                                : .white.opacity(NotchStyle.secondaryOpacity))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: Self.rowHeight)
-                            .background(
-                                RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
-                                    .fill(.white.opacity(isChosen(minutes) ? NotchStyle.tileFill : 0.02))
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
-                    }
-                    .buttonStyle(PressableStyle())
-                    .accessibilityAddTraits(isChosen(minutes) ? [.isSelected] : [])
-                }
-            }
-            .frame(height: Self.rowHeight)
-        } else {
-            Text(t("Секундомер считает вверх, пока его не остановят"))
-                .font(.system(size: NotchStyle.captionFontSize))
-                .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: Self.rowHeight)
+    private var harvest: some View {
+        if timer.mode == .timer, timer.harvest > 0 {
+            Label("\(timer.harvest)", systemImage: "checkmark.circle.fill")
+                .font(.system(size: NotchStyle.captionFontSize, weight: .semibold))
+                .foregroundStyle(Palette.timer.opacity(0.8))
         }
     }
 
-    private func isChosen(_ minutes: Int) -> Bool {
-        Int(timer.duration / 60) == minutes
+    // MARK: - Шкала
+
+    /// Где стоит середина шкалы.
+    ///
+    /// У таймера это остаток, а не заданная длительность: пока время идёт,
+    /// шкала должна показывать, сколько его ещё есть, — иначе она повторяет
+    /// то, что человек и так однажды выбрал. У секундомера — прошедшее.
+    private var centerMinutes: Double {
+        let seconds = timer.mode == .timer ? timer.remaining : timer.elapsed
+        return seconds / 60
+    }
+
+    /// Границы шкалы.
+    ///
+    /// У таймера снизу минута, а не ноль: нулевой таймер завести нельзя,
+    /// и деление, до которого можно дотянуть, но нельзя воспользоваться,
+    /// врёт руке. Сверху три часа — дальше вырез перестаёт быть подходящим
+    /// местом для отсчёта.
+    ///
+    /// У секундомера верхней границы нет по существу: он считает, пока его
+    /// не остановят, и упереться шкале не во что.
+    private var range: ClosedRange<Int> {
+        timer.mode == .timer ? 1...180 : 0...Int.max - 1
+    }
+
+    /// Тянуть шкалу можно, только пока таймер стоит.
+    ///
+    /// Идущий таймер шкалу везёт сам, и рука, потянувшая её навстречу,
+    /// спорила бы с ходом времени: непонятно, что должно означать
+    /// «отмотать назад работающий отсчёт». Прибавить на ходу есть чем —
+    /// кнопка «+1 мин» рядом. Секундомеру тянуть нечего вовсе:
+    /// у прошедшего времени нет другого значения, кроме прошедшего.
+    private var canScrub: Bool {
+        timer.mode == .timer && !timer.isRunning
     }
 
     // MARK: - Кнопки

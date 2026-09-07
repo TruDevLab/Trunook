@@ -11,6 +11,13 @@ enum HubEntry: String, CaseIterable, Identifiable {
     // Плитка «Главный экран» дублировала его вторым способом на том же
     // экране, а два способа одного действия человек читает как два разных.
     case assistant
+    // Заметки стоят сразу за командами: это соседние половины одного дела —
+    // спросить и записать, — и добираться до записанного через панель команд
+    // было лишним заходом.
+    case notes
+    // Календарь — восьмой и последний: место под него в сетке было оставлено
+    // ровно на такой случай.
+    case calendar
     case clipboard
     case shelf
     case timer
@@ -28,6 +35,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         // «Модель», а подпись под чёлкой обещала «Модель и заметки»: три имени
         // одного места, и по ним не собрать, что это одно и то же место.
         case .assistant: return t("Команды")
+        case .notes: return t("Заметки")
+        case .calendar: return t("Календарь")
         case .clipboard: return t("Буфер обмена")
         case .shelf: return t("Полка")
         case .timer: return t("Таймер")
@@ -39,6 +48,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .assistant: return "sparkles"
+        case .notes: return "note.text"
+        case .calendar: return "calendar"
         case .clipboard: return "doc.on.clipboard.fill"
         case .shelf: return "tray.full.fill"
         case .timer: return "timer"
@@ -50,6 +61,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
     var tint: Color {
         switch self {
         case .assistant: return Palette.assistant
+        case .notes: return Palette.notes
+        case .calendar: return Palette.calendar
         case .clipboard: return Palette.clipboard
         case .shelf: return Palette.shelf
         case .timer: return Palette.timer
@@ -69,6 +82,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .assistant:
             return settings.ollamaEnabled || settings.notesEnabled
                 || settings.quickCommandsEnabled
+        case .notes: return settings.notesEnabled
+        case .calendar: return settings.calendarEnabled
         case .clipboard: return settings.clipboardEnabled
         case .shelf: return settings.shelfEnabled
         case .timer: return settings.timerEnabled
@@ -84,6 +99,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
     func hint(_ settings: Settings) -> String? {
         switch self {
         case .assistant: return settings.assistantHotKey?.display
+        case .notes: return settings.notesHotKey?.display
+        case .calendar: return settings.calendarHotKey?.display
         case .clipboard: return settings.clipboardHotKey?.display
         case .shelf: return settings.shelfHotKey?.display
         case .timer: return settings.timerHotKey?.display

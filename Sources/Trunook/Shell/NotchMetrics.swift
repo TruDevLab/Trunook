@@ -82,6 +82,8 @@ struct NotchMetrics: Equatable {
         // «две строки», и пятая плитка вылезла бы за окно, а окно обрезает.
         let hub = HubPanel.height(notchHeight: notchHeight, count: HubEntry.count)
         let teleprompter = TeleprompterPanel.height(notchHeight: notchHeight)
+        let calendar = CalendarPanel.height(notchHeight: notchHeight)
+        let editor = EventEditorPanel.height(notchHeight: notchHeight)
         let caffeine = CaffeinePanel.height(notchHeight: notchHeight)
         let shelf = ShelfPanel.height(
             notchHeight: notchHeight,
@@ -100,6 +102,8 @@ struct NotchMetrics: Equatable {
                 HubPanel.width,
                 TeleprompterPanel.width(notchWidth: notchWidth),
                 CaffeinePanel.width,
+                CalendarPanel.width,
+                EventEditorPanel.width,
                 MeetingControlsView.width(actionCount: MeetingAction.allCases.count)
             ),
             // Плашка с подписью значка висит под панелью, а окно обрезает:
@@ -108,7 +112,7 @@ struct NotchMetrics: Equatable {
             // оформления.
             height: max(
                 panel.height, clipboard, assistant, shelf, hub,
-                teleprompter, caffeine, notes
+                teleprompter, caffeine, notes, calendar, editor
             ) + NotchHintLayout.reserved
         )
     }

@@ -72,6 +72,8 @@ struct NotchInputs: Equatable {
     var notesEnabled = true
     /// Чем занят голосовой заход. `nil` — заход не идёт.
     var voicePhase: VoiceSession.Phase?
+    /// Кольцо быстрого доступа раскрыто — кнопку держат на вырезе.
+    var isQuickRingOpen = false
 
     /// С какой доли жеста остров начинает расходиться в бока.
     static let swipingEnterProgress: Double = 0.15
@@ -96,8 +98,14 @@ struct NotchInputs: Equatable {
         case .teleprompter: return .teleprompter
         case .caffeine: return .caffeine
         case .notes: return .notes
+        case .calendar: return .calendar
+        case .eventEditor: return .eventEditor
         case nil: break
         }
+        // Кольцо выше всего, кроме накладок: его держат рукой прямо сейчас,
+        // и всё, что могло бы его перебить — наведение, мини-вид, плашка, —
+        // случилось раньше и подождёт.
+        if isQuickRingOpen { return .quickRing }
         // Голос выше всего, кроме накладок: заход начат прямой командой
         // человека и идёт прямо сейчас — плашка о смене трека посреди него
         // была бы не к месту. Ниже накладок потому, что открытая панель

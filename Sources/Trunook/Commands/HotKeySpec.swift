@@ -104,6 +104,11 @@ struct HotKeySpec: Codable, Equatable, Hashable {
     /// ⌃⌥T — таймер и секундомер.
     static let timer = HotKeySpec(keyCode: UInt32(kVK_ANSI_T), modifiers: own)
 
+    /// ⌃⌥D — мини-календарь. Не ⌃⌥C: её занимает захват выделенного,
+    /// а «day» — единственное свободное слово, которым календарь называют
+    /// в обоих языках.
+    static let calendar = HotKeySpec(keyCode: UInt32(kVK_ANSI_D), modifiers: own)
+
     /// ⌃⌥M — нагрузка на систему.
     static let monitor = HotKeySpec(keyCode: UInt32(kVK_ANSI_M), modifiers: own)
 

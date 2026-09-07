@@ -18,8 +18,10 @@ final class CalendarService: ObservableObject {
     @Published private(set) var availableCalendars: [CalendarSource] = []
     @Published private(set) var availableReminderLists: [CalendarSource] = []
 
-    private let store = EKEventStore()
-    private let settings: Settings
+    /// Не `private`: правка событий живёт отдельным расширением
+    /// (`CalendarWriter`), и хранилище с настройками нужны и ему.
+    let store = EKEventStore()
+    let settings: Settings
     private var refreshTimer: Timer?
     /// Состояние доступа попадало в журнал хотя бы раз.
     private var accessLogged = false
@@ -277,6 +279,14 @@ struct CalendarSource: Identifiable, Equatable {
         id = calendar.calendarIdentifier
         title = calendar.title
         colorComponents = ColorReader.srgbComponents(of: calendar)
+    }
+
+    /// Прямая сборка — для тестов: правило перебора календарей проверяется
+    /// на списке из трёх, а завести `EKCalendar` без хранилища нечем.
+    init(id: String, title: String, colorComponents: [CGFloat]?) {
+        self.id = id
+        self.title = title
+        self.colorComponents = colorComponents
     }
 
     var color: Color {

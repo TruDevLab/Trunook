@@ -73,7 +73,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.teleprompterPrompt", #selector(promptTeleprompter)),
             ("com.trunook.debug.caffeine", #selector(toggleCaffeine)),
             ("com.trunook.debug.notes", #selector(showNotes)),
+            ("com.trunook.debug.calendar", #selector(showCalendar)),
+            ("com.trunook.debug.ring", #selector(showQuickRing)),
+            ("com.trunook.debug.eventEdit", #selector(editEvent2)),
+            ("com.trunook.debug.eventNew", #selector(composeEvent)),
+            ("com.trunook.debug.eventSeries", #selector(editSeries)),
             ("com.trunook.debug.notesFill", #selector(fillNotes)),
+            ("com.trunook.debug.notesMiss", #selector(missingNote)),
             ("com.trunook.debug.notesAsk", #selector(askNotes)),
             ("com.trunook.debug.noteNew", #selector(newNote)),
             ("com.trunook.debug.noteSelection", #selector(noteSelection)),
@@ -89,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.caffeineExpire", #selector(expireCaffeine)),
             ("com.trunook.debug.caffeineOn", #selector(startCaffeine)),
             ("com.trunook.debug.timerRun", #selector(runTimer)),
+            ("com.trunook.debug.stopwatchRun", #selector(runStopwatch)),
             ("com.trunook.debug.hub", #selector(showHub)),
             ("com.trunook.debug.openEvent", #selector(openFirstItem)),
             ("com.trunook.debug.expand", #selector(expandNotch)),
@@ -242,6 +249,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.debugRunTimer()
     }
 
+    @objc private func runStopwatch() {
+        controller.debugRunStopwatch()
+    }
+
     @objc private func openFirstItem() {
         controller.debugOpenFirstItem()
     }
@@ -265,6 +276,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// можно только нажатием, которого из сессии нет.
     @objc private func fillNotes() {
         controller.debugFillNotes()
+    }
+
+    @objc private func missingNote() {
+        controller.debugMissingNote()
+    }
+
+    @objc private func showCalendar() {
+        controller.debugCalendar()
+    }
+
+    @objc private func showQuickRing() {
+        controller.debugQuickRing()
+    }
+
+    /// Имя с цифрой: `editNote` уже занято правкой заметки, а совпадение
+    /// селекторов ловится не компилятором, а тишиной в ответ на событие.
+    @objc private func editEvent2() {
+        controller.debugEditEvent()
+    }
+
+    @objc private func composeEvent() {
+        controller.debugComposeEvent()
+    }
+
+    @objc private func editSeries() {
+        controller.debugEditSeries()
     }
 
     /// Открыть свежую заметку на правку — то же, что нажатие по строке

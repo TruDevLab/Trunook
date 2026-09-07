@@ -290,8 +290,10 @@ struct WelcomeView: View {
                             t("Мини-вид: что играет и когда ближайшая встреча"))
                     gesture("hand.tap.fill", t("Нажмите или потяните вниз"),
                             t("Панель целиком. Свайп вверх сворачивает её обратно"))
+                    gesture("circle.grid.3x3.fill", t("Задержите нажатие на чёлке"),
+                            t("Из-под неё веером выедут кружки — по одному на функцию. Не отпуская, ведите руку к нужному"))
                     gesture("cursorarrow.click.badge.clock", t("Правая кнопка"),
-                            t("Меню всех функций: ИИ, буфер, полка, таймер, нагрузка, суфлер"))
+                            t("Меню всех функций: команды, заметки, календарь, буфер, полка, таймер, нагрузка, суфлер"))
                     gesture("arrow.left.arrow.right", t("Свайп двумя пальцами"),
                             t("Предыдущий и следующий трек, не убирая курсор с выреза"))
                     gesture("pawprint.fill", t("Погладьте чёлку"),
@@ -420,6 +422,7 @@ struct WelcomeView: View {
                     assistantHotKeyRow
                     clipboardHotKeyRow
                     shelfHotKeyRow
+                    calendarHotKeyRow
                     timerHotKeyRow
                     monitorHotKeyRow
                     teleprompterHotKeyRow
@@ -572,9 +575,45 @@ struct WelcomeView: View {
         }
     }
 
-    /// Заметки: единственная функция, у которой нет плитки в меню функций,
-    /// — значит клавиша тут не удобство, а единственный способ записать
-    /// мысль, не трогая мышь.
+    /// Календарь: строки не было вовсе, как когда-то у голоса.
+    ///
+    /// Функция появилась позже остальных, а список с тех пор не пересматривали
+    /// — и человек, прошедший знакомство целиком, о ⌃⌥D не узнавал ниоткуда.
+    /// Стоит рядом с таймером: оба про время.
+    private var calendarHotKeyRow: some View {
+        WelcomeCard {
+            HStack(spacing: 13) {
+                WelcomeGlyph(symbol: "calendar", size: WelcomeStyle.tile)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Мини-календарь"))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(t("Месяц и дела дня. Нажатие по событию открывает его правку"))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                HotKeyRecorder(
+                    spec: Binding(
+                        get: { settings.calendarHotKey },
+                        set: { spec in
+                            settings.calendarHotKey = spec
+                            onHotKeysChanged()
+                        }
+                    ),
+                    placeholder: t("Не назначено")
+                )
+                .frame(width: WelcomeStyle.shortcutField.width,
+                       height: WelcomeStyle.shortcutField.height)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+    }
+
+    /// Заметки. Клавиша тут не удобство: записать мысль, не трогая мышь, —
+    /// то, ради чего заметку и открывают.
     ///
     /// Название и пояснение говорят про **ИИ**, а не про «заметки» вообще:
     /// заметки есть у всех, а имя записи, которое придумывает модель,

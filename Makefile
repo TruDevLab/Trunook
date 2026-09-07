@@ -1,5 +1,5 @@
 APP      := Trunook
-VERSION := 0.15.0
+VERSION := 0.16.0
 # Номер сборки растёт со временем: так две сборки одной версии различимы.
 BUILDNO  := $(shell date +%y%m%d%H%M)
 # Провал сборки в конвейере с grep иначе теряется: make видит код последней
@@ -44,7 +44,7 @@ BIN       = $(shell swift build -c $(CONF) --show-bin-path 2>/dev/null)
 # тем элементам, которые рисуем не мы.
 SDKSTAMP := -Xlinker -platform_version -Xlinker macos -Xlinker 14.0 -Xlinker 26.0
 
-.PHONY: all build bundle install run probe stop clean cert identity dmg icon purr chime demo
+.PHONY: all build bundle install run probe stop clean cert identity dmg icon purr chime tick demo
 
 all: bundle
 
@@ -68,6 +68,7 @@ bundle: build
 	@cp Resources/Trunook.icns $(BUNDLE)/Contents/Resources/Trunook.icns
 	@cp Resources/purr.wav $(BUNDLE)/Contents/Resources/purr.wav
 	@cp Resources/chime.wav $(BUNDLE)/Contents/Resources/chime.wav
+	@cp Resources/tick.wav $(BUNDLE)/Contents/Resources/tick.wav
 	@cp -R Resources/en.lproj Resources/zh-Hans.lproj $(BUNDLE)/Contents/Resources/
 	@# README едет в бандл: его показывает страница «Описание» в окне
 	@# знакомства. Из бандла, а не из сети — он описывает ровно ту версию,
@@ -170,6 +171,10 @@ purr:
 ## Пересобрать сигнал окончания таймера
 chime:
 	@swift scripts/make-chime.swift
+
+## Пересобрать щелчок деления шкалы таймера
+tick:
+	@swift scripts/make-tick.swift
 
 ## Собрать docs/demo.gif из снятых кадров.
 ## Кадры снимает само приложение — см. заголовок скрипта.

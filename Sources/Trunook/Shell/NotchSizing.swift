@@ -34,8 +34,14 @@ enum NotchPresentation: Equatable {
     case caffeine
     /// Список заметок.
     case notes
+    /// Мини-календарь: месяц и дела выбранного дня.
+    case calendar
+    /// Правка одного события.
+    case eventEditor
     /// Голосовой заход: панель не раскрывается, светится сам остров.
     case voice
+    /// Кольцо быстрого доступа: кружки веером под чёлкой, пока держат кнопку.
+    case quickRing
 
     /// Достаётся ли стекло.
     ///
@@ -72,9 +78,9 @@ enum NotchPresentation: Equatable {
     var keepsAttachCorners: Bool {
         switch self {
         case .activity, .preview: return true
-        case .collapsed, .chip, .swiping, .voice, .expanded, .clipboard,
-             .assistant, .shelf, .hub, .timer, .monitor, .teleprompter,
-             .caffeine, .notes:
+        case .collapsed, .chip, .swiping, .voice, .quickRing, .expanded,
+             .clipboard, .assistant, .shelf, .hub, .timer, .monitor,
+             .teleprompter, .caffeine, .notes, .calendar, .eventEditor:
             return false
         }
     }
@@ -301,6 +307,21 @@ enum NotchSizing {
                     rows: content.notesRows
                 )
             )
+        case .calendar:
+            return CGSize(
+                width: CalendarPanel.width,
+                height: CalendarPanel.height(notchHeight: metrics.notchHeight)
+            )
+        case .eventEditor:
+            return CGSize(
+                width: EventEditorPanel.width,
+                height: EventEditorPanel.height(notchHeight: metrics.notchHeight)
+            )
+        case .quickRing:
+            // Сама чёлка и есть форма: кружки рисуются **снаружи** неё,
+            // поверх обрезки, и в размер не входят. Раскрывать при этом
+            // нечего — кольцо и заведено, чтобы обойтись без панели.
+            return metrics.closed
         case .voice:
             // Полоса высотой с чёлку: голосовой заход намеренно не раскрывает
             // панель — она закрыла бы то, с чем человек работает, а смотреть

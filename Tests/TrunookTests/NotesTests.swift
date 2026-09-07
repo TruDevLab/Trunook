@@ -587,6 +587,34 @@ struct NotesTests {
         #expect(five == сто)
     }
 
+    /// Кнопка «Новая заметка» лежит поверх списка, и от этого зависит,
+    /// прибавляется ли её полоса к высоте.
+    @Test("Короткий список отдаёт кнопке своё место, длинный — нет")
+    func полосаКнопки() {
+        // Строк меньше, чем помещается: полоса прибавлена, иначе стекло
+        // легло бы на единственную строку и закрыло её целиком.
+        let одна = NotesPanel.listHeight(rows: 1)
+        #expect(одна == NotesPanel.rowHeight + NotesPanel.newNoteBand)
+
+        // Список перерос окно: прибавлять нечего, последние строки уходят
+        // под стекло и достаются прокруткой. Высота панели на полном списке
+        // от кнопки не меняется вовсе.
+        let полный = NotesPanel.listHeight(rows: NotesPanel.visibleRows)
+        let rows = CGFloat(NotesPanel.visibleRows)
+        #expect(полный == rows * NotesPanel.rowHeight
+                + (rows - 1) * NotesPanel.rowSpacing)
+    }
+
+    /// Список растёт по строкам, но не бесконечно — и полоса кнопки этого
+    /// не ломает: на переходе высота не проваливается.
+    @Test("Список растёт, пока не упрётся в потолок")
+    func списокРастётМонотонно() {
+        let heights = (0...NotesPanel.visibleRows + 2).map {
+            NotesPanel.listHeight(rows: $0)
+        }
+        #expect(zip(heights, heights.dropFirst()).allSatisfy { $0 <= $1 })
+    }
+
     // MARK: -
 
     private func insert(into store: NotesStore, title: String, text: String) {

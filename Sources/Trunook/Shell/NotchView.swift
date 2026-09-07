@@ -30,6 +30,8 @@ final class NotchState: ObservableObject {
         case teleprompter
         case caffeine
         case notes
+        case calendar
+        case eventEditor
 
         /// Закрывается ли накладка тем, что курсор ушёл за её границы.
         ///
@@ -42,7 +44,11 @@ final class NotchState: ObservableObject {
         var closesOnCursorExit: Bool {
             switch self {
             case .clipboard, .hub, .timer, .monitor, .caffeine: return true
-            case .shelf, .assistant, .teleprompter, .notes: return false
+            // Календарь и правка события — руками: по месяцу водят, в поля
+            // печатают, время щёлкают стрелками. Курсор при этом заведомо
+            // уходит за края.
+            case .shelf, .assistant, .teleprompter, .notes,
+                 .calendar, .eventEditor: return false
             }
         }
 
@@ -99,6 +105,8 @@ struct NotchView: View {
     /// приходят готовыми в снимке состояния, но перерисоваться от их смены
     /// вёрстка обязана сама — снимок берётся лениво и сам о себе не сообщает.
     @ObservedObject var calendar: CalendarService
+    @ObservedObject var planner: CalendarPlanner
+    @ObservedObject var ring: QuickRing
     @ObservedObject var things: ThingsService
     @ObservedObject var meeting: MeetingService
     /// Подпись значка под курсором. Общий на всё приложение объект, как
@@ -212,13 +220,34 @@ struct NotchView: View {
     /// Переключить режим панели: разговор или заметка.
     let onSelectMode: (NotePanelMode) -> Void
     /// Начать новую заметку — из списка.
-    let onNewNote: () -> Void
+    let onNewNote: (String) -> Void
     /// Сохранить заметкой ответ модели.
     let onSaveAnswer: () -> Void
     /// Переключить поиск по заметкам.
     let onToggleNotesSearch: () -> Void
     let onCloseAssistant: () -> Void
     let onOpenNotes: () -> Void
+    /// Мини-календарь: месяц и дела выбранного дня.
+    let onOpenCalendar: () -> Void
+    /// Завести событие на выбранный день — «плюс» в календаре.
+    let onComposeEvent: () -> Void
+    /// Правка события: шаг дня, шаг начала, растяжение, «весь день».
+    let onEditEventTitle: (String) -> Void
+    let onEditEventLocation: (String) -> Void
+    let onEditEventNotes: (String) -> Void
+    /// В какой календарь положить событие.
+    let onChooseEventCalendar: (String) -> Void
+    let onCycleEventCalendar: () -> Void
+    /// Правится одно вхождение повторяющегося события или весь ряд.
+    let onChooseEventSeries: (Bool) -> Void
+    /// Вернуться в календарь, не закрывая вырез.
+    let onBackToCalendar: () -> Void
+    let onMoveEventDay: (Int) -> Void
+    let onMoveEventStart: (Int) -> Void
+    let onStretchEvent: (Int) -> Void
+    let onToggleEventAllDay: () -> Void
+    let onSaveEvent: () -> Void
+    let onDeleteEvent: () -> Void
     let onOpenNote: (Note) -> Void
     let onDeleteNote: (Note) -> Void
     let isNoteInVault: (Note) -> Bool
@@ -290,6 +319,8 @@ struct NotchView: View {
     private func run(_ entry: HubEntry) {
         switch entry {
         case .assistant: onAskAssistant()
+        case .notes: onOpenNotes()
+        case .calendar: onOpenCalendar()
         case .clipboard: onOpenClipboard()
         case .shelf: onOpenShelf()
         case .timer: onOpenTimer()
@@ -306,6 +337,20 @@ struct NotchView: View {
     /// зовётся в трёх местах тремя именами. Имя у места должно быть одно,
     /// а из чего оно состоит — видно, когда откроешь.
     private var askHint: String { t("Команды") }
+
+    /// Кольцо быстрого доступа. Слой стоит всегда и гаснет прозрачностью,
+    /// а не появляется по `if`: ветвление в теле вида меняет его тождество,
+    /// и SwiftUI пересобирает поддерево вместо того чтобы доиграть переход.
+    private var quickRing: some View {
+        QuickRingView(
+            items: hubItems,
+            highlighted: ring.highlighted,
+            progress: ring.isOpen ? 1 : 0,
+            notchHeight: metrics.notchHeight
+        )
+        .allowsHitTesting(false)
+        .animation(.spring(response: 0.24, dampingFraction: 0.72), value: ring.isOpen)
+    }
 
     private var content: NotchContent { snapshot().content }
     private var presentation: NotchPresentation { snapshot().presentation }
@@ -329,14 +374,17 @@ struct NotchView: View {
             bottomRadius: {
                 switch presentation {
                 case .expanded, .clipboard, .assistant, .shelf, .hub, .timer,
-                     .monitor, .teleprompter, .caffeine, .notes:
+                     .monitor, .teleprompter, .caffeine, .notes,
+                     .calendar, .eventEditor:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
                 case .swiping: return 14
                 // Голосовая полоса высотой с чёлку — той же формы, что
                 // и обратный отсчёт: это одна и та же полоса, разного
                 // содержания.
-                case .voice, .chip, .collapsed: return 12
+                // Кольцо той же формы, что и свёрнутая чёлка: кружки лежат
+                // снаружи неё, а сама она не меняется вовсе.
+                case .voice, .chip, .collapsed, .quickRing: return 12
                 }
             }()
         )
@@ -606,6 +654,11 @@ struct NotchView: View {
         // поддерево вместо того чтобы доиграть переход: на этом уже ловили
         // отрыв острова от кромки при мурчании.
         .background(voiceGlow)
+        // Кольцо — **поверх** обрезки и поверх подписи: кружки лежат снаружи
+        // чёлки, а внутри неё они просто не поместились бы. Попаданий оно
+        // не принимает: рука в это время держит кнопку, и куда она
+        // показывает, приложение узнаёт опросом положения курсора.
+        .overlay(alignment: .top) { quickRing }
         // Панель сменилась или закрылась — подпись уходит с ней. Кнопка
         // исчезает вместе с панелью и об уходе курсора уже не сообщает,
         // так что сама плашка о своём устаревании не узнает.
@@ -742,7 +795,9 @@ struct NotchView: View {
     @ViewBuilder
     private var panel: some View {
         switch presentation {
-        case .collapsed, .swiping:
+        // Кольцо рисуется снаружи формы, поверх обрезки, — здесь ему нечего
+        // показывать: сама чёлка при нём остаётся свёрнутой.
+        case .collapsed, .swiping, .quickRing:
             EmptyView()
         case .assistant:
             AssistantPanel(
@@ -813,6 +868,39 @@ struct NotchView: View {
                 metrics: metrics,
                 items: hubItems,
                 onOpenSettings: onOpenSettings,
+                onClose: onCloseOverlay
+            )
+        case .calendar:
+            CalendarPanel(
+                planner: planner,
+                metrics: metrics,
+                onOpenEvent: onOpenItem,
+                onCompose: onComposeEvent,
+                onClose: onCloseOverlay
+            )
+        case .eventEditor:
+            // Черновика может не быть ровно один кадр — между закрытием
+            // правки и сменой накладки. Пустая панель этой ширины лучше
+            // падения: обе живут доли секунды, но одна из них не падает.
+            EventEditorPanel(
+                draft: planner.draft ?? EventDraft.blank(on: planner.day),
+                metrics: metrics,
+                canReturn: planner.returnsToCalendar,
+                calendars: planner.calendars,
+                onChooseCalendar: onChooseEventCalendar,
+                onCycleCalendar: onCycleEventCalendar,
+                onChangeTitle: onEditEventTitle,
+                onChangeLocation: onEditEventLocation,
+                onChangeNotes: onEditEventNotes,
+                onChooseSeries: onChooseEventSeries,
+                onBack: onBackToCalendar,
+                onMoveDay: onMoveEventDay,
+                onMoveStart: onMoveEventStart,
+                onStretch: onStretchEvent,
+                onToggleAllDay: onToggleEventAllDay,
+                onOpenLink: onJoin,
+                onSave: onSaveEvent,
+                onDelete: onDeleteEvent,
                 onClose: onCloseOverlay
             )
         case .timer:

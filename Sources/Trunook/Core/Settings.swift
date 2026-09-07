@@ -1025,6 +1025,13 @@ final class Settings: ObservableObject {
 
     // MARK: - Календарь
 
+    /// Сочетание мини-календаря. Отдельно от `calendarEnabled`: выключенный
+    /// календарь клавишу не занимает вовсе.
+    var calendarHotKey: HotKeySpec? {
+        get { hotKey("calendarHotKey", default: .calendar) }
+        set { storeHotKey(newValue, "calendarHotKey") }
+    }
+
     var calendarEnabled: Bool {
         get { flag("calendarEnabled", default: true) }
         set { store(newValue, "calendarEnabled") }

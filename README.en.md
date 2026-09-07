@@ -22,6 +22,7 @@ changed in settings or right in the welcome window.
 | ⌃⌥C | Capture the selection and ask the model |
 | ⌃⌥V | Clipboard history |
 | ⌃⌥S | File shelf |
+| ⌃⌥D | Mini calendar |
 | ⌃⌥T | Timer and stopwatch |
 | ⌃⌥M | System load |
 | ⌃⌥P | Teleprompter |
@@ -41,6 +42,10 @@ changed in settings or right in the welcome window.
 - **Calendar and reminders.** A warning a chosen time before the start, a join
   button for the meeting link, a countdown in the notch. Today's tasks from
   Things 3.
+- **Mini calendar.** ⌃⌥D opens the month with week numbers and the chosen
+  day's plans. Clicking an event edits it right in the notch: time,
+  description, place; participants and the meeting link are alongside.
+  A repeating event edits a single occurrence by default, not the series.
 - **Meeting controls.** Microphone, camera, screen sharing, raise hand and
   leave — on hover, while a call is running. Telemost, Google Meet, Zoom and
   Teams in the browser.

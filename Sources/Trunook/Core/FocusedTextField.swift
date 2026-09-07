@@ -13,6 +13,13 @@ struct FocusedTextField: NSViewRepresentable {
     /// Поле получило или отдало первый отклик. Обводку по этому признаку
     /// рисует подложка — своей формы и своего цвета.
     var onFocusChange: (Bool) -> Void = { _ in }
+    /// Забирать ли фокус при появлении.
+    ///
+    /// По умолчанию да — ради этого поле и заведено. Но в панели правки
+    /// события полей два, и оба забирали фокус наперегонки: побеждало
+    /// построенное последним, то есть «Место», а печатать человек начинает
+    /// с названия. Второму полю фокус не нужен — до него доходят щелчком.
+    var focusesOnAppear = true
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -51,7 +58,9 @@ struct FocusedTextField: NSViewRepresentable {
         field.focusRingType = .none
         field.cell?.usesSingleLineMode = true
         field.cell?.wraps = false
-        DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
+        if focusesOnAppear {
+            DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
+        }
         return field
     }
 

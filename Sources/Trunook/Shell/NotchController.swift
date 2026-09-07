@@ -14,6 +14,11 @@ final class NotchController {
     let activities = ActivityCenter(settings: .shared)
     let battery = BatteryMonitor()
     let calendar = CalendarService()
+    /// Состояние мини-календаря: листаемый месяц, выбранный день и событие
+    /// на правке. Заводится здесь же, потому что читает ту же службу.
+    private(set) lazy var planner = CalendarPlanner(service: calendar)
+    /// Кольцо быстрого доступа: открыто ли и куда метит рука.
+    let ring = QuickRing()
     let things = ThingsService()
     let commands = CommandRunner()
     let meeting = MeetingService()
@@ -131,6 +136,7 @@ final class NotchController {
         swipeResetTimer = nil
         purr.shutdown()
         chime.shutdown()
+        TimerDialGrip.shared.shutdown()
         voiceHotKey.stop()
         voice.shutdown()
         // Экран отпускаем явно: система сделала бы это и сама вместе
@@ -204,6 +210,16 @@ final class NotchController {
             DebugLog.write("гладить перестали")
             self?.purr.stop()
         }
+        input.onQuickRingOpen = { [weak self] in self?.openQuickRing() }
+        input.onQuickRingMove = { [weak self] point in
+            guard let self else { return }
+            let picked = QuickRingLayout.index(at: point, count: HubEntry.count)
+            // Толчок трекпада на каждом новом кружке: рука ведёт кольцо,
+            // не глядя прямо на него, и подтверждение нужно ей, а не глазу.
+            if picked != nil, picked != self.ring.highlighted { Haptics.tap(.alignment) }
+            self.ring.move(to: picked)
+        }
+        input.onQuickRingClose = { [weak self] in self?.closeQuickRing() }
         input.start()
     }
 
@@ -391,6 +407,12 @@ final class NotchController {
         if settings.monitorEnabled, let monitorKey = settings.monitorHotKey {
             HotKeyCenter.shared.register(monitorKey, name: "нагрузка") { [weak self] in
                 self?.toggleMonitor()
+            }
+        }
+
+        if settings.calendarEnabled, let calendarKey = settings.calendarHotKey {
+            HotKeyCenter.shared.register(calendarKey, name: "календарь") { [weak self] in
+                self?.toggleCalendar()
             }
         }
 
@@ -689,8 +711,59 @@ final class NotchController {
             hubCount: HubEntry.count,
             notesRows: notes.notes.count,
             notesEnabled: settings.notesEnabled,
-            voicePhase: voice.phase
+            voicePhase: voice.phase,
+            isQuickRingOpen: ring.isOpen
         ).resolve()
+    }
+
+    // MARK: - Кольцо быстрого доступа
+
+    private func openQuickRing() {
+        ring.open()
+        DebugLog.write("кольцо: раскрыто")
+        Haptics.tap(.levelChange)
+        // Форма сменилась на кольцо: окно обязано узнать об этом, иначе
+        // зона нажатий останется от прежнего состояния.
+        host.updateInteractiveRect()
+    }
+
+    /// Руку отпустили. Выбранное открывается, невыбранное — ничего.
+    ///
+    /// Отпустить, ничего не выбрав, — обычный способ передумать: рука
+    /// возвращается к чёлке, и кольцо гаснет. Ради этого у него и есть
+    /// мёртвая зона.
+    private func closeQuickRing() {
+        guard let picked = ring.close() else {
+            DebugLog.write("кольцо: закрыто без выбора")
+            host.updateInteractiveRect()
+            return
+        }
+        let entries = HubEntry.allCases
+        guard picked < entries.count else { return }
+        let entry = entries[picked]
+        guard entry.isEnabled(settings) else {
+            DebugLog.write("кольцо: «\(entry.title)» выключена в настройках")
+            host.updateInteractiveRect()
+            return
+        }
+        DebugLog.write("кольцо: выбрано «\(entry.title)»")
+        Haptics.tap(.generic)
+        openHubEntry(entry)
+    }
+
+    /// Что открывает плитка меню функций. Одна и та же дорога и для меню,
+    /// и для кольца: разойдись они, кольцо однажды открывало бы не то.
+    func openHubEntry(_ entry: HubEntry) {
+        switch entry {
+        case .assistant: askAssistant()
+        case .notes: openNotes()
+        case .calendar: openCalendar()
+        case .clipboard: openClipboard()
+        case .shelf: openShelf()
+        case .timer: openTimer()
+        case .monitor: openMonitor()
+        case .teleprompter: openTeleprompter()
+        }
     }
 
     // MARK: - Наведение и раскрытие
@@ -1250,12 +1323,87 @@ final class NotchController {
 
     /// Новая заметка: панель в режиме заметки, привязка к правившейся записи
     /// сброшена.
-    private func openNoteComposer() {
+    private func openNoteComposer(seededWith text: String = "") {
         guard settings.notesEnabled else { return }
-        draft.startNewNote()
+        draft.startNewNote(seededWith: text)
+        // Строку поиска снимаем: она своё дело сделала и уехала в заметку,
+        // а оставшись, показала бы при следующем заходе пустой список
+        // с непонятно откуда взявшимся запросом.
+        if !text.isEmpty { notes.query = "" }
         assistant.ask(target: NSWorkspace.shared.frontmostApplication)
         router.set(.assistant)
         takeKeyboard()
+    }
+
+    /// Календарь и правка события — из сессии до них не добраться: и то
+    /// и другое открывается нажатием, а нажатия сюда не доходят.
+    /// Кольцо в раскрытом виде, с подсвеченным кружком.
+    ///
+    /// Иначе его не снять вовсе: оно живёт, только пока держат кнопку,
+    /// а нажатия из сессии не доходят. Держится несколько секунд и гаснет
+    /// само, ничего не открывая.
+    func debugQuickRing(highlight: Int = 4, seconds: TimeInterval = 6) {
+        ring.open()
+        ring.move(to: highlight)
+        host.updateInteractiveRect()
+        // Наведение не трогаем: кольцо выше него в расчёте состояния,
+        // и опрос курсора его не перебьёт.
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self else { return }
+            _ = self.ring.close()
+            self.host.updateInteractiveRect()
+        }
+        DebugLog.write("кольцо: показано на \(Int(seconds)) с")
+    }
+
+    func debugCalendar() {
+        openCalendar()
+    }
+
+    /// Правка первого события выбранного дня, а если день пуст — новое
+    /// событие: снять надо оба вида, а какой достанется, зависит от того,
+    /// что стоит у человека в календаре сегодня.
+    func debugEditEvent() {
+        openCalendar()
+        guard let first = planner.events.first else {
+            DebugLog.write("календарь: на сегодня пусто — открываю новое событие")
+            composeEvent()
+            return
+        }
+        openItem(first)
+    }
+
+    /// Правка первого повторяющегося события, какое найдётся впереди.
+    ///
+    /// Отдельным событием, потому что вид у панели тогда другой: заголовок
+    /// предупреждает о повторе, а в ряду кнопок появляется выбор «только
+    /// это / весь ряд». Наткнуться на такое событие среди сегодняшних —
+    /// как повезёт, а проверять надо наверняка.
+    func debugEditSeries() {
+        openCalendar()
+        let calendarForDays = Calendar.current
+        for offset in 0..<60 {
+            guard let day = calendarForDays.date(byAdding: .day, value: offset, to: Date()) else {
+                continue
+            }
+            for item in calendar.events(on: day) {
+                planner.edit(item, fromCalendar: true)
+                guard planner.draft?.isRecurring == true else { continue }
+                planner.select(day)
+                planner.edit(item, fromCalendar: true)
+                router.set(.eventEditor)
+                takeKeyboard()
+                DebugLog.write("календарь: повторяющееся «\(item.title)» найдено")
+                return
+            }
+        }
+        planner.cancelEditing()
+        DebugLog.write("календарь: повторяющихся событий впереди на два месяца нет")
+    }
+
+    func debugComposeEvent() {
+        openCalendar()
+        composeEvent()
     }
 
     func debugToggleNotes() {
@@ -1827,6 +1975,19 @@ final class NotchController {
         timer.start()
     }
 
+    /// Секундомер с уже набежавшим временем.
+    ///
+    /// Из сессии режим не переключить — он меняется нажатием, — а шкала
+    /// у секундомера выглядит по-разному в начале и на ходу: пока прошло
+    /// меньше четверти часа, левая половина полосы пуста, потому что времени
+    /// до нуля не бывает. Проверять это надо на снимке, и добраться до него
+    /// иначе нечем.
+    func debugRunStopwatch() {
+        timer.select(mode: .stopwatch)
+        timer.start()
+        router.set(.timer)
+    }
+
     // MARK: - Нагрузка на систему
 
     func openMonitor() {
@@ -2037,15 +2198,93 @@ final class NotchController {
 
     // MARK: - Записи и ссылки
 
-    /// Открывает запись в её приложении: встречу — в Календаре, напоминание —
-    /// в Напоминаниях, задачу — списком на сегодня в Things.
+    /// Открывает запись.
+    ///
+    /// Встречу — **своим окном правки**, а не Календарём Apple. Раньше вело
+    /// туда: чтобы передвинуть встречу на полчаса или прочитать, где она,
+    /// человек уходил из выреза в чужое окно поверх работы — и возвращался
+    /// оттуда руками. Всё, что нужно от встречи в рабочий день, панель
+    /// теперь умеет сама.
+    ///
+    /// Напоминание и задача по-прежнему уходят в своё приложение: править
+    /// их вырез не умеет, и подменять переход пустым окном было бы обманом.
     func openItem(_ item: CalendarItem) {
+        if item.source == .event, settings.calendarEnabled {
+            // Из календаря — с возвратом в него; с главного экрана — без:
+            // человек туда не заходил, и открывшийся по закрытии месяц был
+            // бы подменой.
+            planner.edit(item, fromCalendar: state.overlay == .calendar)
+            guard planner.draft != nil else { return }
+            router.set(.eventEditor)
+            takeKeyboard()
+            return
+        }
         guard let url = item.appURL else {
             ThingsService.openToday()
             return
         }
         DebugLog.write("открываю запись «\(item.title)» в \(url.scheme ?? "?")")
         NSWorkspace.shared.open(url)
+    }
+
+    // MARK: - Мини-календарь
+
+    func openCalendar() {
+        guard settings.calendarEnabled else { return }
+        planner.open()
+        router.set(.calendar)
+    }
+
+    private func toggleCalendar() {
+        guard settings.calendarEnabled else { return }
+        if state.overlay == .calendar {
+            router.close()
+        } else {
+            openCalendar()
+        }
+    }
+
+    private func composeEvent() {
+        planner.compose()
+        router.set(.eventEditor)
+        takeKeyboard()
+    }
+
+    /// Уйти из правки обратно в месяц, ничего не сохраняя.
+    ///
+    /// Отдельно от крестика: тот закрывает вырез целиком, и человек,
+    /// пришедший в правку из календаря, терял вместе с ней и календарь.
+    private func backToCalendar() {
+        planner.cancelEditing()
+        planner.reload()
+        router.set(.calendar)
+    }
+
+    private func saveEvent() {
+        guard planner.save() else { return }
+        closeEditor()
+    }
+
+    private func deleteEvent() {
+        guard planner.deleteEditing() else { return }
+        closeEditor()
+    }
+
+    /// Куда уходит правка, когда она закончена.
+    ///
+    /// Возврат в календарь — только если оттуда и пришли. Нажав по встрече
+    /// на главном экране, человек в календарь не заходил, и открывшийся
+    /// по закрытии месяц был бы подменой.
+    private func closeEditor() {
+        guard planner.returnsToCalendar else {
+            router.close()
+            return
+        }
+        // Перечитываем до показа: правку сохранили только что, а хранилище
+        // сообщает об изменениях своим уведомлением и не сразу — список
+        // успел бы показать старое.
+        planner.reload()
+        router.set(.calendar)
     }
 
     /// Кладёт ссылку встречи в буфер — иногда её нужно переслать, а не открыть.
@@ -2071,6 +2310,8 @@ final class NotchController {
             activities: activities,
             music: music,
             calendar: calendar,
+            planner: planner,
+            ring: ring,
             things: things,
             meeting: meeting,
             clipboard: clipboard,
@@ -2096,7 +2337,13 @@ final class NotchController {
             snapshot: { [weak self] in
                 self?.notchSnapshot ?? NotchSnapshot(presentation: .collapsed, content: NotchContent())
             },
-            onTap: { [weak self] in self?.expandPanel() },
+            onTap: { [weak self] in
+                // Кольцо и раскрытие панели делят одно и то же нажатие:
+                // панель раскрывается по отпусканию, и без этой проверки
+                // за выбранной в кольце функцией раскрывалась бы ещё и она.
+                guard self?.ring.swallowsTap() != true else { return }
+                self?.expandPanel()
+            },
             onOpenSettings: { [weak self] in self?.onOpenSettings?() },
             onJoin: { [weak self] url in self?.join(url) },
             onInstallUpdate: { [weak self] in self?.updates.install() },
@@ -2129,11 +2376,32 @@ final class NotchController {
             onSendDraft: { [weak self] in self?.sendDraft() },
             onSaveDraft: { [weak self] in self?.saveNote() },
             onSelectMode: { [weak self] mode in self?.selectMode(mode) },
-            onNewNote: { [weak self] in self?.openNoteComposer() },
+            onNewNote: { [weak self] seed in self?.openNoteComposer(seededWith: seed) },
             onSaveAnswer: { [weak self] in self?.saveAnswer() },
             onToggleNotesSearch: { [weak self] in self?.toggleNotesSearch() },
             onCloseAssistant: { [weak self] in self?.closeAssistant() },
             onOpenNotes: { [weak self] in self?.openNotes() },
+            onOpenCalendar: { [weak self] in self?.openCalendar() },
+            onComposeEvent: { [weak self] in self?.composeEvent() },
+            onEditEventTitle: { [weak self] text in self?.planner.changeTitle(text) },
+            onEditEventLocation: { [weak self] text in self?.planner.changeLocation(text) },
+            onEditEventNotes: { [weak self] text in self?.planner.changeNotes(text) },
+            onChooseEventCalendar: { [weak self] id in self?.planner.chooseCalendar(id) },
+            onCycleEventCalendar: { [weak self] in self?.planner.cycleCalendar() },
+            onChooseEventSeries: { [weak self] whole in self?.planner.setEditsSeries(whole) },
+            onBackToCalendar: { [weak self] in self?.backToCalendar() },
+            onMoveEventDay: { [weak self] steps in
+                self?.planner.change { $0.movingDay(by: steps) }
+            },
+            onMoveEventStart: { [weak self] steps in
+                self?.planner.change { $0.movingStart(bySteps: steps) }
+            },
+            onStretchEvent: { [weak self] steps in
+                self?.planner.change { $0.stretched(bySteps: steps) }
+            },
+            onToggleEventAllDay: { [weak self] in self?.planner.toggleAllDay() },
+            onSaveEvent: { [weak self] in self?.saveEvent() },
+            onDeleteEvent: { [weak self] in self?.deleteEvent() },
             onOpenNote: { [weak self] note in self?.openNote(note) },
             onDeleteNote: { [weak self] note in self?.deleteNote(note) },
             isNoteInVault: { [weak self] note in self?.obsidian.path(ofNote: note.id) != nil },
@@ -2310,6 +2578,17 @@ final class NotchController {
     ///
     /// Тексты нарочно разные и по-русски: поиск складывает регистр своей
     /// колонкой, и проверять его на латинице значит не проверять вовсе.
+    /// Список с запросом, под который ничего не нашлось.
+    ///
+    /// Из сессии в поле поиска не напечатать, а состояние это отдельное:
+    /// в нём стоит своя строка объяснения и своя подсказка про Enter.
+    /// Проверить её иначе нечем.
+    func debugMissingNote() {
+        guard settings.notesEnabled else { return }
+        notes.query = "зурбаган"
+        router.set(.notes)
+    }
+
     func debugFillNotes() {
         let samples = [
             "Купить билеты до Владивостока\nОбратно с пересадкой в Хабаровске",

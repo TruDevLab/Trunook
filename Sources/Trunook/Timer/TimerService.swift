@@ -35,9 +35,6 @@ final class TimerService: ObservableObject {
         case rest
     }
 
-    /// Готовые длительности. Двадцать пять минут стоят в середине не случайно:
-    /// это помидор, и попадать в него надо не глядя.
-    static let presets: [Int] = [5, 10, 15, 25, 45]
     /// Длина помидора и перерыва после него.
     static let pomodoro: TimeInterval = 25 * 60
     static let restLength: TimeInterval = 5 * 60
@@ -103,12 +100,18 @@ final class TimerService: ObservableObject {
         DebugLog.write("таймер: режим — \(mode.rawValue)")
     }
 
-    func select(minutes: Int) {
+    /// Завести на столько-то минут.
+    ///
+    /// `quietly` — для шкалы: за один заход её протягивают через десятки
+    /// делений, и каждое писало бы в журнал строку. Итог всё равно виден
+    /// по следующему «пуску», а промежуточные значения ничего не объясняют.
+    func select(minutes: Int, quietly: Bool = false) {
         stopAlarm()
         startedAt = nil
         accumulated = 0
         phase = .work
         duration = TimeInterval(minutes * 60)
+        guard !quietly else { return }
         DebugLog.write("таймер: заведён на \(minutes) мин")
     }
 
