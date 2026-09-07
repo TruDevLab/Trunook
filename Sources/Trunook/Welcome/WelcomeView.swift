@@ -77,7 +77,7 @@ struct WelcomeView: View {
     private var notesButton: some View {
         Button {
             model.toggleNotes()
-            if model.mode == .notes { releaseNotes.load() }
+            if model.mode == .notes { releaseNotes.present() }
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: model.mode == .notes ? "sparkles" : "doc.text")

@@ -9,9 +9,18 @@ import TrunookXPC
 /// бегущую строку. Раскладка по бокам от чёлки, которая была здесь раньше,
 /// этого не позволяла — содержимое переменной ширины из неё вылезало.
 struct ActivityLayout {
+    // Поля отмеряются **от чёрного тела**, а не от рамки.
+    //
+    // Форма плашки уводит верхние уголки наружу, и тело у́же рамки
+    // на `NotchStyle.shoulderInset` с каждой стороны. Прежние двадцать точек
+    // слева превращались в восемь, а четырнадцать справа — в два: значок
+    // и число липли к краям, и видно это было только на снимке. Ровно та же
+    // ловушка, что ловили в панели ответа модели и в таймере, — плашку тогда
+    // не тронули.
+    //
     /// Слева отступ больше: обложка вплотную к скруглению выглядит зажатой.
-    static let leadingPadding: CGFloat = 20
-    static let trailingPadding: CGFloat = 14
+    static var leadingPadding: CGFloat { NotchStyle.shoulderInset + 14 }
+    static var trailingPadding: CGFloat { NotchStyle.shoulderInset + 10 }
     static let spacing: CGFloat = 8
     static let iconSize: CGFloat = 24
     static let maxWidth: CGFloat = 360

@@ -1401,6 +1401,29 @@ final class NotchController {
         DebugLog.write("календарь: повторяющихся событий впереди на два месяца нет")
     }
 
+    /// Правка первого события с длинным описанием.
+    ///
+    /// Отдельным событием, потому что именно на длинном тексте вылезла беда:
+    /// поле росло по своему содержимому и накрывало кнопки панели. С пустым
+    /// описанием этого не увидеть вовсе.
+    func debugEditEventWithNotes() {
+        openCalendar()
+        let days = Calendar.current
+        for offset in 0..<60 {
+            guard let day = days.date(byAdding: .day, value: offset, to: Date()) else { continue }
+            for item in calendar.events(on: day) {
+                guard let found = calendar.draft(for: item), found.notes.count > 200 else { continue }
+                planner.select(day)
+                planner.edit(item, fromCalendar: true)
+                router.set(.eventEditor)
+                takeKeyboard()
+                DebugLog.write("календарь: «\(item.title)» с описанием в \(found.notes.count) знаков")
+                return
+            }
+        }
+        DebugLog.write("календарь: событий с длинным описанием впереди нет")
+    }
+
     func debugComposeEvent() {
         openCalendar()
         composeEvent()

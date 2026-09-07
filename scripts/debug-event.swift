@@ -14,7 +14,7 @@ let known = ["powerConnected", "powerDisconnected", "lowBattery", "trackChanged"
              "capture", "captureOpen", "captureDown", "captureModels", "runslot1", "ollama", "meetingButtons", "meetingHand", "meetingLink", "meetingProbe",
              "welcome", "purr", "shot", "shotDemo", "shotSettings", "shotNotch", "shotMarks", "clipboard", "clipboardUse", "clipboardDown", "openEvent", "assistant", "ask", "expand",
              "shelf", "hub", "timer", "timerRun", "stopwatchRun", "monitor", "teleprompter", "teleprompterScroll", "teleprompterPrompt", "caffeine", "caffeineExpire", "caffeineOn",
-             "notes", "notesFill", "notesMiss", "calendar", "ring", "eventEdit", "eventNew", "eventSeries", "notesAsk", "noteNew", "noteEdit", "noteSave",
+             "notes", "notesFill", "notesMiss", "calendar", "ring", "eventEdit", "eventNew", "eventSeries", "eventNotes", "notesAsk", "noteNew", "noteEdit", "noteSave",
              "noteSelection", "noteClipboard", "askLong",
              "voice", "voiceNotes", "voiceGlow", "voiceSpeak", "voiceAnswer",
              "update", "updatePill", "updateVerify", "updateInstall",

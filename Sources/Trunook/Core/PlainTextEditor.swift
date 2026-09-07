@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Многострочное поле простого текста.
+/// Многострочное поле простого текста с прокруткой.
 ///
 /// Отдельно от `RichTextEditor`, хотя оба про `NSTextView`. Тот про заметку:
 /// оформление, ссылки, заголовки, отмена, сохранение на диск. Здесь ничего
@@ -9,10 +9,14 @@ import SwiftUI
 /// хранилище простой строкой, и жирный шрифт, набранный в вырезе, до него
 /// всё равно не доедет.
 ///
-/// Своей прокрутки поле не заводит: `NSTextView` внутри `NSScrollView` в этом
-/// SDK перехватывает колесо у панели целиком, и прокрутить сам список дня
-/// потом становится нечем. Текст, не влезший в отведённые строки, доступен
-/// стрелками — как в однострочном поле рядом.
+/// **Прокрутка обязательна, и её отсутствие было ошибкой.** Сначала поле
+/// обошлось без `NSScrollView` — из опасения, что тот перехватит колесо
+/// у панели целиком. Опасение не проверили, и оно оказалось пустым: свайпы
+/// по вырезу считаются только при закрытых накладках (`NotchInput.handleScroll`),
+/// а поле живёт в открытой. Зато без прокрутки `NSTextView` вырос по своему
+/// тексту и полез **за границы рамы** — приглашение на встречу в три абзаца
+/// накрыло собой кнопки «Удалить» и «Сохранить». Рама в SwiftUI сама
+/// по себе не обрезает, а `NSTextView` о ней не знает.
 struct PlainTextEditor: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
@@ -22,35 +26,64 @@ struct PlainTextEditor: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    func makeNSView(context: Context) -> NSTextView {
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSScrollView()
+        // Фон рисует подложка SwiftUI: своя заливка здесь была бы
+        // прямоугольной и торчала бы углами из скруглённой подложки.
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
+        // Наложенная полоса, а не занимающая ширину: поле и так узкое,
+        // и отдавать пятнадцать точек постоянной полосе не из чего.
+        scroll.scrollerStyle = .overlay
+        scroll.scrollerKnobStyle = .light
+
         let view = PlaceholderTextView()
         view.delegate = context.coordinator
         view.placeholder = placeholder
         view.string = text
         view.font = .systemFont(ofSize: 12)
         view.textColor = .white
-        // Фон рисует подложка SwiftUI: своя заливка здесь была бы
-        // прямоугольной и торчала бы углами из скруглённой подложки.
         view.drawsBackground = false
         view.isRichText = false
         view.allowsUndo = true
         view.textContainerInset = NSSize(width: 0, height: 2)
-        view.textContainer?.lineFragmentPadding = 0
-        // Курсор и выделение — своим цветом: системный синий на чёрной
-        // панели остаётся единственным местом с системной синевой.
+        // Курсор своим цветом: системный синий на чёрной панели остался бы
+        // единственным местом с системной синевой.
         view.insertionPointColor = .white
+        // Растём вниз по тексту, но не вбок: перенос по ширине, а не
+        // горизонтальная полоса.
+        view.minSize = NSSize(width: 0, height: 0)
+        view.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        view.isVerticallyResizable = true
+        view.isHorizontallyResizable = false
+        view.autoresizingMask = [.width]
+        view.textContainer?.lineFragmentPadding = 0
+        view.textContainer?.widthTracksTextView = true
+        view.textContainer?.containerSize = NSSize(
+            width: 0,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+
+        scroll.documentView = view
         if focusesOnAppear {
             DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         }
-        return view
+        return scroll
     }
 
-    func updateNSView(_ view: NSTextView, context: Context) {
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
+        guard let view = scroll.documentView as? PlaceholderTextView else { return }
         // Только когда разошлось: безусловная подстановка сбрасывала бы
         // курсор в начало на каждом набранном символе.
         if view.string != text { view.string = text }
-        (view as? PlaceholderTextView)?.placeholder = placeholder
+        view.placeholder = placeholder
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {

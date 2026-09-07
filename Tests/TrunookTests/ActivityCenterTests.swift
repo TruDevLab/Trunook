@@ -105,3 +105,37 @@ struct ActivityCenterTests {
         #expect(center.current == nil)
     }
 }
+
+
+@Suite("Поля плашки события")
+struct ActivityLayoutPaddingTests {
+    /// Форма плашки уводит верхние уголки наружу, и чёрное тело у́же рамки
+    /// на вогнутое плечо с каждой стороны. Поле, отмеренное от рамки, на этом
+    /// плече и кончается: двадцать точек слева превращались в восемь,
+    /// четырнадцать справа — в два, и значок с числом липли к краям.
+    ///
+    /// Ровно ту же ошибку ловили в панели ответа модели и в таймере — плашку
+    /// тогда не тронули. Тест держит правило: поле отмеряется от тела.
+    @Test("Поля отмерены от чёрного тела, а не от рамки")
+    func поляОтТела() {
+        #expect(ActivityLayout.leadingPadding > NotchStyle.shoulderInset)
+        #expect(ActivityLayout.trailingPadding > NotchStyle.shoulderInset)
+        // От тела остаётся столько, чтобы значок не касался кромки.
+        #expect(ActivityLayout.leadingPadding - NotchStyle.shoulderInset >= 10)
+        #expect(ActivityLayout.trailingPadding - NotchStyle.shoulderInset >= 8)
+    }
+
+    /// Ширина считается по тем же полям, что и рисуется. Разойдись они —
+    /// текст обрезался бы ровно на столько, на сколько поля разошлись.
+    @Test("Ширина плашки растёт вместе с полями")
+    func ширинаУчитываетПоля() {
+        let layout = ActivityLayout(
+            text: "Низкий заряд",
+            trailing: "20%",
+            minimumWidth: 201
+        )
+        let fixed = ActivityLayout.leadingPadding + ActivityLayout.trailingPadding
+            + ActivityLayout.iconSize + ActivityLayout.spacing
+        #expect(layout.panelWidth - layout.textWidth >= fixed)
+    }
+}

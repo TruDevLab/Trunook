@@ -78,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.eventEdit", #selector(editEvent2)),
             ("com.trunook.debug.eventNew", #selector(composeEvent)),
             ("com.trunook.debug.eventSeries", #selector(editSeries)),
+            ("com.trunook.debug.eventNotes", #selector(editEventWithNotes)),
             ("com.trunook.debug.notesFill", #selector(fillNotes)),
             ("com.trunook.debug.notesMiss", #selector(missingNote)),
             ("com.trunook.debug.notesAsk", #selector(askNotes)),
@@ -302,6 +303,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func editSeries() {
         controller.debugEditSeries()
+    }
+
+    @objc private func editEventWithNotes() {
+        controller.debugEditEventWithNotes()
     }
 
     /// Открыть свежую заметку на правку — то же, что нажатие по строке

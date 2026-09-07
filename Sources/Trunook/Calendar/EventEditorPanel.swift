@@ -47,7 +47,10 @@ struct EventEditorPanel: View {
 
     private static var fieldHeight: CGFloat { NotchStyle.scaled(28) }
     private static var stepperHeight: CGFloat { NotchStyle.scaled(26) }
-    private static var notesHeight: CGFloat { NotchStyle.scaled(60) }
+    /// Поле описания. Выше прежних шестидесяти: под ссылкой встречи там
+    /// оставалось две строки текста, и приглашение приходилось читать
+    /// в щёлку.
+    private static var notesHeight: CGFloat { NotchStyle.scaled(84) }
     private static var attendeesHeight: CGFloat { NotchStyle.scaled(24) }
     private static var actionsHeight: CGFloat { NotchStyle.rowHeight }
 
@@ -331,6 +334,11 @@ struct EventEditorPanel: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .frame(height: Self.notesHeight)
+        // Обрезка обязательна: `NSTextView` растёт по своему тексту и о раме
+        // SwiftUI не знает вовсе, а рама сама по себе ничего не обрезает.
+        // Прокрутка внутри поля это уже чинит, но подстраховка здесь дешевле
+        // второго такого снимка — приглашения, накрывшего кнопки панели.
+        .clipped()
         .surface(
             .card,
             in: RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous),

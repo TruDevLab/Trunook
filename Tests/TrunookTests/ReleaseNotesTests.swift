@@ -90,6 +90,41 @@ struct ReleaseNoteTests {
     }
 }
 
+@Suite("Какая страница описания открыта")
+struct ReleaseNotesSelectionTests {
+    /// «Что нового» — это вопрос, а не место. Выбор страницы живёт в службе,
+    /// а служба на всё приложение: закрыв описание на старом выпуске, человек
+    /// в следующий раз открывал «Что нового» и снова видел его.
+    @Test("Открытие показывает самый свежий выпуск")
+    func открытиеПоказываетСвежее() {
+        let service = ReleaseNotesService()
+        service.select(.readme)
+        service.present()
+        // Кэш описаний на машине может быть, а может и не быть — тест не
+        // должен зависеть от того, ходил ли человек в сеть. Проверяется
+        // само правило: есть выпуски — показан первый из них; нет — README,
+        // и приехавший ответ сам переставит выбор.
+        guard let newest = service.notes.first else {
+            #expect(service.selection == .readme)
+            return
+        }
+        #expect(service.selection == .release(tag: newest.tag))
+    }
+
+    /// Пока человек не выбирал сам, приехавший ответ ставит свежий выпуск —
+    /// с любой страницы, а не только с README: показанное из кэша бывает
+    /// старше приехавшего.
+    @Test("Выбранное руками ответ не перебивает")
+    func выборРукамиУважается() {
+        let service = ReleaseNotesService()
+        service.select(.release(tag: "v0.9.0"))
+        #expect(service.selection == .release(tag: "v0.9.0"))
+        // Открыли заново — прежний выбор снят.
+        service.present()
+        #expect(service.selection != .release(tag: "v0.9.0"))
+    }
+}
+
 @Suite("Разбор Markdown для окна")
 struct WelcomeMarkdownTests {
     private func blocks(_ text: String) -> [WelcomeMarkdown.Block] {

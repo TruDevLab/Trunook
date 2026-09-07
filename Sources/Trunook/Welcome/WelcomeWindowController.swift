@@ -35,7 +35,9 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         onHotKeysChanged: @escaping () -> Void
     ) {
         launchAtLogin.refresh()
-        if mode == .notes { releaseNotes.load() }
+        // `present`, а не `load`: «Что нового» — это вопрос, а не место,
+        // и открывается он всегда на свежем выпуске.
+        if mode == .notes { releaseNotes.present() }
 
         if let window, let model {
             model.start(mode: mode)
