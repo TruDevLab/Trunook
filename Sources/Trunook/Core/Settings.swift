@@ -179,6 +179,29 @@ final class Settings: ObservableObject {
         set { store(newValue, "ollamaEnabled") }
     }
 
+    /// Помощник может действовать, а не только отвечать словами.
+    ///
+    /// Выключено по умолчанию, как и всё, что трогает чужие данные. Своего
+    /// набора инструментов помощник не держит: каждый жив ровно пока включена
+    /// его функция — см. `AgentTool.isEnabled(_:)`.
+    var agentEnabled: Bool {
+        get { flag("agentEnabled", default: false) }
+        set { store(newValue, "agentEnabled") }
+    }
+
+    /// Закрывать панель команд нажатием мимо неё.
+    ///
+    /// Выключено по умолчанию — панель закреплена, как телесуфлер. С ней
+    /// работают в чужом окне: читают ответ, переключаются к письму, копируют
+    /// оттуда кусок и возвращаются дописать вопрос. Каждое такое переключение
+    /// — нажатие мимо, и панель закрывалась ровно посреди работы, унося
+    /// с собой разговор. Закрыть её можно крестиком, Esc или тем же
+    /// сочетанием, которым открыли.
+    var assistantClosesOnClickOutside: Bool {
+        get { flag("assistantClosesOnClickOutside", default: false) }
+        set { store(newValue, "assistantClosesOnClickOutside") }
+    }
+
     /// Пустое поле означает адрес по умолчанию — так пользователю не нужно
     /// знать про localhost, чтобы всё заработало.
     var ollamaURL: String {
@@ -224,7 +247,7 @@ final class Settings: ObservableObject {
     }
 
     var ollamaModel: String {
-        get { defaults.string(forKey: "ollamaModel") ?? "gemma4:12b" }
+        get { defaults.string(forKey: "ollamaModel") ?? RecommendedModel.chat }
         set { store(newValue, "ollamaModel") }
     }
 
@@ -913,14 +936,6 @@ final class Settings: ObservableObject {
         set { store(newValue.rawValue, "voiceTrigger") }
     }
 
-    /// Чем зовут голосовой вопрос по заметкам.
-    var voiceNotesTrigger: VoiceTrigger {
-        get {
-            VoiceTrigger(rawValue: defaults.string(forKey: "voiceNotesTrigger") ?? "") ?? .option
-        }
-        set { store(newValue.rawValue, "voiceNotesTrigger") }
-    }
-
     /// Язык распознавания. Пусто — язык интерфейса.
     ///
     /// Отдельно от языка интерфейса, потому что это разные вещи: интерфейс
@@ -939,12 +954,6 @@ final class Settings: ObservableObject {
     var voiceHotKey: HotKeySpec? {
         get { hotKey("voiceHotKey", default: nil) }
         set { storeHotKey(newValue, "voiceHotKey") }
-    }
-
-    /// То же для вопроса по заметкам.
-    var voiceNotesHotKey: HotKeySpec? {
-        get { hotKey("voiceNotesHotKey", default: nil) }
-        set { storeHotKey(newValue, "voiceNotesHotKey") }
     }
 
     var voiceLanguage: Language? {

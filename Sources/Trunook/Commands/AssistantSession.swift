@@ -43,7 +43,7 @@ final class AssistantSession: ObservableObject {
     /// подсвечено, а состав строки меняется — «в заметки» есть только при
     /// включённых заметках, и третьим действием там оказывалось бы то одно,
     /// то другое.
-    enum AnswerAction: CaseIterable {
+    enum AnswerAction: String, CaseIterable {
         case copy, paste, note
 
         /// Подпись действия — одна на кнопку в панели и на плашку под чёлкой.
@@ -114,6 +114,23 @@ final class AssistantSession: ObservableObject {
     /// продолжение пишет кто-то другой, не помнящий сказанного своим голосом.
     private var model: String?
 
+    /// Какой моделью спрашивать свободный вопрос. `nil` — как в настройках.
+    ///
+    /// Держится у разговора, а не в настройках: «а что скажет вот эта»
+    /// спрашивают на один заход, и уносить этот выбор в настройки значило бы
+    /// заставить человека возвращать его руками. Сбрасывается вместе
+    /// с разговором.
+    @Published private(set) var questionModel: String?
+
+    func setQuestionModel(_ stored: String?) {
+        questionModel = stored
+        // Разговор уже идёт — менять его модель на полуслове нельзя:
+        // продолжение писал бы кто-то другой, не помнящий сказанного
+        // своим голосом. Новая модель возьмётся со следующей переписки.
+        guard messages.isEmpty else { return }
+        model = stored
+    }
+
     /// Реплики, которых в ленте быть не должно.
     ///
     /// Номерами в `messages`, а не признаком у самой реплики: `ChatMessage`
@@ -121,6 +138,44 @@ final class AssistantSession: ObservableObject {
     /// каждой отправкой. Номера при этом устойчивы — переписка только
     /// дописывается с конца.
     private var hiddenMessages: Set<Int> = []
+
+    // MARK: - Помощник
+
+    /// Подписи шагов — номерами в `messages`, тем же приёмом, что
+    /// и `hiddenMessages`, и по той же причине: `ChatMessage` уходит
+    /// на провод как есть, и лишнее поле пришлось бы вычищать перед каждой
+    /// отправкой.
+    private var stepLabels: [Int: (label: String, symbol: String)] = [:]
+
+    /// Какой инструмент работает прямо сейчас. `nil` — никакой.
+    @Published private(set) var runningTool: AgentTool?
+
+    /// Что помощник предлагает сделать. `nil` — ничего не предлагает.
+    ///
+    /// Значением, а не веткой: по нему считается высота панели.
+    @Published private(set) var pending: PendingAction?
+
+    /// Описания инструментов, доступных этому разговору. Пустой список —
+    /// помощника нет, и запрос уходит ровно таким, каким уходил всегда.
+    var availableTools: () -> [[String: Any]] = { [] }
+
+    /// Выполнить то, о чём просит модель. Вешает контроллер: сессия
+    /// о службах не знает и знать не должна.
+    var runTool: ((ToolCall, @escaping (AgentToolResult) -> Void) -> Void)?
+
+    private lazy var loop = AgentLoop(client: client)
+
+    /// Каким способом спросили в этот раз.
+    ///
+    /// Инструменты голос получает наравне с набранным вопросом: заметки,
+    /// календарь и погода нужны ему ровно так же. А вот карточку
+    /// подтверждения спрошенному голосом показать негде — панель при нём
+    /// не раскрывается, — поэтому её открывает контроллер, и знать об этом
+    /// он может только отсюда.
+    private(set) var style: AnswerStyle = .written
+
+    /// Спросили голосом: ответ прочитают вслух, панели на экране нет.
+    var isSpoken: Bool { style == .spoken }
 
     init(client: ModelClient = ModelClient()) {
         self.client = client
@@ -159,7 +214,22 @@ final class AssistantSession: ObservableObject {
                     text: Self.question(from: message.content)
                 ))
             case "assistant":
+                // Заход за инструментом текста не несёт, и пустой пузырь
+                // в ленте выглядел бы сбоем. Сам вызов покажет строка шага.
+                guard !(message.content.isEmpty && !message.toolCalls.isEmpty) else { continue }
                 result.append(Reply(id: result.count, role: .assistant, text: message.content))
+            case "tool":
+                // В реплике лежит то, что ушло модели: расписание дня целым
+                // куском, погода числами. Человеку это показывать нельзя —
+                // он увидел бы служебный текст вместо строчки «Посмотрел
+                // календарь». Подпись для него лежит отдельно, номером.
+                guard let step = stepLabels[index] else { continue }
+                result.append(Reply(
+                    id: result.count,
+                    role: .step,
+                    text: step.label,
+                    symbol: step.symbol
+                ))
             default:
                 // Системное указание — не реплика разговора.
                 continue
@@ -168,6 +238,17 @@ final class AssistantSession: ObservableObject {
         // Идущий ответ ещё не в переписке: он попадёт туда со следующим
         // вопросом. Без него лента обрывалась бы ровно на том, что человек
         // сейчас читает.
+        // Инструмент работает прямо сейчас — человеку видно, чем занят
+        // помощник. Без этой строки панель молчит ровно столько, сколько
+        // идёт служба, и выглядит это как зависание.
+        if let runningTool {
+            result.append(Reply(
+                id: result.count,
+                role: .step,
+                text: runningTool.title + "…",
+                symbol: runningTool.symbol
+            ))
+        }
         if !answer.isEmpty {
             result.append(Reply(id: result.count, role: .assistant, text: answer))
         }
@@ -181,11 +262,16 @@ final class AssistantSession: ObservableObject {
     /// равенству вырез решает, менялось ли что-нибудь: панель пересчитывала
     /// бы себя десять раз в секунду впустую.
     struct Reply: Identifiable, Equatable {
-        enum Role { case user, assistant }
+        /// Шаг — не реплика разговора, а отметка о сделанном: «Посмотрел
+        /// календарь», «Таймер на 10 минут». Рисуется мелко и приглушённо,
+        /// между вопросом и ответом.
+        enum Role { case user, assistant, step }
 
         let id: Int
         let role: Role
         let text: String
+        /// Значок шага. У реплик разговора его нет.
+        var symbol: String?
     }
 
     /// Достаёт из первой реплики сам вопрос.
@@ -233,6 +319,7 @@ final class AssistantSession: ObservableObject {
     /// собственный вопрос. Название команды и так стоит в шапке панели.
     func start(title: String, prompt: String, model: String?, target: NSRunningApplication?) {
         cancel()
+        style = .written
         self.title = title
         self.target = target
         self.model = model
@@ -294,6 +381,7 @@ final class AssistantSession: ObservableObject {
     func send(_ question: String, notesContext: String? = nil, style: AnswerStyle = .written) {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
+        self.style = style
 
         if !answer.isEmpty {
             messages.append(.assistant(answer))
@@ -331,6 +419,8 @@ final class AssistantSession: ObservableObject {
                 forCharacters: messages.reduce(0) { $0 + $1.content.count }
             )
         }
+        // Модель разговора назначается первым вопросом и дальше не меняется.
+        if messages.count <= 1, model == nil { model = questionModel }
         answer = ""
         error = nil
         highlightedAnswerAction = nil
@@ -339,13 +429,30 @@ final class AssistantSession: ObservableObject {
 
     private func run() {
         isStreaming = true
+        let tools = availableTools()
+        // Инструменты занимают место в контексте, и место немалое. Ollama
+        // режет переросшее **молча** — и выглядит это как выдумка модели,
+        // а не как потеря половины промта. Просим окно с их учётом.
+        if !tools.isEmpty {
+            let schemas = (try? JSONSerialization.data(withJSONObject: tools))?.count ?? 0
+            contextWindow = ModelClient.contextWindow(
+                forCharacters: messages.reduce(0) { $0 + $1.content.count } + schemas
+            )
+        }
         // Имя модели пишем всегда, в том числе «по умолчанию»: у команд
         // модель своя, и увидеть, к какой именно ушёл запрос, иначе негде —
         // ответ приходит без обратного адреса.
         DebugLog.write(
             "модель: запрос \(model ?? "по умолчанию"), реплик в переписке — \(messages.count)"
                 + (contextWindow.map { ", окно контекста \($0)" } ?? "")
+                + (tools.isEmpty ? "" : ", инструментов \(tools.count)")
         )
+
+        if !tools.isEmpty {
+            runAgent(tools: tools)
+            return
+        }
+
         task = client.stream(
             messages: messages,
             contextWindow: contextWindow,
@@ -353,33 +460,97 @@ final class AssistantSession: ObservableObject {
             onToken: { [weak self] piece in
                 self?.answer += piece
             },
-            onFinish: { [weak self] result in
-                guard let self else { return }
-                self.isStreaming = false
-                switch result {
-                case let .success(text):
-                    DebugLog.write("модель: ответ \(text.count) симв.")
-                    // Ответ дописан — фокус переезжает на то, что с ним
-                    // делать. Список команд свою работу закончил.
-                    if !text.isEmpty {
-                        self.highlightedCommandID = nil
-                        self.highlightedAnswerAction = .copy
-                        // Подпись сразу: подсветка появилась сама, человек
-                        // её не наводил и не знает, на чём она стоит.
-                        NotchHintTracker.shared.focus(AnswerAction.copy.title)
-                    }
-                case let .failure(failure):
-                    self.error = failure.localizedDescription
-                    DebugLog.write("модель: ошибка — \(failure.localizedDescription)")
-                }
-            }
+            onFinish: { [weak self] result in self?.finish(result) }
         )
     }
+
+    /// Заход с инструментами: круг ведёт `AgentLoop`.
+    ///
+    /// Отдельной веткой, а не вторым путём на всю сессию: с пустым списком
+    /// инструментов разговор обязан идти ровно так же, как шёл всегда, —
+    /// иначе помощник сломал бы то, чего не касается.
+    private func runAgent(tools: [[String: Any]]) {
+        loop.perform = { [weak self] call, done in
+            guard let self, let runTool = self.runTool else {
+                done(AgentToolResult(
+                    text: t("Действие выполнить нечем."),
+                    label: t("Действие недоступно")
+                ))
+                return
+            }
+            runTool(call, done)
+        }
+
+        loop.run(
+            messages: messages,
+            tools: tools,
+            contextWindow: contextWindow,
+            model: model,
+            onToken: { [weak self] piece in self?.answer += piece },
+            onCall: { [weak self] call in
+                guard let self else { return }
+                // Проговорённое моделью уже легло в переписку репликой
+                // с вызовом — в `answer` ему делать нечего, иначе тот же
+                // текст встал бы в ленте дважды.
+                self.answer = ""
+                self.runningTool = AgentTool.named(call.name)
+            },
+            onStep: { [weak self] step, updated in
+                guard let self else { return }
+                self.messages = updated
+                self.stepLabels[updated.count - 1] = (
+                    step.result.label,
+                    AgentTool.named(step.call.name)?.symbol ?? "wand.and.stars"
+                )
+                self.runningTool = nil
+            },
+            onFinish: { [weak self] result in self?.finish(result) }
+        )
+    }
+
+    /// Что делать с готовым ответом. Один на оба пути — обычный и с кругом.
+    private func finish(_ result: Result<String, Error>) {
+        isStreaming = false
+        runningTool = nil
+        switch result {
+        case let .success(text):
+            DebugLog.write("модель: ответ \(text.count) симв.")
+            // Ответ дописан — фокус переезжает на то, что с ним делать.
+            // Список команд свою работу закончил.
+            if !text.isEmpty {
+                highlightedCommandID = nil
+                highlightedAnswerAction = .copy
+                // Подпись сразу: подсветка появилась сама, человек её
+                // не наводил и не знает, на чём она стоит.
+                NotchHintTracker.shared.focus(AnswerAction.copy.title)
+            }
+        case let .failure(failure):
+            error = failure.localizedDescription
+            DebugLog.write("модель: ошибка — \(failure.localizedDescription)")
+        }
+    }
+
+    // MARK: - Предложение помощника
+
+    /// Помощник предлагает — панель показывает карточку.
+    func propose(_ action: PendingAction) {
+        pending = action
+        runningTool = nil
+        DebugLog.write("помощник: предлагает \(action.tool.name) — \(action.detail)")
+    }
+
+    /// Карточки больше нет: человек нажал, или разговор оборвали.
+    func clearPending() { pending = nil }
 
     func cancel() {
         task?.cancel()
         task = nil
+        loop.cancel()
         isStreaming = false
+        runningTool = nil
+        // Закрыть — не значит согласиться: висящее предложение снимается
+        // невыполненным.
+        pending = nil
     }
 
     func reset() {
@@ -397,6 +568,32 @@ final class AssistantSession: ObservableObject {
         choosingModelFor = nil
         model = nil
         hiddenMessages = []
+        stepLabels = [:]
+        runningTool = nil
+        pending = nil
+        questionModel = nil
+    }
+
+    // MARK: - Отладка
+
+    /// Готовая лента со строками шагов — под снимок.
+    ///
+    /// Настоящие шаги приходят от модели, а вёрстка у них одна и та же:
+    /// снимок не должен зависеть от того, что сегодня ответит модель.
+    func debugSteps(_ steps: [(String, String)], answer text: String) {
+        reset()
+        style = .written
+        messages = [.user("поставь таймер на 10 минут и скажи, что у меня завтра")]
+        for (label, symbol) in steps {
+            messages.append(.calls([ToolCall(id: "debug", name: "debug", arguments: "{}")]))
+            messages.append(.tool(label, id: "debug", name: "debug"))
+            stepLabels[messages.count - 1] = (label, symbol)
+        }
+        answer = text
+        // Ровно как после настоящего ответа: подсветка переезжает
+        // на «Скопировать» сама. Без неё отладка не воспроизвела бы беду —
+        // она вся была в этой подсветке.
+        highlightedAnswerAction = .copy
     }
 
     // MARK: - Что делать с ответом

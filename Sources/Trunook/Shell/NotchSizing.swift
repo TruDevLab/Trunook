@@ -143,6 +143,10 @@ struct NotchContent: Equatable {
     /// Без неё панель короче ровно на ленту и поле вопроса: спросить некого,
     /// и держать под это место значило бы отдать полпанели пустоте.
     var assistantModelEnabled = true
+    /// Помощник предлагает что-то сделать.
+    var assistantPending = false
+    /// Ответ готов — слот под полем занят действиями с ним.
+    var assistantHasAnswer = false
     /// Сколько файлов лежит на полке.
     var shelfCount = 0
     /// Сколько плиток показывает меню всех функций.
@@ -296,7 +300,9 @@ enum NotchSizing {
                     captureExpanded: content.assistantCaptureExpanded,
                     commandRows: content.assistantCommandRows,
                     modelEnabled: content.assistantModelEnabled,
-                    notesEnabled: content.notesEnabled
+                    notesEnabled: content.notesEnabled,
+                    hasPending: content.assistantPending,
+                    hasAnswer: content.assistantHasAnswer
                 )
             )
         case .notes:

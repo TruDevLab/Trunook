@@ -23,10 +23,46 @@ enum HubEntry: String, CaseIterable, Identifiable {
     case timer
     case monitor
     case teleprompter
+    // Чашка — девятая. До неё можно было добраться только кнопкой в левом
+    // крыле раскрытой панели, то есть сперва раскрыв вырез наведением
+    // и попав в значок в одиннадцать пунктов. Бодрость включают на бегу,
+    // под начатое дело, и жест для неё — путь короче наведения.
+    case caffeine
+    // Голос и диктовка — десятая и одиннадцатая. Обе про речь, и обе до сих пор
+    // жили только на жесте и на сочетании: до них нельзя было добраться
+    // ни мышью, ни из меню, то есть половине людей их попросту не было
+    // видно. Сетка от этого выросла на ряд — тот случай, когда лишний ряд
+    // дешевле недоступной функции.
+    case voice
+    case dictation
 
     var id: String { rawValue }
 
-    static var count: Int { allCases.count }
+    /// Стоит ли плитка в меню «Всё сразу».
+    ///
+    /// Чашка, голос и диктовка — не стоят, и это не забывчивость. Сетка меню
+    /// держится в два ряда нарочно: оно вызывается правой кнопкой поверх
+    /// чужих окон, и третий ряд отнимает у экрана семьдесят четыре точки
+    /// ровно там, ради чего меню и открыли. У кольца такого ограничения
+    /// нет вовсе — оно веер, а не сетка, — и лишние кружки ему ничего
+    /// не стоят.
+    ///
+    /// Списка два, а состав один: расходиться им можно только длиной.
+    var inHubPanel: Bool {
+        switch self {
+        case .caffeine, .voice, .dictation: return false
+        default: return true
+        }
+    }
+
+    /// Что показывает меню «Всё сразу».
+    static var panelCases: [HubEntry] { allCases.filter(\.inHubPanel) }
+
+    /// Что показывает кольцо быстрого доступа — всё, что есть.
+    static var ringCases: [HubEntry] { allCases }
+
+    /// Длина списка меню: по ней считается высота панели.
+    static var count: Int { panelCases.count }
 
     var title: String {
         switch self {
@@ -42,6 +78,11 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .timer: return t("Таймер")
         case .monitor: return t("Нагрузка")
         case .teleprompter: return t("Телесуфлер")
+        // Тем же словом, что и панель выбора срока, и кнопка-чашка: одно
+        // место с одним именем, откуда бы к нему ни шли.
+        case .caffeine: return t("Бодрость")
+        case .voice: return t("Спросить голосом")
+        case .dictation: return t("Надиктовать заметку")
         }
     }
 
@@ -55,6 +96,9 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .timer: return "timer"
         case .monitor: return "gauge.with.dots.needle.67percent"
         case .teleprompter: return "text.alignleft"
+        case .caffeine: return "cup.and.saucer.fill"
+        case .voice: return "waveform"
+        case .dictation: return "mic"
         }
     }
 
@@ -68,6 +112,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .timer: return Palette.timer
         case .monitor: return Palette.monitor
         case .teleprompter: return Palette.teleprompter
+        case .caffeine: return Palette.caffeine
+        case .voice, .dictation: return Palette.assistant
         }
     }
 
@@ -92,6 +138,13 @@ enum HubEntry: String, CaseIterable, Identifiable {
         // ни опросов, ни клавиш, ни полосы под чёлкой, — и выключать в нём
         // нечего. Открыли окно — работает, закрыли — нет.
         case .teleprompter: return true
+        case .caffeine: return settings.caffeineEnabled
+        // Голосу нужна и сама модель: спросить вслух не у кого,
+        // когда отвечать некому.
+        case .voice: return settings.voiceEnabled && settings.ollamaEnabled
+        // Диктовке модель не нужна вовсе — надиктованное ложится
+        // в заметку текстом, без всякого разговора.
+        case .dictation: return settings.voiceEnabled && settings.notesEnabled
         }
     }
 
@@ -106,6 +159,17 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .timer: return settings.timerHotKey?.display
         case .monitor: return settings.monitorHotKey?.display
         case .teleprompter: return settings.teleprompterHotKey?.display
+        // У чашки сочетания нет, и это не пробел в настройках: она и не
+        // должна отниматься клавишей у чужого приложения, а нажать её
+        // по-прежнему можно в левом крыле раскрытой панели.
+        case .caffeine: return nil
+        // Голос зовут жестом, а не сочетанием, — его и показываем.
+        // «Своё сочетание» в списке как раз и означает, что жеста нет.
+        case .voice:
+            return settings.voiceTrigger == .hotKey
+                ? settings.voiceHotKey?.display
+                : settings.voiceTrigger.title
+        case .dictation: return settings.recordHotKey?.display
         }
     }
 }

@@ -22,6 +22,30 @@ final class ModelList: ObservableObject {
     /// `hf.co/Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M`.
     @Published private(set) var embedding: Set<String> = []
 
+    /// Имена моделей, умеющих вызывать инструменты.
+    ///
+    /// Спрашивается там же и тем же запросом, что и умение считать векторы.
+    /// Без инструментов помощник не работает вовсе, а узнать это иначе
+    /// нечем: отказ приходит молча — модель просто отвечает словами там,
+    /// где должна была действовать.
+    @Published private(set) var tooling: Set<String> = []
+
+    /// Умеет ли модель вызывать инструменты.
+    ///
+    /// Ответа **три**, и два были бы враньём. `/api/show` есть только
+    /// у Ollama: у облачного провайдера спросить нечего вовсе, и объявить
+    /// его «не умеющим» значило бы напугать человека там, где всё работает.
+    enum ToolSupport { case yes, no, unknown }
+
+    func toolSupport(of ref: ModelRef) -> ToolSupport {
+        guard ref.provider.dialect == .ollama else { return .unknown }
+        guard let able = known[ref.name] else { return .unknown }
+        // Старая Ollama умений не сообщает вовсе — пустой ответ значит
+        // «не знаю», а не «ничего не умеет».
+        guard !able.isEmpty else { return .unknown }
+        return able.contains("tools") ? .yes : .no
+    }
+
     /// Что уже спрашивали. Умения модели не меняются, а `/api/show` —
     /// отдельный запрос на каждую: без памяти список опрашивал бы сервер
     /// по десятку раз за открытие настроек.
@@ -141,13 +165,17 @@ final class ModelList: ObservableObject {
                 DispatchQueue.main.async {
                     self?.known[model.name] = able
                     if able.contains("embedding") { self?.embedding.insert(model.name) }
+                    if able.contains("tools") { self?.tooling.insert(model.name) }
                     group.leave()
                 }
             }
         }
         group.notify(queue: .main) { [weak self] in
             guard let self else { return }
-            DebugLog.write("модели: считают векторы — \(embedding.count)")
+            DebugLog.write(
+                "модели: считают векторы — \(embedding.count),"
+                    + " умеют инструменты — \(tooling.count)"
+            )
             adoptEmbedModel()
         }
     }

@@ -469,39 +469,9 @@ struct SettingsView: View {
                         .disabled(!settings.voiceEnabled)
                     }
 
-                    Picker(t("Спросить по заметкам"), selection: Binding(
-                        get: { settings.voiceNotesTrigger },
-                        set: { settings.voiceNotesTrigger = $0; onHotKeysChanged() }
-                    )) {
-                        ForEach(VoiceTrigger.allCases) { trigger in
-                            Text(trigger.title).tag(trigger)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
-                    .disabled(!settings.voiceEnabled || !settings.notesEnabled)
-
-                    if settings.voiceNotesTrigger == .hotKey {
-                        HStack {
-                            Text(t("Сочетание по заметкам"))
-                            Spacer()
-                            HotKeyRecorder(spec: Binding(
-                                get: { settings.voiceNotesHotKey },
-                                set: { settings.voiceNotesHotKey = $0; onHotKeysChanged() }
-                            ))
-                            .frame(width: SettingsStyle.hotKeyField.width,
-                                   height: SettingsStyle.hotKeyField.height)
-                        }
-                        .disabled(!settings.voiceEnabled || !settings.notesEnabled)
-                    }
-
                     hint(t("Модификатор, нажатый дважды подряд, без других клавиш между нажатиями."))
                     hint(t("«Своё сочетание» в списке меняет жест на обычные клавиши."))
                     hint(t("Нужен Универсальный доступ."))
-                    if settings.voiceTrigger == settings.voiceNotesTrigger,
-                       settings.voiceTrigger != .off {
-                        hint(t("Оба вызова на одном модификаторе — сработает только первый."))
-                    }
                 }
             }
 
@@ -1646,6 +1616,14 @@ struct SettingsView: View {
                 Toggle(t("Показывать список команд"), isOn: settings.binding(\.quickCommandsEnabled))
 
                 VStack(alignment: .leading, spacing: 4) {
+                    Toggle(
+                        t("Закрывать панель нажатием мимо неё"),
+                        isOn: settings.binding(\.assistantClosesOnClickOutside)
+                    )
+                    hint(t("Выключено — панель держится, пока её не закрыть крестиком или Esc."))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(t("Спросить о выделенном"))
                         Spacer()
@@ -1935,6 +1913,72 @@ struct SettingsView: View {
     /// разговор в панели. Настройка, спрятанная в разделе одной из функций,
     /// выглядит её частью — и человек, у которого не работают заметки, ищет
     /// причину где угодно, кроме раздела «Команды».
+    /// Помощник, который делает.
+    ///
+    /// В разделе «Модель», а не «Инструменты»: тот занят буфером, полкой
+    /// и таймером — вещами системы, — а помощник целиком про модель. Он
+    /// живёт её умением звать инструменты и гаснет вместе с ней, и
+    /// предупреждение «эта модель так не умеет» ничего не стоит вдали
+    /// от выбора модели, к которому относится.
+    private var agentCard: some View {
+        section(t("Помощник с действиями"), icon: "wand.and.stars") {
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Помощник может действовать"), isOn: settings.binding(\.agentEnabled))
+                hint(t("Ставит таймер, смотрит календарь и погоду; запись спрашивает подтверждением."))
+            }
+
+            if settings.agentEnabled {
+                toolSupportNote
+                ForEach(AgentTool.allCases) { tool in agentToolRow(tool) }
+            }
+        }
+    }
+
+    /// Умеет ли выбранная модель звать инструменты.
+    ///
+    /// Про `defaultModel`: свободный вопрос уходит именно ему. У команды
+    /// бывает своя модель, но команды помощником не становятся.
+    @ViewBuilder
+    private var toolSupportNote: some View {
+        let model = settings.defaultModel
+        switch models.toolSupport(of: model) {
+        case .yes:
+            hint(tf("Модель %@ умеет вызывать инструменты.", model.shortName))
+        case .no:
+            Text(tf("Модель %@ не умеет вызывать инструменты — действовать помощник с ней не сможет. Выберите другую.", model.shortName))
+                .font(.callout)
+                .foregroundStyle(Palette.warning)
+        case .unknown:
+            hint(t("Умеет ли эта модель вызывать инструменты, сервер не сообщает. Если действия не срабатывают — дело в модели, а не в настройке."))
+        }
+    }
+
+    /// Строка инструмента: что помощник умеет прямо сейчас и почему нет.
+    ///
+    /// Своих переключателей у инструментов нет: каждый жив ровно пока
+    /// включена его функция. Но исчезать строка не должна — исчезнувшая
+    /// читается как «этого не бывает вовсе», а погасшая с причиной учит,
+    /// куда пойти и что включить.
+    private func agentToolRow(_ tool: AgentTool) -> some View {
+        let reason = tool.blockedReason(settings)
+        return HStack(spacing: 8) {
+            Image(systemName: reason == nil ? "checkmark.circle.fill" : "circle.slash")
+                .foregroundStyle(reason == nil ? SettingsStyle.accent : .secondary)
+            Text(tool.title)
+                .foregroundStyle(reason == nil ? .primary : .secondary)
+            Spacer()
+            if let reason {
+                Text(reason)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else if tool.needsConfirmation {
+                Text(t("с подтверждением"))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private var modelSection: some View {
         Group {
             section(t("Запросы к модели"), icon: "sparkles") {
@@ -1953,6 +1997,8 @@ struct SettingsView: View {
                         .foregroundStyle(Palette.warning)
                 }
             }
+
+            if settings.ollamaEnabled { agentCard }
 
             if settings.ollamaEnabled {
                 ForEach(settings.enabledProviders) { provider in

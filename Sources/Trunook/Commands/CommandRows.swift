@@ -135,7 +135,11 @@ struct CommandRows: View {
 
     private func row(_ command: QuickCommand) -> some View {
         let isHighlighted = command.id == highlighted
-        return NotchTile(id: "command-\(command.id)", radius: NotchStyle.rowRadius) {
+        return NotchTile(
+            id: "command-\(command.id)",
+            radius: NotchStyle.rowRadius,
+            isHighlighted: isHighlighted
+        ) {
             HStack(spacing: 0) {
                 // Нажатие живёт внутри плитки, а не вокруг неё: имя модели
                 // обязано быть отдельной кнопкой, а кнопка, вложенная
@@ -166,9 +170,19 @@ struct CommandRows: View {
                 modelButton(command)
             }
         }
-        // Подсветка с клавиатуры — обводкой, а не заливкой: заливка у плитки
-        // уже занята наведением, и две подсветки одной заливкой сливались бы
-        // в одну. Строка бывает подсвечена клавишей и мышью одновременно.
+        // Обводка поверх заливки, а не вместо неё. Заливку строка получает
+        // и от клавиши, и от мыши — это одно и то же «вот с этим работают»;
+        // обводка же говорит, что сюда привела **клавиатура**, и Enter
+        // сработает именно здесь, даже если мышь лежит на соседней строке.
+        // Заливка цветом смысла, а не прибавка белизны. Наведение поднимает
+        // белую заливку с 0,08 до 0,15 — на глаз это почти ничто, и строка,
+        // выбранная клавишей, читалась как невыбранная. Цвет виден сразу
+        // и ни с чем не путается: белым подсвечивается «под курсором»,
+        // цветом — «сюда привела клавиатура, и Enter сработает здесь».
+        .background(
+            RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
+                .fill(Palette.assistant.opacity(isHighlighted ? NotchStyle.dense(0.32) : 0))
+        )
         .overlay(
             RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
                 .strokeBorder(

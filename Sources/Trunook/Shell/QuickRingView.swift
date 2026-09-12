@@ -46,8 +46,8 @@ struct QuickRingView: View {
         // содержимое, и всё кольцо уезжает вниз ровно на половину разницы.
         // Поймано на снимке: кружки висели на семьдесят точек ниже места.
         .frame(
-            width: QuickRingLayout.size.width,
-            height: notchHeight + QuickRingLayout.size.height,
+            width: QuickRingLayout.size(count: items.count).width,
+            height: notchHeight + QuickRingLayout.size(count: items.count).height,
             alignment: .top
         )
         .allowsHitTesting(false)

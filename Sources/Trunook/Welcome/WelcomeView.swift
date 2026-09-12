@@ -405,6 +405,22 @@ struct WelcomeView: View {
                     .foregroundStyle(Color.white.opacity(0.75))
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
+
+                // Случай из жизни — отдельным блоком, а не абзацем следом.
+                // Слитый с описанием, он читается как продолжение объяснения
+                // и теряется в нём, хотя отвечает на вопрос, который человек
+                // задаёт первым: «а мне это когда пригодится».
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: "quote.opening")
+                        .font(.system(size: WelcomeStyle.caption))
+                        .foregroundStyle(Color.white.opacity(0.35))
+                    Text(model.feature.example)
+                        .font(.system(size: WelcomeStyle.body, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.6))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
+                }
+                .padding(.top, 2)
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -693,17 +709,6 @@ struct WelcomeView: View {
                             set: { settings.voiceHotKey = $0; onHotKeysChanged() }
                         )
                     )
-                    voiceCallRow(
-                        hint: t("По заметкам"),
-                        trigger: Binding(
-                            get: { settings.voiceNotesTrigger },
-                            set: { settings.voiceNotesTrigger = $0; onHotKeysChanged() }
-                        ),
-                        key: Binding(
-                            get: { settings.voiceNotesHotKey },
-                            set: { settings.voiceNotesHotKey = $0; onHotKeysChanged() }
-                        )
-                    )
                 }
             }
             .padding(.horizontal, 14)
@@ -714,7 +719,7 @@ struct WelcomeView: View {
     /// Один вызов голоса: жест **или** сочетание клавиш.
     ///
     /// Выбор, а не оба сразу: «Своё сочетание» — такой же пункт списка,
-    /// как ⌃⌃ и ⌥⌥, и поле ввода появляется только под него. Два всегда
+    /// как ⌃⌃ и ⌘⌘, и поле ввода появляется только под него. Два всегда
     /// видимых поля рядом обещали бы два разных вызова, работающих заодно.
     ///
     /// Подпись у каждой строки своя: два одинаковых набора полей рядом

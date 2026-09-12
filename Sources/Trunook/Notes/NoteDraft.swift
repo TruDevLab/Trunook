@@ -151,6 +151,32 @@ final class NoteDraft: ObservableObject {
         refreshEmptiness()
     }
 
+    /// Надиктованное — в поле заметки.
+    ///
+    /// Приходит по мере речи и **заменяет** прежде надиктованное, а не
+    /// дописывается к нему: распознавание правит себя на ходу, и «Привет»
+    /// через полсекунды становится «Привет, как дела» — дописывание
+    /// собрало бы из одной фразы лесенку.
+    ///
+    /// Набранное до диктовки при этом сохраняется: началом служит то,
+    /// что лежало в поле, когда речь пошла.
+    func setDictated(_ text: String) {
+        if dictationPrefix == nil { dictationPrefix = plain }
+        let head = dictationPrefix ?? ""
+        let joined = head.isEmpty ? text : head + (head.hasSuffix(" ") ? "" : " ") + text
+        editor.setAttributed(NSAttributedString(string: joined, attributes: [
+            .font: NSFont.systemFont(ofSize: Note.bodyFontSize),
+            .foregroundColor: NSColor.white,
+        ]))
+        textDidChange()
+    }
+
+    /// Что лежало в поле до начала диктовки. `nil` — диктовки не было.
+    private var dictationPrefix: String?
+
+    /// Диктовка кончилась: следующая начнётся со своего начала.
+    func endDictation() { dictationPrefix = nil }
+
     func textDidChange() {
         refreshEmptiness()
         refreshEdited()

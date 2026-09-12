@@ -35,8 +35,20 @@ final class NotchInput {
     var onSwipe: ((SwipeDirection) -> Void)?
     /// Курсор двигается, пока открыта накладка.
     var onOverlayHover: ((CGPoint) -> Void)?
+    /// Чем накладку просят закрыть.
+    ///
+    /// Различать обязательно: панель команд закрепляется и нажатие мимо
+    /// перестаёт её закрывать — а Esc закрывает по-прежнему. Пока причина
+    /// была одна на оба пути, закрепить одно, не закрепив другое, было нечем.
+    enum DismissCause {
+        /// Нажали мимо накладки — в чужом окне.
+        case clickOutside
+        /// Нажали Esc.
+        case escape
+    }
+
     /// Нажатие мимо накладки или Esc.
-    var onDismissOverlay: (() -> Void)?
+    var onDismissOverlay: ((DismissCause) -> Void)?
     /// Клавиша при открытой накладке. Возвращает, забрала ли накладка
     /// нажатие себе: не забранное уходит дальше своим ходом.
     var onOverlayKey: ((NSEvent) -> Bool)?
@@ -172,7 +184,7 @@ final class NotchInput {
         // в чужое приложение, то есть ровно на «мимо».
         if let outside = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown],
-            handler: { [weak self] _ in self?.onDismissOverlay?() }
+            handler: { [weak self] _ in self?.onDismissOverlay?(.clickOutside) }
         ) {
             monitors.append(outside)
         }
@@ -189,7 +201,7 @@ final class NotchInput {
         if let keys = NSEvent.addLocalMonitorForEvents(matching: [.keyDown], handler: { [weak self] event in
             guard let self, self.state.overlay != nil else { return event }
             if event.keyCode == 53 {
-                self.onDismissOverlay?()
+                self.onDismissOverlay?(.escape)
                 return nil
             }
             return self.onOverlayKey?(event) == true ? nil : event

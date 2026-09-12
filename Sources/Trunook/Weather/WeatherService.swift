@@ -47,6 +47,9 @@ final class WeatherService: NSObject, ObservableObject {
     private var announcedOutlook: WeatherCondition?
     private var lastPeriodicAlert = Date.distantPast
 
+    /// Кто ждёт ответа о погоде прямо сейчас — см. `snapshot(timeout:completion:)`.
+    private var waiting: [(Snapshot?) -> Void] = []
+
     /// Как часто спрашиваем сервис. Прогноз обновляется раз в час, чаще
     /// незачем — и вежливее к бесплатному источнику.
     private static let refreshInterval: TimeInterval = 15 * 60
@@ -106,6 +109,46 @@ final class WeatherService: NSObject, ObservableObject {
     func requestAccessIfNeeded() {
         guard authorization == .notDetermined else { return }
         manager.requestWhenInUseAuthorization()
+    }
+
+    /// Погода с ответом — для помощника.
+    ///
+    /// Обычному вырезу всё равно, когда придут сведения: плашка всплывёт
+    /// сама, а `refresh()` ничего не возвращает и возвращать не должен.
+    /// Инструменту же есть что сказать только с числами на руках — значит
+    /// приходится ждать.
+    ///
+    /// Срок ожидания короткий и обязателен: с выбором «по геопозиции»
+    /// система может не перезвонить вовсе — например, когда доступа нет, —
+    /// и без него помощник молчал бы до конца разговора.
+    func snapshot(timeout: TimeInterval = 6, completion: @escaping (Snapshot?) -> Void) {
+        guard settings.weatherEnabled else {
+            completion(nil)
+            return
+        }
+        // Свежее отдаём сразу: спрашивать сервер о том, что спросили пять
+        // минут назад, значит заставлять человека ждать впустую.
+        if let current, Date().timeIntervalSince(current.updatedAt) < Self.refreshInterval {
+            completion(current)
+            return
+        }
+
+        waiting.append(completion)
+        refresh()
+
+        let timer = Timer(timeInterval: timeout, repeats: false) { [weak self] _ in
+            self?.flushWaiting()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// Раздать ответ всем, кто его ждёт. Снимок может оказаться и несвежим,
+    /// и пустым — это честнее молчания.
+    private func flushWaiting() {
+        guard !waiting.isEmpty else { return }
+        let pending = waiting
+        waiting = []
+        for completion in pending { completion(current) }
     }
 
     func refresh() {
@@ -220,6 +263,9 @@ final class WeatherService: NSObject, ObservableObject {
         error = nil
         let previous = current
         current = snapshot
+        // Ждущих будим первыми: помощник держит человека в разговоре,
+        // а плашка подождёт своей очереди.
+        flushWaiting()
         DebugLog.write("погода: \(snapshot.condition.rawValue), \(snapshot.temperature)°"
                        + (snapshot.outlook.map { ", через \($0.inHours) ч \($0.condition.rawValue)" } ?? ""))
 

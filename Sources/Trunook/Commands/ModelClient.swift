@@ -19,6 +19,13 @@ final class ModelClient {
     struct ChatMessage: Equatable {
         let role: String
         let content: String
+        /// Что модель попросила выполнить. Только у роли `assistant`.
+        var toolCalls: [ToolCall] = []
+        /// Чей результат несёт реплика. Только у роли `tool`. Один диалект
+        /// спрашивает номер вызова, другой — имя инструмента, поэтому
+        /// держим оба.
+        var toolCallID: String?
+        var toolName: String?
 
         static func user(_ text: String) -> ChatMessage { ChatMessage(role: "user", content: text) }
         static func assistant(_ text: String) -> ChatMessage { ChatMessage(role: "assistant", content: text) }
@@ -26,6 +33,24 @@ final class ModelClient {
         /// к вопросу: приставка попадает в переписку и повторяется в каждой
         /// реплике, а модель начинает отвечать на неё саму.
         static func system(_ text: String) -> ChatMessage { ChatMessage(role: "system", content: text) }
+
+        /// Заход модели за инструментом. Текста в нём обычно нет вовсе,
+        /// но бывает: иные модели заодно проговаривают, что собираются
+        /// сделать.
+        static func calls(_ calls: [ToolCall], saying text: String = "") -> ChatMessage {
+            ChatMessage(role: "assistant", content: text, toolCalls: calls)
+        }
+
+        /// Что вышло у инструмента. Уходит модели, а не человеку.
+        static func tool(_ result: String, id: String?, name: String) -> ChatMessage {
+            ChatMessage(role: "tool", content: result, toolCallID: id, toolName: name)
+        }
+    }
+
+    /// Чем кончился заход: словами, вызовами инструментов или тем и другим.
+    struct Completion: Equatable {
+        let text: String
+        let calls: [ToolCall]
     }
 
     private let settings: Settings
@@ -93,6 +118,11 @@ final class ModelClient {
     /// считать до конца, занимая память под контекст.
     /// `model` — чем отвечать. `nil` — моделью из настроек: у большинства
     /// разговоров своей модели нет, а у команды бывает.
+    /// Прежний вход: один заход без инструментов.
+    ///
+    /// Им ходят `generate`, именование заметок, связи и голос — всё, что
+    /// об инструментах не знает и знать не должно. Оставлен ровно с той же
+    /// подписью: агент не имеет права поменять поведение там, где его нет.
     @discardableResult
     func stream(
         messages: [ChatMessage],
@@ -100,6 +130,34 @@ final class ModelClient {
         model: String? = nil,
         onToken: @escaping (String) -> Void,
         onFinish: @escaping (Result<String, Error>) -> Void
+    ) -> Task<Void, Never> {
+        stream(
+            messages: messages,
+            tools: [],
+            contextWindow: contextWindow,
+            model: model,
+            onToken: onToken,
+            onFinish: { result in onFinish(result.map(\.text)) }
+        )
+    }
+
+    /// Заход с инструментами.
+    ///
+    /// Поток остаётся потоком и здесь. Отказ от `stream: true` разбор бы
+    /// упростил, но стоил бы двух вещей сразу: обычный вопрос перестал бы
+    /// печататься на глазах — а на местной модели это десяток секунд пустой
+    /// панели, — и у OpenAI-совместимых серверов пришлось бы завести второй
+    /// разбор ответа, потому что вне потока текст лежит не в `delta`,
+    /// а в `message`. Осколки вызова накапливает `ToolCallStream`: кода
+    /// в нём меньше, и он весь чистый.
+    @discardableResult
+    func stream(
+        messages: [ChatMessage],
+        tools: [[String: Any]],
+        contextWindow: Int? = nil,
+        model: String? = nil,
+        onToken: @escaping (String) -> Void,
+        onFinish: @escaping (Result<Completion, Error>) -> Void
     ) -> Task<Void, Never> {
         // Клиент держится **сильно**, пока идёт запрос.
         //
@@ -118,7 +176,8 @@ final class ModelClient {
                 let request = try self.chatRequest(
                     messages: messages,
                     contextWindow: contextWindow,
-                    model: model
+                    model: model,
+                    tools: tools
                 )
                 let (bytes, response) = try await self.session.bytes(for: request)
 
@@ -141,8 +200,13 @@ final class ModelClient {
                 // но по-разному: Ollama кладёт в строку голый объект JSON,
                 // OpenAI-совместимый — строку вида `data: {…}` и `data: [DONE]`
                 // на конце. Разбор поэтому разный, а всё вокруг — общее.
+                var collector = ToolCallStream()
                 for try await line in bytes.lines {
                     if Task.isCancelled { return }
+                    // Вызовы снимаются с каждой строки и **до** разбора
+                    // текста: одна посылка законно несёт и кусок ответа,
+                    // и кусок вызова, а `continue` ниже унёс бы её мимо.
+                    if !tools.isEmpty { collector.eat(line, dialect: dialect) }
                     guard let piece = Self.token(in: line, dialect: dialect) else {
                         if Self.isEnd(line, dialect: dialect) { break }
                         continue
@@ -153,7 +217,7 @@ final class ModelClient {
                 }
 
                 if Task.isCancelled { return }
-                let final = answer
+                let final = Completion(text: answer, calls: collector.calls())
                 await MainActor.run { onFinish(.success(final)) }
             } catch {
                 if Task.isCancelled || error is CancellationError { return }
@@ -197,7 +261,7 @@ final class ModelClient {
 
     /// Содержимое строки `data: …`. Прочие строки потока — пустые разделители
     /// и служебные `event:` — ответа не несут.
-    private static func sseData(_ line: String) -> String? {
+    static func sseData(_ line: String) -> String? {
         guard line.hasPrefix("data:") else { return nil }
         return String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
     }
@@ -211,10 +275,57 @@ final class ModelClient {
         settings.modelRef(model) ?? settings.defaultModel
     }
 
+    /// Одна реплика в один словарь.
+    ///
+    /// Отдельной функцией, потому что здесь диалекты **расходятся** —
+    /// единственное место во всём проводе, где это так. Разметку запроса
+    /// они делят, а эхо вызова и его результата — нет:
+    ///
+    /// - аргументы вызова у OpenAI **строка**, у Ollama **объект**. Строка,
+    ///   попавшая Ollama на место объекта, её разборщиком не принимается,
+    ///   и выглядит это как «модель перестала звать инструменты»;
+    /// - на результат OpenAI ссылается номером вызова (`tool_call_id`),
+    ///   Ollama — именем инструмента (`tool_name`).
+    ///
+    /// Обычная реплика при этом собирается ровно так же, как собиралась
+    /// до всякого агента: два ключа и ничего лишнего.
+    static func wire(_ message: ChatMessage, dialect: AIProvider.Dialect) -> [String: Any] {
+        var wire: [String: Any] = ["role": message.role, "content": message.content]
+
+        if !message.toolCalls.isEmpty {
+            wire["tool_calls"] = message.toolCalls.map { call -> [String: Any] in
+                switch dialect {
+                case .openAI:
+                    return [
+                        "id": call.id,
+                        "type": "function",
+                        "function": ["name": call.name, "arguments": call.arguments],
+                    ]
+                case .ollama:
+                    return [
+                        "function": ["name": call.name, "arguments": call.wireArguments],
+                    ]
+                }
+            }
+        }
+
+        if message.role == "tool" {
+            switch dialect {
+            case .openAI:
+                if let id = message.toolCallID { wire["tool_call_id"] = id }
+            case .ollama:
+                if let name = message.toolName { wire["tool_name"] = name }
+            }
+        }
+
+        return wire
+    }
+
     private func chatRequest(
         messages: [ChatMessage],
         contextWindow: Int?,
-        model: String?
+        model: String?,
+        tools: [[String: Any]]
     ) throws -> URLRequest {
         let target = target(model)
         let provider = target.provider
@@ -227,8 +338,12 @@ final class ModelClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         authorize(&request, as: provider)
 
-        let wire = messages.map { ["role": $0.role, "content": $0.content] }
+        let wire = messages.map { Self.wire($0, dialect: provider.dialect) }
         var body: [String: Any] = ["model": target.name, "messages": wire, "stream": true]
+        // Описания инструментов — той же разметкой у обоих: `tools` у Ollama
+        // устроен по образцу OpenAI. Пустой список не кладём вовсе: запрос
+        // без агента обязан остаться ровно таким, каким был.
+        if !tools.isEmpty { body["tools"] = tools }
 
         switch provider.dialect {
         case .ollama:

@@ -66,6 +66,11 @@ struct NotchInputs: Equatable {
     var assistantCommandRows = 0
     /// Модель включена. Без неё в панели нет ни ленты, ни поля вопроса.
     var assistantModelEnabled = true
+    /// Помощник предлагает что-то сделать — в панели стоит карточка.
+    /// Признаком, а не значением: высота карточки постоянна.
+    var assistantPending = false
+    /// Ответ готов — под полем стоят действия с ним, а не список команд.
+    var assistantHasAnswer = false
     var shelfCount = 0
     var hubCount = 0
     var notesRows = 0
@@ -146,6 +151,8 @@ struct NotchInputs: Equatable {
             assistantCaptureExpanded: assistantCaptureExpanded,
             assistantCommandRows: assistantCommandRows,
             assistantModelEnabled: assistantModelEnabled,
+            assistantPending: assistantPending,
+            assistantHasAnswer: assistantHasAnswer,
             shelfCount: shelfCount,
             hubCount: hubCount,
             notesRows: notesRows,

@@ -10,7 +10,8 @@ windows.
 
 Hover and the notch shows what is playing and when the next meeting is. Click
 or swipe down and the full panel opens. Right click opens the menu of
-everything.
+everything. Hold the press and a fan of quick-access circles slides out from
+under the notch: move towards the one you want and let go.
 
 ![Gestures](docs/gestures.png)
 
@@ -29,7 +30,6 @@ changed in settings or right in the welcome window.
 | ⌃⌥Z | New note |
 | ⌃⌥⇧Z | Selected text straight to notes |
 | ⌃⌃ | Ask out loud |
-| ⌥⌥ | Ask out loud about your notes |
 | ⌃⌥N | Main panel |
 | ⌃⌥1 … ⌃⌥9 | Commands directly |
 | ⌃⇧1 … ⌃⇧9 | Paste a clipboard entry by number |
@@ -61,18 +61,30 @@ changed in settings or right in the welcome window.
   of those fill in themselves; anything else connects as a custom provider.
   Several can be kept at once: each has its own address, key and model, and
   a command picks a model from any of them.
-- **Voice assistant.** A double press of ⌃ asks out loud, a double ⌥ asks
-  about your notes. The panel stays closed: the notch jolts and glows — blue
+- **An assistant that acts.** Allow it, and the model does more than answer:
+  it sets timers and the stopwatch, checks what is coming up, a day's agenda
+  and the weather, and creates events, reminders and notes. Reading happens
+  at once; writing only after a card in the notch says “Create” or “Cancel”.
+  Off by default, and it needs a model that can call tools.
+- **Voice assistant.** A double press of ⌃ asks out loud. If the assistant is
+  allowed to act, voice goes the same way a typed question does: the model
+  looks into your notes, the calendar or the weather by itself when it needs
+  to. The panel stays closed: the notch jolts and glows — blue
   while it listens, the model's colour while it thinks and answers — and a live
   level meter on the side shows that you are being heard. The answer is short
   and read aloud as the model writes it; a button in the notch stops it. Click
   the notch to open the conversation and read it with your eyes. Speech is
   recognised **on your own machine** and never leaves it.
+- **Dictation.** The microphone in the question line puts speech straight into
+  the field as you talk; whatever was typed before it stays. A whole note can
+  be dictated too — from a quick-access circle. Speech is recognised
+  **on the computer itself**.
 - **Notes.** The same panel has a mode switch: "Commands" is a question line and an
   answer, "Note" is a multi-line field with formatting. The model comes up with
   the note's name. Its answer goes into notes with one button too. The "search
   notes" toggle makes the model answer from your own records rather than from
-  general knowledge. ⌃⌥Z opens an empty note; the list with word search is one
+  general knowledge; with an acting assistant it is not needed and goes away —
+  the model looks into the notes by itself. ⌃⌥Z opens an empty note; the list with word search is one
   button away in that same panel, and notes are exported from there into
   a folder as Markdown files. Someone else's text goes in without retyping:
   ⌃⌥⇧Z saves whatever is selected in any window, and copied text has a button
@@ -105,7 +117,8 @@ changed in settings or right in the welcome window.
   notch — half an hour, an hour, ninety minutes, two hours or no limit; the
   countdown is there too. While the cup is on, the notch stays widened: the
   icon on the left, the time left on the right — and a click leads straight
-  back to the choice of limit.
+  back to the choice of limit. The cup is in quick access too, as a circle
+  under the notch.
 
 - **Updates itself.** Once a day the app asks GitHub whether a newer version
   exists and downloads it in the background. When it is ready, a pill appears

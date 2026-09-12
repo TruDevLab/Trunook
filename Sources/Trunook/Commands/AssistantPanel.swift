@@ -29,6 +29,14 @@ struct AssistantPanel: View {
     /// и сохранить можно и так, а кнопки, которым нечего делать, прячутся.
     let modelEnabled: Bool
     let notesEnabled: Bool
+    /// Помощник ищет по заметкам сам, инструментом.
+    ///
+    /// Тогда переключателя в полосе нет: он делал бы ровно то же, чем
+    /// занят `notes_search`, только руками и вдобавок — заметки уходили бы
+    /// модели дважды, простынёй в первой реплике и инструментом следом.
+    /// Остаётся он там, где инструмента нет: помощник выключен, или модель
+    /// не умеет их звать.
+    let agentSearchesNotes: Bool
     /// Команды, которые показывает список. Пустой — списка нет вовсе:
     /// команды выключены в настройках.
     let commands: [QuickCommand]
@@ -53,9 +61,19 @@ struct AssistantPanel: View {
     /// забрало ли оно нажатие себе.
     let onMoveHighlight: (Int) -> Bool
     /// ← и → ведут подсветку по действиям с готовым ответом.
-    let onMoveAnswerAction: (Int) -> Bool
     let onCycleModel: () -> Bool
     let onEscapeHighlight: () -> Bool
+    /// Надиктовать вопрос голосом вместо набора.
+    let onDictateQuestion: () -> Void
+    /// Диктовка идёт прямо сейчас — значок микрофона живой.
+    let isDictating: Bool
+    /// Голос включён в настройках: без него микрофону в поле делать нечего.
+    let voiceEnabled: Bool
+    /// Человек согласился с тем, что предложил помощник.
+    let onConfirmAction: () -> Void
+    /// Отказался. Это не обрыв разговора: модель узнаёт об отказе и
+    /// договаривает словами.
+    let onCancelAction: () -> Void
     let onSaveNote: () -> Void
     /// Начать или закончить аудиозаметку.
     let onToggleRecording: () -> Void
@@ -199,6 +217,11 @@ struct AssistantPanel: View {
                 total += userReplyHeight(reply.text, available: available - userReplyInset)
             case .assistant:
                 total += answerReplyHeight(reply.text, available: available)
+            // Шаг помощника — всегда одна строка: подпись у него короткая
+            // и обрезается, а панель, растущая от названия встречи,
+            // прыгала бы на каждом ответе.
+            case .step:
+                total += stepHeight
             }
         }
         total += CGFloat(max(0, transcript.count - 1)) * replySpacing
@@ -212,6 +235,10 @@ struct AssistantPanel: View {
     /// панели лишнего — и под лентой открылась бы пустая полоса тем шире,
     /// чем больше в ответе абзацев.
     static let blankLineHeight: CGFloat = 4 + lineSpacing
+
+    /// Строка шага помощника. Постоянная: подпись обрезается, а не переносится.
+    static let stepHeight: CGFloat = 15
+    static let stepGlyph: CGFloat = 11
 
     /// Поле внутри капсулы своей реплики. Наружу — потому что по нему же
     /// считается её высота: выписанное в двух местах порознь, оно разошлось
@@ -280,7 +307,9 @@ struct AssistantPanel: View {
         captureExpanded: Bool = false,
         commandRows: Int = 0,
         modelEnabled: Bool = true,
-        notesEnabled: Bool = true
+        notesEnabled: Bool = true,
+        hasPending: Bool = false,
+        hasAnswer: Bool = false
     ) -> CGFloat {
         var content: CGFloat = 0
         switch mode {
@@ -301,19 +330,28 @@ struct AssistantPanel: View {
                     isStreaming: isStreaming,
                     notchWidth: notchWidth
                 )
-                // Строка действий над лентой появляется только вместе
-                // с ответом: держать её пустой значило бы отнимать высоту
-                // у самой ленты.
-                if !transcript.isEmpty || isStreaming {
-                    content += NotchStyle.gridSpacing + actionSize
+                // Карточка подтверждения — хвост ответа: она стоит там,
+                // куда глаз уходит следом за прочитанным, и над полем,
+                // в которое сейчас будут отвечать.
+                if hasPending {
+                    content += NotchStyle.gridSpacing + AgentCard.height
                 }
                 content += NotchStyle.gridSpacing
                     + questionHeight(text: question, notchWidth: notchWidth)
             }
-            // Список команд стоит под полем: сперва «что сказать», потом
-            // «чем это сделать». Ноль строк — признак того, что списка нет
-            // вовсе: команды выключены в настройках.
-            if commandRows > 0 {
+            // Слот под полем один на двоих, и высота обязана считаться
+            // тем же правилом, каким вёрстка выбирает, кого в нём рисовать.
+            // Разойдись они — панель либо обрежет строку действий, либо
+            // оставит под списком пустую полосу.
+            //
+            // Ноль строк — признак того, что списка нет вовсе: команды
+            // выключены в настройках.
+            if hasAnswer {
+                let rows = answerActionCount(notesEnabled: notesEnabled)
+                content += NotchStyle.gridSpacing
+                    + CGFloat(rows) * CommandRows.rowHeight
+                    + CGFloat(rows - 1) * CommandRows.spacing
+            } else if commandRows > 0 {
                 content += NotchStyle.gridSpacing + CommandRows.height(rows: commandRows)
             }
         case .note:
@@ -342,25 +380,34 @@ struct AssistantPanel: View {
         // сам `GrowingTextField`, и просить у него потолок надо тем же
         // расчётом, каким считается обычная высота.
         let longQuestion = String(repeating: "\n", count: GrowingTextField.maxLines)
-        return NotePanelMode.allCases
-            .map {
-                height(
+        // Перебираются **оба** состояния слота под полем, а не только список.
+        // Список из четырёх строк выше одной строки действий, и казалось бы
+        // довольно его одного, — но так потолок зависел бы от того, сколько
+        // у человека команд: с одной-единственной строка действий оказалась
+        // бы выше, и панель с ответом обрезалась бы краем окна.
+        var tallest: CGFloat = 0
+        for mode in NotePanelMode.allCases {
+            for hasAnswer in [false, true] {
+                tallest = max(tallest, height(
                     notchHeight: notchHeight,
                     notchWidth: notchWidth,
-                    mode: $0,
+                    mode: mode,
                     question: longQuestion,
                     hasCapture: true,
                     captureExpanded: true,
-                    commandRows: QuickCommands.visibleRows
-                )
+                    commandRows: QuickCommands.visibleRows,
+                    hasPending: true,
+                    hasAnswer: hasAnswer
+                ))
             }
-            .max() ?? 0
+        }
+        return tallest
     }
 
     // MARK: - Тело
 
     private var isNote: Bool { draft.mode == .note }
-    private var hasAnswer: Bool { !session.transcript.isEmpty || session.isStreaming }
+    private var hasAnswer: Bool { !session.answer.isEmpty }
     private var isEditingNote: Bool { draft.editingID != nil }
 
     var body: some View {
@@ -381,11 +428,19 @@ struct AssistantPanel: View {
                         action: onStopVoice
                     )
                 }
-                // Запись — в крыле, рядом со списком, а не в полосе
-                // действий внизу. В полосе она стояла пятым значком
-                // и отнимала место у главной кнопки: подпись «Сохранить»
-                // переставала помещаться на свою подложку.
-                if recorder.isAvailable {
+                // Запись и список заметок — **только в режиме заметки**.
+                //
+                // Прежде они стояли в крыле всегда, и в режиме команд крыло
+                // обещало не то: человек пришёл спросить модель, а рядом
+                // с крестиком висят диктофон и список записей — вещи
+                // из соседнего режима, до которых один щелчок по
+                // переключателю внизу. Крыло должно говорить про то, что
+                // сейчас на экране.
+                //
+                // Запись — в крыле, а не в полосе действий внизу. В полосе
+                // она стояла пятым значком и отнимала место у главной кнопки:
+                // подпись «Сохранить» переставала помещаться на свою подложку.
+                if isNote, recorder.isAvailable {
                     NotchPanelButton(
                         symbol: recorder.phase.isRecording ? "stop.circle.fill" : "mic.circle",
                         hint: recordHint,
@@ -394,7 +449,7 @@ struct AssistantPanel: View {
                     )
                     .disabled(recorder.phase.isBusy && !recorder.phase.isRecording)
                 }
-                if notesEnabled {
+                if isNote, notesEnabled {
                     NotchPanelButton(
                         symbol: "list.bullet.rectangle",
                         hint: t("Список заметок"),
@@ -421,10 +476,27 @@ struct AssistantPanel: View {
                     }
                     if modelEnabled {
                         answerBody
-                        if hasAnswer { answerActions }
+                        if let pending = session.pending {
+                            AgentCard(
+                                action: pending,
+                                onConfirm: onConfirmAction,
+                                onCancel: onCancelAction
+                            )
+                        }
                         questionField
                     }
-                    if !commands.isEmpty { commandList }
+                    // Под полем — один слот на двоих. Пока ответа нет, в нём
+                    // список команд: человек выбирает, что сделать. Появился
+                    // ответ — там же появляется, что с ним сделать. Прежде
+                    // действия жили значками в правом нижнем углу, и это была
+                    // самая дальняя от ответа точка панели: прочитав ответ,
+                    // глаз шёл вниз и упирался в список команд, который своё
+                    // дело уже сделал.
+                    if hasAnswer {
+                        answerActions
+                    } else if !commands.isEmpty {
+                        commandList
+                    }
                 }
                 switch draft.prompt {
                 case .link: linkRow
@@ -577,6 +649,22 @@ struct AssistantPanel: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+        // Не пузырь и не абзац: отметка о сделанном. Приглушённая, со
+        // значком инструмента — её читают краем глаза, не вчитываясь.
+        case .step:
+            HStack(spacing: 5) {
+                Image(systemName: reply.symbol ?? "wand.and.stars")
+                    .font(.system(size: NotchStyle.font(9.5)))
+                    .frame(width: Self.stepGlyph, alignment: .center)
+                Text(reply.text)
+                    .font(.system(size: NotchStyle.font(10.5)))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(Palette.assistant.opacity(NotchStyle.primaryOpacity))
+            .frame(height: Self.stepHeight)
         }
     }
 
@@ -654,34 +742,83 @@ struct AssistantPanel: View {
     /// команд: команду человек уже выбрал, ответ получил — остаётся решить,
     /// куда его деть. ← и → водят подсветку, Enter выполняет.
     private var answerActions: some View {
-        HStack(spacing: 4) {
-            Spacer(minLength: 0)
-            icon(
-                AssistantSession.AnswerAction.copy.symbol,
-                AssistantSession.AnswerAction.copy.title,
-                isHighlighted: session.highlightedAnswerAction == .copy,
-                action: onCopy
-            )
-            icon(
-                AssistantSession.AnswerAction.paste.symbol,
-                AssistantSession.AnswerAction.paste.title,
-                isHighlighted: session.highlightedAnswerAction == .paste,
-                action: onPaste
-            )
+        VStack(spacing: CommandRows.spacing) {
+            answerAction(.copy, action: onCopy)
+            answerAction(.paste, action: onPaste)
             if notesEnabled {
-                icon(
-                    AssistantSession.AnswerAction.note.symbol,
-                    AssistantSession.AnswerAction.note.title,
-                    tint: Palette.assistant,
-                    isHighlighted: session.highlightedAnswerAction == .note,
-                    action: onSaveAnswer
-                )
+                answerAction(.note, tint: Palette.assistant, action: onSaveAnswer)
             }
         }
-        .frame(height: Self.actionSize)
-        // Пока ответа нет, действовать не с чем.
-        .disabled(session.answer.isEmpty)
-        .opacity(session.answer.isEmpty ? 0.4 : 1)
+    }
+
+    /// Сколько действий с ответом показано прямо сейчас.
+    ///
+    /// Считается **тем же** правилом, каким вёрстка их и рисует: разойдись
+    /// они — панель обрезала бы последнее действие или оставила под ним
+    /// пустую полосу.
+    static func answerActionCount(notesEnabled: Bool) -> Int {
+        notesEnabled ? 3 : 2
+    }
+
+    /// Одно действие с ответом — строкой, как команда.
+    ///
+    /// Строками, а не кнопками в ряд: действия занимают место списка команд,
+    /// и водит по ним та же пара клавиш. Ряд поперёк заставлял бы человека
+    /// менять направление мысли на полпути — вниз по списку, вбок
+    /// по действиям, — хотя список тот же самый, просто сменился.
+    ///
+    /// Значок и подпись слева, как у команды, и та же плитка: подсветка
+    /// клавишей у них обязана выглядеть одинаково.
+    private func answerAction(
+        _ action: AssistantSession.AnswerAction,
+        tint: Color = .white,
+        action perform: @escaping () -> Void
+    ) -> some View {
+        let isHighlighted = session.highlightedAnswerAction == action
+        return NotchTile(
+            id: "answer-\(action.rawValue)",
+            radius: NotchStyle.rowRadius,
+            isHighlighted: isHighlighted
+        ) {
+            Button(action: perform) {
+                HStack(spacing: 8) {
+                    Image(systemName: action.symbol)
+                        .font(.system(size: NotchStyle.font(11), weight: .medium))
+                        .foregroundStyle(tint)
+                        .frame(width: 16)
+                    Text(action.title)
+                        .font(.system(size: NotchStyle.font(11.5)))
+                        .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 8)
+                }
+                .padding(.leading, 8)
+                .frame(height: CommandRows.rowHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+            .notchHint(action.title)
+        }
+        // Обводка говорит, что сюда привела клавиатура и Enter сработает
+        // здесь, — то же правило, что и у строки команды.
+        // Заливка цветом смысла, а не прибавка белизны. Наведение поднимает
+        // белую заливку с 0,08 до 0,15 — на глаз это почти ничто, и строка,
+        // выбранная клавишей, читалась как невыбранная. Цвет виден сразу
+        // и ни с чем не путается: белым подсвечивается «под курсором»,
+        // цветом — «сюда привела клавиатура, и Enter сработает здесь».
+        .background(
+            RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
+                .fill(Palette.assistant.opacity(isHighlighted ? NotchStyle.dense(0.32) : 0))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
+                .strokeBorder(
+                    isHighlighted ? Palette.assistant.opacity(0.9) : .clear,
+                    lineWidth: 1.5
+                )
+        )
+        .animation(.easeOut(duration: 0.12), value: isHighlighted)
     }
 
     // MARK: - Поля ввода
@@ -698,7 +835,6 @@ struct AssistantPanel: View {
             textWidth: Self.questionTextWidth(notchWidth: metrics.notchWidth),
             onSubmit: onSend,
             onMoveHighlight: onMoveHighlight,
-            onMoveAnswerAction: onMoveAnswerAction,
             onCycleModel: onCycleModel,
             onEscape: onEscapeHighlight
         )
@@ -744,6 +880,60 @@ struct AssistantPanel: View {
             }
         }
         .overlay(alignment: .bottomTrailing) { flashPill }
+        // Микрофон в самом поле, а не в крыле панели: он относится к этому
+        // полю и ни к чему больше, а крыло у панели общее на все её режимы.
+        // Правым краем, где кончается набранное, — там же, где у обычного
+        // поля стоит кнопка очистки.
+        .overlay(alignment: .bottomTrailing) {
+            if voiceEnabled, flash.text == nil {
+                Button(action: onDictateQuestion) {
+                    Image(systemName: isDictating ? "waveform" : "mic")
+                        .font(.system(size: NotchStyle.font(11)))
+                        .foregroundStyle(
+                            isDictating
+                                ? Palette.assistant
+                                : .white.opacity(NotchStyle.secondaryOpacity)
+                        )
+                        .frame(width: 22, height: 22)
+                        // Форма нажатия обязательна: без неё кнопка
+                        // нажимается только по самим штрихам значка.
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PressableStyle())
+                .notchHint(t("Надиктовать"))
+                // Курсор приходится ставить руками. Кнопка лежит **поверх**
+                // `NSTextView`, а тот выставляет себе курсор ввода на всю
+                // свою рамку — и делает это сам, поверх всего, что на нём
+                // нарисовано. Кнопка от этого выглядела частью поля:
+                // наведёшь — палка ввода, и нажать на неё никто не пробует.
+                .onHover { inside in
+                    if inside {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .padding(.trailing, 4)
+                .padding(.bottom, 2)
+            }
+        }
+        // Какой моделью уйдёт этот вопрос. Видно только когда её выбрали
+        // руками: «как в настройках» — обычное состояние, и подпись о нём
+        // была бы шумом на каждом вопросе. Появившаяся подпись и есть
+        // ответ на нажатый Tab.
+        .overlay(alignment: .topTrailing) {
+            if let model = session.questionModel {
+                Text(ModelRef.parse(model, fallback: defaultModel.provider)?.shortName ?? model)
+                    .font(.system(size: NotchStyle.font(9.5)))
+                    .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .frame(maxWidth: CommandRows.modelWidth, alignment: .trailing)
+                    .padding(.horizontal, 9)
+                    .padding(.top, 4)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
     /// Список команд под полем.
@@ -865,6 +1055,15 @@ struct AssistantPanel: View {
     /// действия нет — отправлять некому, — а переключатель режима есть только
     /// вместе с заметками. Пустая полоса при этом всё равно занимала высоту,
     /// и под списком команд оставалась чёрная плешь в тридцать точек.
+    /// Стоит ли в полосе ручной поиск по заметкам.
+    ///
+    /// Отдельным правилом, а не условием по месту: оно завязано на состав
+    /// инструментов помощника, и проверять его надо там же, где проверяют
+    /// сам состав.
+    static func showsNotesSearch(notesEnabled: Bool, agentSearchesNotes: Bool) -> Bool {
+        notesEnabled && !agentSearchesNotes
+    }
+
     static func hasActionRow(modelEnabled: Bool, notesEnabled: Bool, isNote: Bool) -> Bool {
         if isNote { return notesEnabled }
         return notesEnabled || modelEnabled
@@ -951,7 +1150,7 @@ struct AssistantPanel: View {
             // Распорка: пара справа прижата к краю, переключатель режима —
             // к левому. Растянутая на весь остаток кнопка читалась полосой.
             Spacer(minLength: 0)
-            if notesEnabled {
+            if Self.showsNotesSearch(notesEnabled: notesEnabled, agentSearchesNotes: agentSearchesNotes) {
                 NotesSearchToggle(isOn: session.usesNotes, action: onToggleNotesSearch)
             }
             // Подпись всегда одна и та же. Была разная — «Спросить

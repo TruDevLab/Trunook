@@ -122,6 +122,8 @@ struct NotchView: View {
     @ObservedObject private var motion = MotionPreference.shared
     @ObservedObject var clipboard: ClipboardService
     @ObservedObject var assistant: AssistantSession
+    /// Диктовка: по ней оживает значок микрофона в поле вопроса.
+    @ObservedObject var dictation: Dictation
     /// Установленные модели Ollama — для правой части строки команды.
     /// Общий объект с настройками: список один на приложение, и опрашивать
     /// Ollama дважды незачем.
@@ -187,9 +189,11 @@ struct NotchView: View {
     /// без списка команд стрелки и Tab принадлежат тексту.
     let onMoveHighlight: (Int) -> Bool
     /// ← и → ведут подсветку по действиям с готовым ответом.
-    let onMoveAnswerAction: (Int) -> Bool
     let onCycleModel: () -> Bool
     let onEscapeHighlight: () -> Bool
+    /// Человек согласился с тем, что предложил помощник, — или отказался.
+    let onConfirmAction: () -> Void
+    let onCancelAction: () -> Void
     let onCopyLink: (URL) -> Void
     let onOpenItem: (CalendarItem) -> Void
     /// Закрыть любую накладку — крестиком в её шапке.
@@ -201,6 +205,12 @@ struct NotchView: View {
     let onSaveClipboardToNotes: (ClipboardEntry) -> Void
     /// Оборвать голосовой заход — кнопкой в мини-виде или в панели.
     let onStopVoice: () -> Void
+    /// Позвать голос из меню функций — тем же, чем его зовёт жест.
+    let onStartVoice: () -> Void
+    /// Надиктовать заметку.
+    let onDictateNote: () -> Void
+    /// Надиктовать вопрос в поле команды.
+    let onDictateQuestion: () -> Void
     /// Остановить запись — нажатием по полоске в вырезе.
     let onStopRecording: () -> Void
     /// Начать или закончить аудиозаметку — кнопкой в панели заметки.
@@ -302,8 +312,15 @@ struct NotchView: View {
     /// добавляются только действия. Раньше состав жил здесь, а его длина —
     /// отдельной константой в контроллере, и они разошлись бы при первой
     /// же правке.
-    private var hubItems: [HubPanel.Item] {
-        HubEntry.allCases.map { entry in
+    private var hubItems: [HubPanel.Item] { items(of: HubEntry.panelCases) }
+
+    /// Кружки кольца. Состав шире, чем у меню: кольцо — веер, а не сетка,
+    /// и высотой оно не ограничено. Сборка при этом общая — расходиться
+    /// двум спискам можно только длиной.
+    private var ringItems: [HubPanel.Item] { items(of: HubEntry.ringCases) }
+
+    private func items(of entries: [HubEntry]) -> [HubPanel.Item] {
+        entries.map { entry in
             HubPanel.Item(
                 id: entry.id,
                 title: entry.title,
@@ -325,7 +342,10 @@ struct NotchView: View {
         case .shelf: onOpenShelf()
         case .timer: onOpenTimer()
         case .monitor: onOpenMonitor()
+        case .voice: onStartVoice()
+        case .dictation: onDictateNote()
         case .teleprompter: onOpenTeleprompter()
+        case .caffeine: onOpenAwake()
         }
     }
 
@@ -343,7 +363,7 @@ struct NotchView: View {
     /// и SwiftUI пересобирает поддерево вместо того чтобы доиграть переход.
     private var quickRing: some View {
         QuickRingView(
-            items: hubItems,
+            items: ringItems,
             highlighted: ring.highlighted,
             progress: ring.isOpen ? 1 : 0,
             notchHeight: metrics.notchHeight
@@ -808,6 +828,7 @@ struct NotchView: View {
                 metrics: metrics,
                 modelEnabled: settings.ollamaEnabled,
                 notesEnabled: settings.notesEnabled,
+                agentSearchesNotes: AgentTool.searchNotes.isEnabled(settings),
                 commands: commands,
                 models: models.models,
                 defaultModel: settings.defaultModel,
@@ -819,9 +840,13 @@ struct NotchView: View {
                 onChooseModel: onChooseModel,
                 onCancelChoosingModel: onCancelChoosingModel,
                 onMoveHighlight: onMoveHighlight,
-                onMoveAnswerAction: onMoveAnswerAction,
                 onCycleModel: onCycleModel,
                 onEscapeHighlight: onEscapeHighlight,
+                onDictateQuestion: onDictateQuestion,
+                isDictating: dictation.isListening,
+                voiceEnabled: settings.voiceEnabled,
+                onConfirmAction: onConfirmAction,
+                onCancelAction: onCancelAction,
                 onSaveNote: onSaveDraft,
                 onToggleRecording: onToggleRecording,
                 onCopy: onCopyAnswer,

@@ -24,6 +24,11 @@ struct Note: Identifiable, Equatable {
         case obsidian
         /// Расшифрованный разговор: встреча или аудиозаметка.
         case recording
+        /// Завёл помощник по просьбе человека. Отдельно от `assistant`:
+        /// та — ответ модели, отложенный кнопкой, а эту модель написала
+        /// сама. «Откуда взялась эта запись» — первый вопрос к тексту,
+        /// которого ты не печатал.
+        case agent
 
         var symbol: String {
             switch self {
@@ -33,6 +38,7 @@ struct Note: Identifiable, Equatable {
             case .selection: return "text.viewfinder"
             case .obsidian: return "circle.hexagongrid"
             case .recording: return "waveform"
+            case .agent: return "wand.and.stars"
             }
         }
     }

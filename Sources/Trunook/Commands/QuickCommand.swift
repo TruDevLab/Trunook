@@ -302,6 +302,12 @@ enum QuickCommands {
     }
 
     /// Заготовки при первом запуске: показывают, что вообще умеет список.
+    ///
+    /// Три последние работают через помощника: своего вида у них нет,
+    /// это обычные запросы к модели, а дело делает инструмент. Промт
+    /// поэтому написан как просьба, а не как задание на текст: «заведи»,
+    /// а не «составь». С выключенным помощником они ответят словами —
+    /// это видно сразу и чинится одной настройкой.
     private static var defaults0: [QuickCommand] {
         [
             QuickCommand(
@@ -313,6 +319,10 @@ enum QuickCommands {
                 isEnabled: true,
                 hotKey: HotKeySpec.slot(0)
             ),
+            // Язык подстановкой не задаётся: и название, и промт переводятся
+            // таблицей, и в английском окне здесь стоит «Translate to English».
+            // Назвать язык в промте одним словом нельзя — тогда он был бы
+            // один на все три языка интерфейса.
             QuickCommand(
                 id: 1,
                 title: t("Перевести на русский"),
@@ -331,17 +341,53 @@ enum QuickCommands {
                 isEnabled: true,
                 hotKey: HotKeySpec.slot(2)
             ),
+            QuickCommand(
+                id: 3,
+                title: t("Улучшить текст"),
+                kind: .ollama,
+                payload: t("Перепиши понятнее и складнее, сохранив смысл и тон. Верни только текст, без пояснений.\n\n{{selection}}"),
+                symbol: "wand.and.sparkles",
+                isEnabled: true,
+                hotKey: HotKeySpec.slot(3)
+            ),
+            QuickCommand(
+                id: 4,
+                title: t("Объяснить простыми словами"),
+                kind: .ollama,
+                payload: t("Объясни простыми словами, без терминов. Коротко.\n\n{{selection}}"),
+                symbol: "lightbulb",
+                isEnabled: true,
+                hotKey: HotKeySpec.slot(4)
+            ),
+            QuickCommand(
+                id: 5,
+                title: t("Добавить в напоминания"),
+                kind: .ollama,
+                payload: t("Заведи напоминание по этому тексту. Срок возьми из него; если срока нет — не указывай.\n\n{{selection}}"),
+                symbol: "checklist",
+                isEnabled: true,
+                hotKey: HotKeySpec.slot(5)
+            ),
             // Записать захваченное, ничего не спрашивая у модели. Идёт
             // из коробки, но ничем не особеннее прочих: её можно удалить,
             // переставить и переименовать.
             QuickCommand(
-                id: 3,
+                id: 6,
                 title: t("Сохранить в заметки"),
                 kind: .saveToNotes,
                 payload: "",
                 symbol: "tray.and.arrow.down",
                 isEnabled: true,
-                hotKey: HotKeySpec.slot(3)
+                hotKey: HotKeySpec.slot(6)
+            ),
+            QuickCommand(
+                id: 7,
+                title: t("Создать встречу"),
+                kind: .ollama,
+                payload: t("Заведи встречу по этому тексту: возьми из него название, дату и время.\n\n{{selection}}"),
+                symbol: "calendar.badge.plus",
+                isEnabled: true,
+                hotKey: HotKeySpec.slot(7)
             ),
         ]
     }

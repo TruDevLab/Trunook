@@ -45,12 +45,7 @@ final class VoiceSession: ObservableObject {
 
     private let assistant: AssistantSession
     private let notes: NotesService
-    private let retriever: NotesRetriever
     private let settings: Settings
-
-    /// Спрашиваем по заметкам. Запоминается на старте: заметки собираются
-    /// не сразу, а когда речь уже закончилась.
-    private var usesNotes = false
 
     private var pollTimer: Timer?
     /// Сколько тиков подряд заход выглядит законченным, а фаза ещё держится.
@@ -59,12 +54,10 @@ final class VoiceSession: ObservableObject {
     init(
         assistant: AssistantSession,
         notes: NotesService,
-        retriever: NotesRetriever = NotesRetriever(),
         settings: Settings = .shared
     ) {
         self.assistant = assistant
         self.notes = notes
-        self.retriever = retriever
         self.settings = settings
 
         listener.onFinish = { [weak self] text in self?.ask(text) }
@@ -76,7 +69,7 @@ final class VoiceSession: ObservableObject {
 
     /// Начать слушать. Повторный вызов во время речи означает «я всё сказал»:
     /// тем же жестом, каким заход начали, его и обрывают, не дожидаясь паузы.
-    func toggle(usesNotes: Bool) {
+    func toggle() {
         switch phase {
         case .listening:
             listener.finish()
@@ -84,28 +77,23 @@ final class VoiceSession: ObservableObject {
             // Говорить поверх ответа незачем: сначала оборвать, потом начать
             // заново — иначе микрофон слушал бы собственный синтезатор.
             stop()
-            start(usesNotes: usesNotes)
+            start()
         case nil:
-            start(usesNotes: usesNotes)
+            start()
         }
     }
 
-    private func start(usesNotes: Bool) {
+    private func start() {
         guard settings.voiceEnabled else { return }
         guard settings.ollamaEnabled else {
             fail(t("Модель выключена — включите её в настройках"))
             return
         }
-        if usesNotes, !settings.notesEnabled {
-            fail(t("Заметки выключены — включите их в настройках"))
-            return
-        }
 
-        self.usesNotes = usesNotes
         phase = .listening
         onStart?()
         listener.start(language: language, silence: settings.voiceSilence)
-        DebugLog.write("голос: заход начат, по заметкам — \(usesNotes)")
+        DebugLog.write("голос: заход начат")
     }
 
     /// Оборвать всё: и слушание, и чтение вслух.
@@ -145,6 +133,21 @@ final class VoiceSession: ObservableObject {
         DebugLog.write("голос: отладочный ответ, знаков \(text.count)")
     }
 
+    /// Прогнать заход **от вопроса**, минуя микрофон.
+    ///
+    /// Именно этот путь и был сломан: вопрос уходил модели, а до синтезатора
+    /// заход не доходил вовсе — ответ не звучал. `debugAnswer` этого
+    /// не ловит, он начинается с готового текста и модели не спрашивает.
+    /// Из сессии микрофон не поговорит, так что проверить починку иначе
+    /// нечем.
+    func debugAsk(_ text: String) {
+        stop()
+        phase = .listening
+        onStart?()
+        DebugLog.write("голос: отладочный вопрос — \(text)")
+        ask(text)
+    }
+
     /// Показать фазу, не запуская захода, — для съёмки свечения.
     ///
     /// Настоящий заход снимком не поймать: он идёт своим ходом, микрофон
@@ -165,18 +168,13 @@ final class VoiceSession: ObservableObject {
 
         phase = .thinking
 
-        guard usesNotes else {
-            assistant.send(text, style: .spoken)
-            return
-        }
-        retriever.context(for: text, budget: settings.voiceNotesContextLimit) { [weak self] context in
-            guard let self else { return }
-            guard let context else {
-                fail(t("В заметках такого нет"))
-                return
-            }
-            assistant.send(text, notesContext: context, style: .spoken)
-        }
+        // Заход один, и заметки в нём — не отдельный вход, а один
+        // из инструментов: модель сама решает, лезть ли в записи. Прежде
+        // входов было два, и обычный из них **не доходил до синтезатора
+        // вовсе**: ранний выход из этой ветки уносил заход мимо
+        // `speaker.begin()` и мимо слежения за ответом. Выглядело это как
+        // «ответ не прозвучал», а лечится одним путём вместо двух.
+        assistant.send(text, style: .spoken)
         speaker.begin(
             language: language,
             rate: SpeechSpeaker.rate(forStep: settings.voiceRateStep),

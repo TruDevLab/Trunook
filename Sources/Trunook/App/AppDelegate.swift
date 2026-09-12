@@ -86,10 +86,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.noteSelection", #selector(noteSelection)),
             ("com.trunook.debug.askLong", #selector(askLong)),
             ("com.trunook.debug.voice", #selector(toggleVoice)),
-            ("com.trunook.debug.voiceNotes", #selector(toggleVoiceNotes)),
             ("com.trunook.debug.voiceGlow", #selector(showVoiceGlow)),
             ("com.trunook.debug.voiceSpeak", #selector(speakSample)),
             ("com.trunook.debug.voiceAnswer", #selector(voiceAnswer)),
+            ("com.trunook.debug.voiceAsk", #selector(askByVoice)),
+            ("com.trunook.debug.dictate", #selector(dictateIntoNote)),
             ("com.trunook.debug.noteClipboard", #selector(noteClipboard)),
             ("com.trunook.debug.noteEdit", #selector(editNote)),
             ("com.trunook.debug.noteSave", #selector(saveNote)),
@@ -102,6 +103,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.expand", #selector(expandNotch)),
             ("com.trunook.debug.assistant", #selector(testAssistant)),
             ("com.trunook.debug.ask", #selector(testAsk)),
+            ("com.trunook.debug.agentTools", #selector(dumpAgentTools)),
+            ("com.trunook.debug.agentTime", #selector(dumpAgentTime)),
+            ("com.trunook.debug.agentSteps", #selector(showAgentSteps)),
+            ("com.trunook.debug.answerDown", #selector(stepAnswerHighlight)),
+            ("com.trunook.debug.followUp", #selector(askFollowUp)),
+            ("com.trunook.debug.monday", #selector(askMonday)),
+            ("com.trunook.debug.agentCard", #selector(showAgentCard)),
+            ("com.trunook.debug.agentCardNote", #selector(showAgentCardNote)),
+            ("com.trunook.debug.agentRun", #selector(runAgentTimer)),
+            ("com.trunook.debug.agentAsk", #selector(runAgentAgenda)),
             ("com.trunook.debug.shot", #selector(shotWelcome)),
             ("com.trunook.debug.shotDemo", #selector(shotDemo)),
             ("com.trunook.debug.shotSettings", #selector(shotSettings)),
@@ -268,6 +279,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.askAssistant()
     }
 
+    // MARK: - Помощник
+
+    @objc private func dictateIntoNote() { controller.dictateNote() }
+
+    @objc private func askByVoice() { controller.debugAskByVoice("что я записывал про Trunook") }
+
+    @objc private func dumpAgentTools() { controller.debugAgentTools() }
+    @objc private func dumpAgentTime() { controller.debugAgentTime() }
+    @objc private func showAgentSteps() { controller.debugAgentSteps() }
+
+    @objc private func stepAnswerHighlight() { controller.debugAnswerHighlight(steps: 2) }
+
+    @objc private func askFollowUp() { controller.debugFollowUp() }
+
+    @objc private func askMonday() { controller.debugAskByVoice("а какие дела на понедельник?") }
+    @objc private func showAgentCard() { controller.debugAgentCard(kind: .createEvent) }
+    @objc private func showAgentCardNote() { controller.debugAgentCard(kind: .createNote) }
+    @objc private func runAgentTimer() { controller.debugAgentAsk("поставь таймер на 10 минут") }
+    @objc private func runAgentAgenda() { controller.debugAgentAsk("что у меня сегодня по плану") }
+
     /// Список заметок: поиск, строки, пустое состояние.
     @objc private func showNotes() {
         controller.debugToggleNotes()
@@ -351,9 +382,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// То же, но с заметками в контексте.
-    @objc private func toggleVoiceNotes() {
-        controller.debugToggleVoiceNotes()
-    }
 
     /// Прогнать фазы свечения по очереди — чтобы каждую успеть снять
     /// `shotNotch`. Живой заход для этого не годится: он идёт своим ходом

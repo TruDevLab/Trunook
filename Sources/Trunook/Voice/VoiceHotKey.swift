@@ -20,33 +20,26 @@ import Foundation
 /// Взамен жест **ничего не отбирает у набора текста**: модификатор сам
 /// по себе не печатает ничего, в отличие от любого короткого сочетания.
 final class VoiceHotKey {
-    /// Позвали обычный голосовой вопрос или вопрос по заметкам.
-    var onTrigger: ((_ usesNotes: Bool) -> Void)?
+    /// Позвали голос.
+    var onTrigger: (() -> Void)?
 
     private var monitors: [Any] = []
-    private var plain: DoubleTapModifier?
-    private var withNotes: DoubleTapModifier?
+    private var gesture: DoubleTapModifier?
 
     /// Перечитывает настройки и заводит слежение заново.
     ///
     /// Как `installHotKeys` у остальных вызовов: набор пересобирается после
     /// каждой правки настроек, а не подстраивается на ходу.
-    func install(plain: VoiceTrigger, withNotes: VoiceTrigger, isEnabled: Bool) {
+    func install(_ trigger: VoiceTrigger, isEnabled: Bool) {
         stop()
         guard isEnabled else { return }
 
-        // Один и тот же модификатор на оба вызова означал бы, что второй
-        // не позвать никогда: сработал бы тот, кого проверяют первым.
-        let plainFlag = plain.flag
-        let sameModifier = withNotes.flag == plain.flag && plain.flag != nil
-        let notesFlag = sameModifier ? nil : withNotes.flag
-        if sameModifier {
-            DebugLog.write("голос: оба вызова на одном модификаторе — второй отключён")
-        }
-
-        self.plain = plainFlag.map { DoubleTapModifier(flag: $0) }
-        self.withNotes = notesFlag.map { DoubleTapModifier(flag: $0) }
-        guard self.plain != nil || self.withNotes != nil else { return }
+        // Жест один. Прежде их было два — обычный вопрос и вопрос
+        // по заметкам, — и половина этого класса уходила на то, чтобы они
+        // не наступали друг другу на ноги. Теперь заметки не отдельный
+        // вход, а инструмент, и второму жесту стало нечего звать.
+        guard let flag = trigger.flag else { return }
+        gesture = DoubleTapModifier(flag: flag)
 
         // Флаги ловим и глобально, и локально: глобальный монитор молчит
         // о событиях, ушедших в наше же окно, а вырез забирает фокус, когда
@@ -84,38 +77,22 @@ final class VoiceHotKey {
             monitors.append(local)
         }
 
-        DebugLog.write(
-            "голос: слежу за \(plain.title)" + (notesFlag != nil ? " и \(withNotes.title)" : "")
-        )
+        DebugLog.write("голос: слежу за \(trigger.title)")
     }
 
     func stop() {
         for monitor in monitors { NSEvent.removeMonitor(monitor) }
         monitors.removeAll()
-        plain = nil
-        withNotes = nil
+        gesture = nil
     }
 
     private func handle(_ event: NSEvent) {
-        let flags = event.modifierFlags
-        let time = Date()
-        // Оба спрашиваются всегда, а не «первый сработал — второго
-        // не спрашиваем»: чужой модификатор обязан сбить начатый счёт
-        // и у соседа тоже, иначе ⌃ посреди двойного ⌥ его не отменит.
-        let plainFired = plain?.flagsChanged(to: flags, at: time) ?? false
-        let notesFired = withNotes?.flagsChanged(to: flags, at: time) ?? false
-
-        if plainFired {
-            DebugLog.write("голос: позван двойным нажатием")
-            onTrigger?(false)
-        } else if notesFired {
-            DebugLog.write("голос: позван двойным нажатием, по заметкам")
-            onTrigger?(true)
-        }
+        guard gesture?.flagsChanged(to: event.modifierFlags, at: Date()) == true else { return }
+        DebugLog.write("голос: позван двойным нажатием")
+        onTrigger?()
     }
 
     private func noteOtherInput() {
-        plain?.otherInput()
-        withNotes?.otherInput()
+        gesture?.otherInput()
     }
 }

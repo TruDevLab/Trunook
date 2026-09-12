@@ -13,6 +13,9 @@ import Foundation
 /// вверх им расти некуда — там кромка экрана.
 enum QuickRingLayout {
     /// Радиус веера: от чёлки до середины кружка.
+    ///
+    /// Наименьший. Настоящий считает `radius(count:)` — с ростом списка
+    /// веер расходится, иначе кружки налезают друг на друга.
     static let radius: CGFloat = 128
     /// Поперечник кружка.
     static let circle: CGFloat = 42
@@ -32,9 +35,26 @@ enum QuickRingLayout {
     /// пальца на кнопке.
     static let deadZone: CGFloat = 44
 
+    /// Радиус под такое число кружков.
+    ///
+    /// Веер расходится, когда список растёт. Углы делятся между кружками
+    /// поровну, а с ними убывает и расстояние между серединами: на восьми
+    /// оно 49 точек, на одиннадцати было бы 35 при поперечнике 42 — кружки
+    /// налезли бы друг на друга на треть. Радиус поэтому не число, а расчёт
+    /// от состава: кружки в самом тесном случае касаются, но не находят.
+    ///
+    /// Ниже `radius` веер не сжимается: на коротком списке разъезжаться
+    /// ему некуда и незачем.
+    static func radius(count: Int) -> CGFloat {
+        guard count > 2 else { return radius }
+        let step = (startAngle - endAngle) / CGFloat(count - 1) * .pi / 180
+        return max(radius, circle / (2 * sin(step / 2)))
+    }
+
     /// Смещения середин кружков от нижней кромки чёлки. `y` растёт **вниз**.
     static func offsets(count: Int) -> [CGPoint] {
         guard count > 0 else { return [] }
+        let radius = self.radius(count: count)
         return (0..<count).map { index in
             let angle = self.angle(of: index, count: count) * .pi / 180
             return CGPoint(x: radius * cos(angle), y: radius * sin(angle))
@@ -85,7 +105,8 @@ enum QuickRingLayout {
     }
 
     /// Сколько места занимает веер вместе с кружками.
-    static var size: CGSize {
+    static func size(count: Int) -> CGSize {
+        let radius = self.radius(count: count)
         let widest = radius * cos(endAngle * .pi / 180)
         return CGSize(width: 2 * widest + circle, height: radius + circle / 2)
     }

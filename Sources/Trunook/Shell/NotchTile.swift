@@ -38,6 +38,15 @@ struct NotchTile<Content: View>: View {
     /// Цвет смысла. Стекло подмешивает его в себя — так плитка буфера
     /// отличается от плитки полки не только значком.
     var tint: Color? = nil
+    /// Подсвечена ли плитка помимо наведения — например, клавишей.
+    ///
+    /// Той же заливкой, что и наведение, нарочно: подсветка с клавиатуры
+    /// и подсветка мышью означают одно и то же — «вот с этим сейчас
+    /// и работают», — и человек, который водит по списку стрелками, ищет
+    /// глазами ровно то же самое пятно. Обводкой это было слишком тихо:
+    /// полторы точки контура рядом с залитой строкой читаются как «ничего
+    /// не выбрано».
+    var isHighlighted = false
     @ViewBuilder var content: () -> Content
 
     @ObservedObject private var hover = HoverTracker.shared
@@ -46,7 +55,7 @@ struct NotchTile<Content: View>: View {
     /// за ним не следит.
     @ObservedObject private var settings = Settings.shared
 
-    private var isLit: Bool { isEnabled && hover.isHovered(id) }
+    private var isLit: Bool { isEnabled && (hover.isHovered(id) || isHighlighted) }
 
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: radius, style: .continuous)

@@ -29,6 +29,29 @@ final class NotchController {
     let timer = TimerService()
     let monitor = MonitorService()
     let updates = UpdateService()
+    /// Надиктовать текст в поле — своим слушателем, не тем, которым
+    /// слушает голосовой заход: диктовать в заметку и спрашивать голосом
+    /// одновременно нельзя, но гасить друг друга они не должны.
+    let dictation = Dictation()
+
+    /// Исполнитель того, о чём просит модель.
+    ///
+    /// Лениво: службы выше по списку к этому мигу уже созданы, а сам
+    /// помощник у большинства выключен — заводить его всем подряд незачем.
+    /// Чем ответить кругу, когда человек нажмёт на карточке.
+    ///
+    /// Держится здесь, а не в карточке: карточка — значение, она ничего
+    /// не исполняет, и замыкание в ней сделало бы её несравнимой,
+    /// а по сравнению вырез решает, менялось ли что-нибудь.
+    private var pendingAnswer: ((AgentToolResult) -> Void)?
+
+    private(set) lazy var agent = AgentRunner(
+        calendar: calendar,
+        timer: timer,
+        notes: notes,
+        weather: weather,
+        settings: settings
+    )
     /// Текст телесуфлера. У контроллера, а не у окна: телесуфлер живёт
     /// накладкой в вырезе — у самой камеры, — и своего окна у него нет.
     let teleprompter = TeleprompterStore()
@@ -50,7 +73,7 @@ final class NotchController {
     let flash = PanelFlash()
     /// Голосовой заход. Разговор берёт существующий: спросить голосом
     /// и дописать текстом — это одна переписка, а не две.
-    lazy var voice = VoiceSession(assistant: assistant, notes: notes, retriever: retriever)
+    lazy var voice = VoiceSession(assistant: assistant, notes: notes)
     /// Жест вызова: модификатор, нажатый дважды. Мимо Carbon — тот умеет
     /// только сочетания с обычной клавишей.
     private let voiceHotKey = VoiceHotKey()
@@ -87,6 +110,8 @@ final class NotchController {
     private var swipeResetTimer: Timer?
     private var calendarObservation: AnyCancellable?
     private var thingsObservation: AnyCancellable?
+    /// Следит за набором вопроса: подсветка действий гаснет с первой буквой.
+    private var questionObservation: AnyCancellable?
 
     /// Плашку полки убрали крестиком. Держится до следующего файла:
     /// человек уже знает, что на полке лежит.
@@ -184,7 +209,7 @@ final class NotchController {
         input.onCollapse = { [weak self] in self?.collapsePanel() }
         input.onSwipe = { [weak self] direction in self?.performSwipe(direction) }
         input.onOverlayHover = { [weak self] location in self?.router.updateHover(at: location) }
-        input.onDismissOverlay = { [weak self] in self?.dismissOverlay() }
+        input.onDismissOverlay = { [weak self] cause in self?.dismissOverlay(cause) }
         input.onOverlayKey = { [weak self] event in self?.handleOverlayKey(event) ?? false }
         // Прозрачность окна пересчитывается на каждом движении курсора,
         // а не только в тике опроса: между тиками десятая доля секунды,
@@ -213,7 +238,7 @@ final class NotchController {
         input.onQuickRingOpen = { [weak self] in self?.openQuickRing() }
         input.onQuickRingMove = { [weak self] point in
             guard let self else { return }
-            let picked = QuickRingLayout.index(at: point, count: HubEntry.count)
+            let picked = QuickRingLayout.index(at: point, count: HubEntry.ringCases.count)
             // Толчок трекпада на каждом новом кружке: рука ведёт кольцо,
             // не глядя прямо на него, и подтверждение нужно ей, а не глазу.
             if picked != nil, picked != self.ring.highlighted { Haptics.tap(.alignment) }
@@ -271,6 +296,17 @@ final class NotchController {
         // Задачи Things с назначенным временем тоже должны предупреждать.
         thingsObservation = things.$tasks.sink { [weak self] _ in
             self?.refreshSchedule()
+        }
+        // Начали печатать — подсветка с действий снимается. Её ставит само
+        // приложение, когда ответ дописан, и оставлять её поверх набранного
+        // значит обещать Enter не тому: обведённой стоит «Скопировать»,
+        // а уйдёт вопрос. Enter и так отдаётся вопросу, но обещание на экране
+        // должно совпадать с делом.
+        questionObservation = draft.$question.sink { [weak self] text in
+            guard let self, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            guard self.assistant.highlightedAnswerAction != nil else { return }
+            self.assistant.highlightedAnswerAction = nil
+            NotchHintTracker.shared.focus(nil)
         }
         meeting.onCopiedLink = { [weak self] _ in
             self?.activities.present(.command(text: t("Ссылка встречи в буфере"), state: .done))
@@ -459,13 +495,7 @@ final class NotchController {
         if settings.voiceEnabled, settings.voiceTrigger == .hotKey,
            let voiceKey = settings.voiceHotKey {
             HotKeyCenter.shared.register(voiceKey, name: "голос") { [weak self] in
-                self?.toggleVoice(usesNotes: false)
-            }
-        }
-        if settings.voiceEnabled, settings.notesEnabled,
-           settings.voiceNotesTrigger == .hotKey, let key = settings.voiceNotesHotKey {
-            HotKeyCenter.shared.register(key, name: "голос по заметкам") { [weak self] in
-                self?.toggleVoice(usesNotes: true)
+                self?.toggleVoice()
             }
         }
 
@@ -707,6 +737,8 @@ final class NotchController {
             assistantCaptureExpanded: assistant.isCaptureExpanded,
             assistantCommandRows: visibleCommands.count,
             assistantModelEnabled: settings.ollamaEnabled,
+            assistantPending: assistant.pending != nil,
+            assistantHasAnswer: !assistant.answer.isEmpty,
             shelfCount: shelf.items.count,
             hubCount: HubEntry.count,
             notesRows: notes.notes.count,
@@ -738,7 +770,7 @@ final class NotchController {
             host.updateInteractiveRect()
             return
         }
-        let entries = HubEntry.allCases
+        let entries = HubEntry.ringCases
         guard picked < entries.count else { return }
         let entry = entries[picked]
         guard entry.isEnabled(settings) else {
@@ -763,6 +795,9 @@ final class NotchController {
         case .timer: openTimer()
         case .monitor: openMonitor()
         case .teleprompter: openTeleprompter()
+        case .caffeine: openAwake()
+        case .voice: toggleVoice()
+        case .dictation: dictateNote()
         }
     }
 
@@ -876,6 +911,7 @@ final class NotchController {
         let target = state.overlay == .assistant
             ? assistant.target
             : NSWorkspace.shared.frontmostApplication
+        armAgent()
         assistant.start(title: title, prompt: prompt, model: model, target: target)
         router.set(.assistant)
     }
@@ -958,9 +994,348 @@ final class NotchController {
             if !self.settings.ollamaEnabled, self.visibleCommands.isEmpty {
                 self.draft.setMode(.note)
             }
+            self.armAgent()
             self.assistant.ask(captured: captured, target: target)
             self.router.set(.assistant)
             self.takeKeyboard()
+        }
+    }
+
+    // MARK: - Диктовка
+
+    /// Надиктовать заметку: панель открывается заметкой, речь ложится в поле.
+    ///
+    /// Не аудиозаметка: та пишет звук и потом расшифровывает его целиком,
+    /// а здесь текст появляется по мере речи и правится руками тут же.
+    /// Разные дела, и путать их нельзя — у записи разговора остаётся своё
+    /// сочетание и своя кнопка.
+    func dictateNote() {
+        guard settings.voiceEnabled, settings.notesEnabled else { return }
+        guard VoiceAccess.isReady else {
+            requestVoiceAccess()
+            return
+        }
+        if state.overlay != .assistant {
+            draft.setMode(.note)
+            router.set(.assistant)
+            takeKeyboard()
+        } else {
+            draft.setMode(.note)
+        }
+        startDictation(into: .note)
+    }
+
+    /// Куда кладётся надиктованное.
+    enum DictationTarget {
+        /// В поле вопроса: надиктовать команду вместо набора.
+        case question
+        /// В заметку.
+        case note
+    }
+
+    private func startDictation(into target: DictationTarget) {
+        guard settings.voiceEnabled else { return }
+        guard VoiceAccess.isReady else {
+            requestVoiceAccess()
+            return
+        }
+        // Договорить уже начатое — то же нажатие, что и начать.
+        guard !dictation.isListening else {
+            dictation.toggle()
+            return
+        }
+        // Голос и диктовка слушают один микрофон: начатый заход обрывается,
+        // иначе распознавание получало бы одну речь на двоих.
+        voice.stop()
+
+        // Набранное до диктовки не теряется: речь дописывается к нему.
+        // Подменять набранное было бы молчаливой потерей — человек мог
+        // начать печатать и перейти на голос на полуслове.
+        let prefix: String
+        switch target {
+        case .question:
+            prefix = draft.question.isEmpty ? "" : draft.question + " "
+        case .note:
+            prefix = ""
+        }
+
+        dictation.onText = { [weak self] text in
+            guard let self else { return }
+            switch target {
+            case .question:
+                self.draft.question = prefix + text
+            case .note:
+                self.draft.setDictated(text)
+            }
+            self.host.updateInteractiveRect()
+        }
+        dictation.onFinish = { [weak self] _ in
+            guard let self else { return }
+            if target == .note { self.draft.endDictation() }
+            Haptics.tap(.generic)
+        }
+        dictation.onFailure = { [weak self] reason in
+            self?.activities.present(.command(text: reason, state: .failed))
+        }
+        dictation.start()
+        Haptics.tap(.levelChange)
+    }
+
+    /// Кнопка микрофона в поле вопроса.
+    func toggleQuestionDictation() { startDictation(into: .question) }
+
+    // MARK: - Помощник, который делает
+
+    /// Подвесить помощника к разговору.
+    ///
+    /// Зовётся на каждое открытие панели, а не один раз при запуске:
+    /// набор инструментов считается из настроек, а их правят на ходу —
+    /// выключенный календарь обязан унести свой инструмент сразу, а не
+    /// после перезапуска.
+    ///
+    /// Голос инструментов не получает вовсе. Спрошенное голосом панель
+    /// не открывает, и карточка подтверждения всплыла бы там, где её
+    /// некому увидеть и нечем нажать.
+    ///
+    /// Здесь же снимается ручной поиск по заметкам. Пока инструмент жив,
+    /// переключателя в панели нет, и оставленное с прошлого раза «да»
+    /// работало бы вслепую: заметки уходили бы модели простынёй, а нажать
+    /// на это нечем.
+    private func armAgent(spoken: Bool = false) {
+        assistant.availableTools = { [weak self] in
+            guard let self, !spoken else { return [] }
+            return self.agent.tools()
+        }
+        if AgentTool.searchNotes.isEnabled(settings) { assistant.usesNotes = false }
+        assistant.runTool = { [weak self] call, done in
+            self?.handleToolCall(call, done: done)
+        }
+    }
+
+    /// Модель просит что-то сделать.
+    private func handleToolCall(_ call: ToolCall, done: @escaping (AgentToolResult) -> Void) {
+        switch agent.prepare(call) {
+        case let .refuse(result):
+            DebugLog.write("помощник: отказ — \(result.label)")
+            done(result)
+
+        case let .run(tool, call):
+            agent.run(tool, call, completion: done)
+
+        case let .confirm(action):
+            // Ответ модели откладывается до нажатия: круг ждёт человека
+            // ровно столько, сколько тот думает. Оборвать это можно только
+            // закрытием панели.
+            pendingAnswer = done
+            // Спрошенное голосом панели не раскрывает — а карточку надо
+            // где-то показать и чем-то нажать. Раскрываем её сами: это
+            // единственный случай, когда голос выходит на экран, и он же
+            // единственный, где он что-то меняет в чужих данных.
+            if state.overlay != .assistant {
+                draft.setMode(.model)
+                router.set(.assistant)
+                takeKeyboard()
+                DebugLog.write("помощник: панель раскрыта под карточку")
+            }
+            assistant.propose(action)
+            // Панель подросла на карточку — окно обязано узнать, иначе
+            // нажатия будут приниматься по прежней высоте.
+            host.updateInteractiveRect()
+        }
+    }
+
+    /// Человек нажал «Создать».
+    func confirmPendingAction() {
+        guard let action = assistant.pending, let done = pendingAnswer else { return }
+        pendingAnswer = nil
+        assistant.clearPending()
+        let result = agent.commit(action)
+        DebugLog.write("помощник: \(result.label)")
+        host.updateInteractiveRect()
+        done(result)
+    }
+
+    /// Человек нажал «Отмена».
+    ///
+    /// Разговор при этом **продолжается**: модель узнаёт об отказе ответом
+    /// инструмента и договаривает словами. Оборвать всё можно закрытием
+    /// панели — и тогда не выполняется ничего.
+    func declinePendingAction() {
+        guard let action = assistant.pending, let done = pendingAnswer else { return }
+        pendingAnswer = nil
+        assistant.clearPending()
+        DebugLog.write("помощник: отменено человеком — \(action.tool.name)")
+        host.updateInteractiveRect()
+        done(agent.declined(action))
+    }
+
+    /// Отладочный вопрос голосом, минуя микрофон.
+    ///
+    /// Через контроллер, а не прямо в сессию: инструменты подвешивает он,
+    /// и заход без них проверял бы не то, что идёт живьём.
+    func debugAskByVoice(_ text: String) {
+        armAgent()
+        voice.debugAsk(text)
+    }
+
+    // MARK: - Помощник: отладка
+
+    /// Что уходит модели прямо сейчас — в журнал.
+    ///
+    /// Единственный способ увидеть провод, не поднимая сервера и не гадая
+    /// по ответу: описания собираются из настроек, а настройки правят
+    /// на ходу.
+    func debugAgentTools() {
+        let tools = AgentTool.allCases
+        for tool in tools {
+            let state = tool.blockedReason(settings) ?? "доступен"
+            DebugLog.write("помощник: \(tool.name) — \(state)")
+        }
+        let wire = agent.tools()
+        let json = (try? JSONSerialization.data(withJSONObject: wire, options: [.prettyPrinted, .sortedKeys]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "—"
+        DebugLog.write("помощник: инструментов \(wire.count)\n\(json)")
+
+        let model = settings.defaultModel
+        let support: String
+        switch ModelList.shared.toolSupport(of: model) {
+        case .yes: support = "умеет"
+        case .no: support = "НЕ умеет"
+        case .unknown: support = "неизвестно (сервер не сообщает)"
+        }
+        DebugLog.write("помощник: модель \(model.stored) — инструменты \(support)")
+        DebugLog.write("помощник: указание — \(AgentTool.instruction())")
+    }
+
+    /// Разбор образцов времени — на живой машине, с её поясом.
+    ///
+    /// Тесты идут с закреплённым поясом нарочно, и правильно; но промах
+    /// на три часа случается именно от настоящего пояса, и увидеть это
+    /// можно только здесь.
+    func debugAgentTime() {
+        let now = Date()
+        DebugLog.write("помощник: сейчас — \(AgentTime.stamp(now: now))")
+        for sample in [
+            "2026-09-12 15:00", "2026-09-12T15:00", "2026-09-12T15:00Z",
+            "2026-09-12", "15:00", "2024-09-12 15:00", "завтра в три",
+        ] {
+            guard let parsed = AgentTime.parse(sample, now: now) else {
+                DebugLog.write("помощник: «\(sample)» — не разобрано")
+                continue
+            }
+            let rolled = AgentTime.rollingForward(parsed, now: now)
+            DebugLog.write(
+                "помощник: «\(sample)» — "
+                    + AgentTime.humanize(rolled.date, isDateOnly: rolled.isDateOnly)
+                    + (rolled.yearRepaired ? " (год поправлен)" : "")
+            )
+        }
+    }
+
+    /// Лента со строками шагов, мимо модели.
+    ///
+    /// Снимок вёрстки не должен зависеть от того, что сегодня ответит
+    /// модель: шаги приходят от неё, а рисовать их надо одинаково.
+    /// Ответ на месте, подсветка уведена вниз по действиям.
+    ///
+    /// Проверяет ровно то, что сменилось: под полем теперь не список команд,
+    /// а действия, и вести по ним должна та же пара клавиш. Нажатия
+    /// из сессии не доходят, а шаги идут по одному и с задержкой — подряд
+    /// они бессмысленны, панель к этому мигу ещё не построена.
+    func debugAnswerHighlight(steps: Int) {
+        debugAgentSteps()
+        debugStepHighlight(left: max(1, steps))
+    }
+
+    /// Уточняющий вопрос поверх готового ответа.
+    ///
+    /// Воспроизводит беду целиком: ответ дописан, подсветка сама стоит
+    /// на «Скопировать», человек печатает продолжение и отправляет. Панель
+    /// при этом обязана **остаться открытой**, а вопрос — уйти модели;
+    /// прежде Enter копировал прежний ответ, а `copyAnswer` закрывает панель.
+    func debugFollowUp() {
+        debugAgentSteps()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            self.draft.question = "а во сколько вторая?"
+            self.sendDraft()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DebugLog.write(
+                    "отладка: после отправки панель "
+                        + (self.state.overlay == .assistant ? "открыта" : "ЗАКРЫЛАСЬ")
+                )
+            }
+        }
+    }
+
+    func debugAgentSteps() {
+        armAgent()
+        draft.setMode(.model)
+        assistant.debugSteps([
+            ("Посмотрел календарь на 12 сентября", AgentTool.dayAgenda.symbol),
+            ("Таймер на 10 мин", AgentTool.startTimer.symbol),
+        ], answer: "Таймер пошёл. Завтра у вас две встречи: планёрка в 10:00 и созвон в 15:00.")
+        router.set(.assistant)
+        takeKeyboard()
+    }
+
+    /// Карточка подтверждения на выдуманном предложении.
+    ///
+    /// Ждать живого ответа модели ради снимка нельзя, а форм у карточки
+    /// три — у встречи, напоминания и заметки разные вторые строки
+    /// и разные подписи кнопок.
+    func debugAgentCard(kind: AgentTool) {
+        armAgent()
+        draft.setMode(.model)
+        let call: ToolCall
+        switch kind {
+        case .createNote:
+            call = ToolCall(
+                id: "debug",
+                name: kind.name,
+                arguments: #"{"text":"Позвонить в сервис и спросить про сроки","title":"Сервис"}"#
+            )
+        default:
+            let day = AgentTime.stamp(now: Date())
+            DebugLog.write("помощник: карточка на образце, сегодня \(day)")
+            call = ToolCall(
+                id: "debug",
+                name: AgentTool.createEvent.name,
+                arguments: #"{"title":"Созвон с командой","start":"\#(Self.debugStart())","duration_minutes":60}"#
+            )
+        }
+        guard case let .confirm(action) = agent.prepare(call) else {
+            DebugLog.write("помощник: образец не собрался в карточку")
+            return
+        }
+        pendingAnswer = { result in DebugLog.write("помощник: образец — \(result.label)") }
+        assistant.debugSteps([], answer: "Готов завести — подтвердите.")
+        assistant.propose(action)
+        router.set(.assistant)
+        takeKeyboard()
+    }
+
+    /// Завтрашние три часа дня — строкой того вида, который просят у модели.
+    private static func debugStart() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+        return formatter.string(from: tomorrow) + " 15:00"
+    }
+
+    /// Весь круг на живой модели: запрос с инструментами, вызов, ответ.
+    ///
+    /// Вопрос кладётся **с задержкой** после открытия панели, а не в том же
+    /// такте. Подряд он бессмыслен: панель к этому мигу ещё не построена,
+    /// и проверялся бы не тот путь, которым вопрос приходит от человека.
+    func debugAgentAsk(_ question: String) {
+        askAssistant()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            self.draft.question = question
+            DebugLog.write("помощник: отладочный вопрос — \(question)")
+            self.sendDraft()
         }
     }
 
@@ -974,6 +1349,7 @@ final class NotchController {
         // Без модели разговаривать не с кем — панель открывается сразу
         // заметкой, иначе человек упёрся бы в пустую область ответа.
         if !settings.ollamaEnabled { draft.setMode(.note) }
+        armAgent()
         assistant.ask(target: NSWorkspace.shared.frontmostApplication)
         router.set(.assistant)
         takeKeyboard()
@@ -996,16 +1372,25 @@ final class NotchController {
 
     /// ↑ и ↓ ведут подсветку. Возвращает, забрала ли панель нажатие себе.
     /// Само правило шага — в `HighlightMove`: оно общее с историей буфера.
+    /// ↑ и ↓ ведут подсветку по тому, что стоит под полем прямо сейчас.
+    ///
+    /// Слот там один на двоих: пока ответа нет — список команд, появился
+    /// ответ — действия с ним. Клавиша обязана вести по тому, что человек
+    /// видит, а не по тому, что лежало там до ответа: два списка под одной
+    /// парой клавиш — это один список, который сменился.
     private func moveHighlight(_ offset: Int) -> Bool {
-        let list = visibleCommands
-        guard !list.isEmpty else { return false }
         // Пока выбирают модель, стрелки принадлежат этому выбору, а не списку
         // команд: увести подсветку из-под открытого выбора значило бы менять
         // модель не у той команды.
         guard assistant.choosingModelFor == nil else { return false }
-        // Вверх-вниз возвращают человека к командам: ответ прочитан, и он
-        // решил спросить иначе. Подсветка действий при этом гаснет — двух
-        // подсветок разом быть не должно, иначе непонятно, чей Enter.
+
+        if !assistant.answer.isEmpty {
+            return moveAnswerAction(offset)
+        }
+
+        let list = visibleCommands
+        guard !list.isEmpty else { return false }
+        // Двух подсветок разом быть не должно, иначе непонятно, чей Enter.
         assistant.highlightedAnswerAction = nil
 
         assistant.highlightedCommandID = HighlightMove.next(
@@ -1030,9 +1415,20 @@ final class NotchController {
     /// тексту в поле, и забирать их значило бы сломать обычную правку
     /// набранного вопроса.
     private func moveAnswerAction(_ offset: Int) -> Bool {
-        guard let current = assistant.highlightedAnswerAction else { return false }
         let list = answerActions
-        guard let index = list.firstIndex(of: current) else { return false }
+        guard !list.isEmpty else { return false }
+        // Подсветки ещё нет — первое нажатие ставит её на край, с которого
+        // пришли: сверху вниз на первое действие, снизу вверх на последнее.
+        guard let current = assistant.highlightedAnswerAction,
+              let index = list.firstIndex(of: current)
+        else {
+            assistant.highlightedAnswerAction = offset >= 0 ? list.first : list.last
+            assistant.highlightedCommandID = nil
+            showHintForHighlight()
+            return true
+        }
+        // По краям упирается, а не заворачивается: список короткий, и уехать
+        // с последнего действия на первое человек не просил.
         let next = min(max(0, index + offset), list.count - 1)
         assistant.highlightedAnswerAction = list[next]
         showHintForHighlight()
@@ -1079,7 +1475,14 @@ final class NotchController {
     private func cycleModel() -> Bool {
         guard let id = assistant.highlightedCommandID,
               var command = settings.quickCommands.first(where: { $0.id == id })
-        else { return false }
+        else {
+            // Подсветки нет — Tab принадлежит самому вопросу. Свободный
+            // вопрос до сих пор уходил только моделью из настроек, хотя
+            // у любой команды модель можно сменить одной клавишей:
+            // менять её ради одного вопроса значило идти в настройки
+            // и возвращать обратно.
+            return cycleQuestionModel()
+        }
 
         // Дальше Tab не уходит ни при каком исходе. Он уходил — и попадал
         // в поле вопроса отступом: список моделей ни разу не спрашивали,
@@ -1110,6 +1513,32 @@ final class NotchController {
         return true
     }
 
+    /// Tab в поле вопроса меняет модель этого разговора.
+    ///
+    /// Разговора, а не настроек: выбранное держится до конца переписки
+    /// и сбрасывается вместе с ней. Настройку правит настройка — здесь
+    /// же спрашивают «а что скажет вот эта».
+    ///
+    /// По тому же кругу и через «как в настройках», что и у команды:
+    /// два перебора одного и того же разошлись бы на первой правке.
+    private func cycleQuestionModel() -> Bool {
+        guard settings.ollamaEnabled else { return false }
+        let models = ModelList.shared.models
+        guard !models.isEmpty else {
+            // Спрашиваем сейчас же: к следующему нажатию список будет.
+            // Tab при этом не уходит дальше — иначе он вставил бы отступ
+            // в вопрос, и выглядело бы это как «Tab не работает».
+            ModelList.shared.refresh()
+            return true
+        }
+
+        let ladder: [String?] = [nil] + models.map { Optional($0.stored) }
+        let index = ladder.firstIndex(of: assistant.questionModel) ?? 0
+        assistant.setQuestionModel(ladder[(index + 1) % ladder.count])
+        DebugLog.write("вопрос: модель — \(assistant.questionModel ?? "как в настройках")")
+        return true
+    }
+
     /// Esc снимает подсветку и закрывает выбор модели.
     ///
     /// Возвращает `false`, когда снимать было нечего: тогда нажатие идёт
@@ -1117,6 +1546,12 @@ final class NotchController {
     /// вместе с набранным вопросом за одно нажатие — а человек всего лишь
     /// передумал выбирать команду.
     private func escapeHighlight() -> Bool {
+        // Esc на карточке — отказ от предложенного, а не закрытие панели:
+        // разговор при этом продолжается, и модель об отказе узнаёт.
+        if assistant.pending != nil {
+            declinePendingAction()
+            return true
+        }
         if assistant.choosingModelFor != nil {
             assistant.choosingModelFor = nil
             return true
@@ -1183,25 +1618,39 @@ final class NotchController {
     ///
     /// Заметки в контекст кладутся только при включённом переключателе
     /// и только в первую реплику разговора: дальше они уже в переписке.
-    private func sendDraft() {
+    func sendDraft() {
         // Подсвеченное забирает Enter себе — что бы это ни было. Человек
         // довёл до него стрелками и ждёт именно его: иначе клавиша делала бы
         // не то, на что показывает подсветка.
         //
-        // Действие с ответом идёт первым: подсветка переезжает туда сама,
-        // как только ответ дописан, и в этот момент она единственная на весь
-        // экран.
-        if let action = assistant.highlightedAnswerAction {
+        // Карточка помощника — раньше всего: она стоит поперёк разговора
+        // и держит его. Пока на неё не ответили, любое другое толкование
+        // Enter означало бы, что человек продолжает говорить в сторону,
+        // а круг молча ждёт.
+        if assistant.pending != nil {
+            confirmPendingAction()
+            return
+        }
+        // Набранный вопрос старше любой подсветки. Подсветку на «Скопировать»
+        // ставит **само приложение**, как только ответ дописан, — человек её
+        // не наводил. Пока она стояла первой, уточняющий вопрос уходил
+        // не модели: Enter копировал прежний ответ, а `copyAnswer` закрывает
+        // панель — вырез схлопывался прямо на полуслове.
+        let typed = draft.question.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Действие с ответом идёт первым, только когда спрашивать нечего:
+        // подсветка переезжает туда сама, и в этот момент она единственная
+        // на весь экран.
+        if typed.isEmpty, let action = assistant.highlightedAnswerAction {
             runAnswerAction(action)
             return
         }
-        if let id = assistant.highlightedCommandID,
+        if typed.isEmpty, let id = assistant.highlightedCommandID,
            let command = visibleCommands.first(where: { $0.id == id }) {
             runCommandFromPanel(command)
             return
         }
-
-        let text = draft.question.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = typed
         guard !text.isEmpty, settings.ollamaEnabled else { return }
 
         guard assistant.usesNotes, settings.notesEnabled else {
@@ -1536,27 +1985,26 @@ final class NotchController {
     }
 
     private func installVoiceHotKey() {
-        voiceHotKey.onTrigger = { [weak self] usesNotes in
-            self?.toggleVoice(usesNotes: usesNotes)
+        voiceHotKey.onTrigger = { [weak self] in
+            self?.toggleVoice()
         }
-        voiceHotKey.install(
-            plain: settings.voiceTrigger,
-            withNotes: settings.voiceNotesTrigger,
-            isEnabled: settings.voiceEnabled
-        )
+        voiceHotKey.install(settings.voiceTrigger, isEnabled: settings.voiceEnabled)
     }
 
     /// Позвать голос — или оборвать начатое тем же жестом.
-    func toggleVoice(usesNotes: Bool) {
+    func toggleVoice() {
         guard settings.voiceEnabled else {
             DebugLog.write("голос: выключен в настройках")
             return
         }
         guard VoiceAccess.isReady else {
-            requestVoiceAccess(usesNotes: usesNotes)
+            requestVoiceAccess()
             return
         }
-        voice.toggle(usesNotes: usesNotes)
+        // Инструменты подвешиваются и голосу: заметки перестали быть
+        // отдельным входом, и добраться до них модель может только так.
+        armAgent()
+        voice.toggle()
     }
 
     /// Просит недостающие доступы и, получив их, продолжает заход.
@@ -1564,7 +2012,7 @@ final class NotchController {
     /// Спрашиваем в тот момент, когда доступ понадобился, а не при запуске:
     /// два системных диалога на старте приложения, которым человек ещё
     /// не пользовался, — верный способ получить отказ.
-    private func requestVoiceAccess(usesNotes: Bool) {
+    private func requestVoiceAccess() {
         // Уже отказали — диалога больше не будет, и повторный запрос молча
         // вернёт «нет». Ведём в настройки: иначе нажатие жеста выглядело бы
         // как сломанное.
@@ -1595,7 +2043,7 @@ final class NotchController {
                 ))
                 return
             }
-            self.voice.toggle(usesNotes: usesNotes)
+            self.voice.toggle()
         }
     }
 
@@ -1610,8 +2058,7 @@ final class NotchController {
         takeKeyboard()
     }
 
-    func debugToggleVoice() { toggleVoice(usesNotes: false) }
-    func debugToggleVoiceNotes() { toggleVoice(usesNotes: true) }
+    func debugToggleVoice() { toggleVoice() }
 
     /// Прогоняет фазы свечения по очереди — по восемь секунд на каждую.
     ///
@@ -1699,7 +2146,18 @@ final class NotchController {
     /// Нажатие мимо накладки или Esc. Не всякая накладка этому поддаётся —
     /// правило живёт в самой накладке, — но клавиатуру, если её забирали,
     /// возвращать надо и на этом пути тоже.
-    private func dismissOverlay() {
+    private func dismissOverlay(_ cause: NotchInput.DismissCause) {
+        // Панель команд закреплена, как телесуфлер: нажатие мимо её
+        // не закрывает. С ней работают в чужом окне — читают ответ,
+        // переключаются к письму, копируют оттуда кусок и возвращаются
+        // дописать вопрос, — и каждое такое переключение унесло бы разговор.
+        // Esc и крестик закрывают по-прежнему: это «я закончил», сказанное
+        // прямо, а не побочный след работы.
+        if cause == .clickOutside,
+           state.overlay == .assistant,
+           !settings.assistantClosesOnClickOutside {
+            return
+        }
         let wasClipboard = state.overlay == .clipboard
         router.dismiss()
         guard wasClipboard, state.overlay == nil else { return }
@@ -2339,6 +2797,7 @@ final class NotchController {
             meeting: meeting,
             clipboard: clipboard,
             assistant: assistant,
+            dictation: dictation,
             weather: weather,
             shelf: shelf,
             timer: timer,
@@ -2378,9 +2837,10 @@ final class NotchController {
             onChooseModel: { [weak self] model in self?.chooseModel(model) },
             onCancelChoosingModel: { [weak self] in self?.assistant.choosingModelFor = nil },
             onMoveHighlight: { [weak self] offset in self?.moveHighlight(offset) ?? false },
-            onMoveAnswerAction: { [weak self] offset in self?.moveAnswerAction(offset) ?? false },
             onCycleModel: { [weak self] in self?.cycleModel() ?? false },
             onEscapeHighlight: { [weak self] in self?.escapeHighlight() ?? false },
+            onConfirmAction: { [weak self] in self?.confirmPendingAction() },
+            onCancelAction: { [weak self] in self?.declinePendingAction() },
             onCopyLink: { [weak self] url in self?.copyLink(url) },
             onOpenItem: { [weak self] item in self?.openItem(item) },
             onCloseOverlay: { [weak self] in self?.closeOverlay() },
@@ -2388,6 +2848,9 @@ final class NotchController {
             onUseClipboard: { [weak self] entry in self?.useClipboard(entry) },
             onSaveClipboardToNotes: { [weak self] entry in self?.saveClipboardToNotes(entry) },
             onStopVoice: { [weak self] in self?.voice.stop() },
+            onStartVoice: { [weak self] in self?.toggleVoice() },
+            onDictateNote: { [weak self] in self?.dictateNote() },
+            onDictateQuestion: { [weak self] in self?.toggleQuestionDictation() },
             onStopRecording: { [weak self] in self?.recorder.stop() },
             onToggleRecording: { [weak self] in self?.recorder.toggleNote() },
             onToggleMeetingRecording: { [weak self] in self?.recorder.toggleMeeting() },

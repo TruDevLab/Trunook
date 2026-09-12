@@ -95,6 +95,33 @@ struct QuickRingTests {
         #expect(QuickRingLayout.index(at: CGPoint(x: 60, y: -60), count: count) == nil)
     }
 
+    /// Углы делятся между кружками поровну, и с ростом списка расстояние
+    /// между серединами убывает. На одиннадцати оно упало бы до 35 точек
+    /// при поперечнике 42 — кружки налезли бы друг на друга на треть, что
+    /// и было видно на снимке, когда в кольцо добавили чашку. Веер поэтому
+    /// расходится вместе со списком.
+    @Test("Кружки не находят друг на друга ни при каком составе")
+    func кружкиНеНалезают() {
+        for count in 2...16 {
+            let offsets = QuickRingLayout.offsets(count: count)
+            for (left, right) in zip(offsets, offsets.dropFirst()) {
+                let gap = hypot(right.x - left.x, right.y - left.y)
+                #expect(
+                    gap >= QuickRingLayout.circle - 0.01,
+                    "на \(count) кружках между серединами \(Int(gap)) точек"
+                )
+            }
+        }
+    }
+
+    /// Короткому списку разъезжаться некуда и незачем: веер остаётся таким,
+    /// каким его свели.
+    @Test("Короткий список не растягивает веер")
+    func короткийСписокНеРастёт() {
+        #expect(QuickRingLayout.radius(count: 8) == QuickRingLayout.radius)
+        #expect(QuickRingLayout.radius(count: HubEntry.ringCases.count) >= QuickRingLayout.radius)
+    }
+
     @Test("Пустое кольцо не выбирает ничего")
     func пустоеКольцо() {
         #expect(QuickRingLayout.index(at: point(at: 90), count: 0) == nil)

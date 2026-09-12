@@ -85,6 +85,10 @@ struct NotchMetrics: Equatable {
         let calendar = CalendarPanel.height(notchHeight: notchHeight)
         let editor = EventEditorPanel.height(notchHeight: notchHeight)
         let caffeine = CaffeinePanel.height(notchHeight: notchHeight)
+        // Кольцо в окне не панель, но обрезает его так же. Веер расходится
+        // с ростом списка, и рано или поздно он перерос бы самую высокую
+        // панель молча — а окно режет без предупреждения.
+        let ringSize = QuickRingLayout.size(count: HubEntry.ringCases.count)
         let shelf = ShelfPanel.height(
             notchHeight: notchHeight,
             count: ShelfPanel.columns * ShelfPanel.visibleRows
@@ -104,6 +108,7 @@ struct NotchMetrics: Equatable {
                 CaffeinePanel.width,
                 CalendarPanel.width,
                 EventEditorPanel.width,
+                ringSize.width,
                 MeetingControlsView.width(actionCount: MeetingAction.allCases.count)
             ),
             // Плашка с подписью значка висит под панелью, а окно обрезает:
@@ -112,7 +117,8 @@ struct NotchMetrics: Equatable {
             // оформления.
             height: max(
                 panel.height, clipboard, assistant, shelf, hub,
-                teleprompter, caffeine, notes, calendar, editor
+                teleprompter, caffeine, notes, calendar, editor,
+                notchHeight + ringSize.height
             ) + NotchHintLayout.reserved
         )
     }

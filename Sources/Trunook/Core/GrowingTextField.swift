@@ -44,13 +44,6 @@ struct GrowingTextField: NSViewRepresentable {
     /// выросшем до нескольких строк, ими водят курсор.
     var onMoveHighlight: ((Int) -> Bool)?
 
-    /// ← и → — вести подсветку по действиям с ответом: −1 влево, +1 вправо.
-    ///
-    /// Забирать стрелки у поля можно только пока подсветка есть: в остальное
-    /// время ими двигают курсор по набранному вопросу, и съедать их значило
-    /// бы сломать обычную правку текста.
-    var onMoveAnswerAction: ((Int) -> Bool)?
-
     /// Tab — сменить модель подсвеченной команды. `true` — забрали себе.
     ///
     /// Без подсветки Tab отдаётся системе: обход по элементам он здесь
@@ -214,10 +207,11 @@ struct GrowingTextField: NSViewRepresentable {
                 return parent.onMoveHighlight?(-1) ?? false
             case #selector(NSResponder.moveDown(_:)):
                 return parent.onMoveHighlight?(1) ?? false
-            case #selector(NSResponder.moveLeft(_:)):
-                return parent.onMoveAnswerAction?(-1) ?? false
-            case #selector(NSResponder.moveRight(_:)):
-                return parent.onMoveAnswerAction?(1) ?? false
+            // ← и → остаются полю: действия с ответом стоят теперь списком
+            // сверху вниз, и водит по ним та же пара клавиш, что и по
+            // командам, — они занимают одно место, и клавиша у места одна.
+            // Горизонтальные стрелки вернулись к тому, чем они и были:
+            // правке набранного вопроса.
             case #selector(NSResponder.insertTab(_:)):
                 return parent.onCycleModel?() ?? false
             case #selector(NSResponder.cancelOperation(_:)):
