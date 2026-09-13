@@ -138,6 +138,11 @@ struct NotchContent: Equatable {
     /// Сколько команд показывает список под полем. Ноль — списка нет вовсе:
     /// команды выключены в настройках.
     var assistantCommandRows = 0
+    /// Сколько строк показывает список «@». `nil` — список закрыт.
+    ///
+    /// Слот под полем один на троих, и высота обязана считаться тем же
+    /// правилом, каким вёрстка выбирает, кого в нём рисовать.
+    var assistantMentionRows: Int?
     /// Модель включена.
     ///
     /// Без неё панель короче ровно на ленту и поле вопроса: спросить некого,
@@ -299,6 +304,7 @@ enum NotchSizing {
                     hasCapture: content.assistantHasCapture,
                     captureExpanded: content.assistantCaptureExpanded,
                     commandRows: content.assistantCommandRows,
+                    mentionRows: content.assistantMentionRows,
                     modelEnabled: content.assistantModelEnabled,
                     notesEnabled: content.notesEnabled,
                     hasPending: content.assistantPending,

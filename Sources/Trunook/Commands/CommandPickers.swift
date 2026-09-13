@@ -105,12 +105,37 @@ final class ModelList: ObservableObject {
         refresh()
     }
 
+    /// Кто ждёт первого списка.
+    private var waiters: [([ModelRef]) -> Void] = []
+
+    /// Сделать дело со списком — дождавшись его, если он ещё не пришёл.
+    ///
+    /// Пустой список до загрузки и пустой после — разные вещи, а читать их
+    /// одинаково дорого. Голос через пять секунд после запуска приложения
+    /// решил, что выбранной модели нет, — список просто ещё не пришёл, —
+    /// и первый вопрос ушёл не той модели.
+    func whenLoaded(_ action: @escaping ([ModelRef]) -> Void) {
+        guard models.isEmpty else {
+            action(models)
+            return
+        }
+        waiters.append(action)
+        refresh()
+    }
+
+    private func settleWaiters() {
+        let pending = waiters
+        waiters = []
+        pending.forEach { $0(models) }
+    }
+
     func refresh() {
         guard !isLoading else { return }
         let providers = settings.enabledProviders
         guard !providers.isEmpty else {
             models = []
             error = nil
+            settleWaiters()
             return
         }
         isLoading = true
@@ -141,6 +166,7 @@ final class ModelList: ObservableObject {
                 "модели: найдено — \(self.models.count)"
                     + " у \(providers.count) провайдеров"
             )
+            self.settleWaiters()
             self.askCapabilities()
         }
     }

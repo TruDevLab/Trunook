@@ -235,6 +235,8 @@ struct NotchView: View {
     let onSaveAnswer: () -> Void
     /// Переключить поиск по заметкам.
     let onToggleNotesSearch: () -> Void
+    /// Выбрали запись из списка «@».
+    let onPickMention: (Mention) -> Void
     let onCloseAssistant: () -> Void
     let onOpenNotes: () -> Void
     /// Мини-календарь: месяц и дела выбранного дня.
@@ -854,6 +856,7 @@ struct NotchView: View {
                 onSaveAnswer: onSaveAnswer,
                 onOpenNotes: onOpenNotes,
                 onToggleNotesSearch: onToggleNotesSearch,
+                onPickMention: onPickMention,
                 onSelectMode: onSelectMode,
                 onClose: onCloseAssistant,
                 onStopVoice: onStopVoice,

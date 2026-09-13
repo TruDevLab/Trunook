@@ -21,6 +21,16 @@ final class AgentRunner {
     /// а два одинаковых предложения подряд — обычное дело.
     private var counter = 0
 
+    /// На что человек показал через «@» в этом вопросе.
+    ///
+    /// Перенос и отмена работают **только** по этому списку. Позволить
+    /// модели искать встречу по названию значило бы отдать ей выбор между
+    /// тремя планёрками недели — и узнать о неверном выборе уже после
+    /// того, как встречи не стало.
+    private(set) var mentions: [Mention] = []
+
+    func setMentions(_ list: [Mention]) { mentions = list }
+
     init(
         calendar: CalendarService,
         timer: TimerService,
@@ -65,6 +75,10 @@ final class AgentRunner {
             return .run(tool, call)
         case .createEvent:
             return prepareEvent(call, now: now, calendar: day)
+        case .moveEvent:
+            return prepareMove(call, now: now, calendar: day)
+        case .cancelEvent:
+            return prepareCancel(call)
         case .createReminder:
             return prepareReminder(call, now: now, calendar: day)
         case .createNote:
@@ -85,7 +99,7 @@ final class AgentRunner {
         case .startTimer: completion(startTimer(call))
         case .stopTimer: completion(stopTimer())
         case .startStopwatch: completion(startStopwatch())
-        case .createEvent, .createReminder, .createNote:
+        case .createEvent, .moveEvent, .cancelEvent, .createReminder, .createNote:
             // Сюда не попасть: пишущее готовится карточкой.
             completion(AgentToolResult(
                 text: t("Это действие требует подтверждения."),
@@ -107,6 +121,18 @@ final class AgentRunner {
             return AgentToolResult(
                 text: tf("Встреча «%@» создана: %@.", draft.title, pending.detail),
                 label: tf("Встреча «%@»", draft.title)
+            )
+
+        case let .eventCancel(draft):
+            guard calendar.delete(draft) else {
+                return AgentToolResult(
+                    text: t("Не вышло убрать встречу из календаря."),
+                    label: t("Встреча не отменена")
+                )
+            }
+            return AgentToolResult(
+                text: tf("Встреча «%@» отменена.", draft.title),
+                label: tf("Отменил «%@»", draft.title)
             )
 
         case let .reminder(title, due, hasTime, list):
@@ -223,6 +249,161 @@ final class AgentRunner {
     }
 
     // MARK: - Календарь: запись
+
+    /// Нашлось или отказ. Не `Result`: у того ошибка обязана быть `Error`,
+    /// а отказ здесь — обычный текст для модели, а не исключение.
+    private enum Found<Value> {
+        case value(Value)
+        case refused(AgentToolResult)
+    }
+
+    /// Встреча, на которую показали через «@».
+    ///
+    /// Сперва по ярлыку, потом по названию: ярлык надёжнее, но модель,
+    /// пересказывая просьбу человека, охотнее пишет «Планёрка». Ничего
+    /// не нашлось — отказ с перечислением того, что вообще под рукой:
+    /// молчаливое «не могу» модель пересказала бы как «сделано».
+    private func mentionedEvent(_ call: ToolCall) -> Found<Mention> {
+        let events = mentions.filter { $0.kind == .event }
+        guard !events.isEmpty else {
+            return .refused(AgentToolResult(
+                text: t("Человек не показал, о какой встрече речь. Попроси его добавить её в вопрос через «@»."),
+                label: t("Встреча не указана")
+            ))
+        }
+        let asked = (call.string("event") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let needle = asked.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+
+        if let byHandle = events.first(where: { $0.handle == needle }) {
+            return .value(byHandle)
+        }
+        let byTitle = events.first { mention in
+            let title = mention.title
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            return !needle.isEmpty && (title == needle || title.contains(needle) || needle.contains(title))
+        }
+        if let byTitle { return .value(byTitle) }
+        // Одна-единственная указанная встреча — это и есть ответ: спорить
+        // не о чем, как бы модель её ни назвала.
+        if events.count == 1 { return .value(events[0]) }
+
+        let list = events.map { "\($0.handle) «\($0.title)»" }.joined(separator: ", ")
+        return .refused(AgentToolResult(
+            text: tf("Такой встречи среди указанных нет. Указаны: %@.", list),
+            label: t("Встреча не найдена")
+        ))
+    }
+
+    /// Живая запись встречи из хранилища. Её могли убрать, пока набирали
+    /// вопрос, — тогда переносить нечего, и сказать об этом надо словами.
+    private func draft(of mention: Mention) -> Found<EventDraft> {
+        guard let start = mention.start,
+              let draft = calendar.draft(eventID: mention.target, start: start)
+        else {
+            return .refused(AgentToolResult(
+                text: tf("Встречи «%@» в календаре больше нет.", mention.title),
+                label: tf("«%@» не найдена", mention.title)
+            ))
+        }
+        return .value(draft)
+    }
+
+    private func prepareMove(_ call: ToolCall, now: Date, calendar day: Calendar) -> AgentAction {
+        let mention: Mention
+        switch mentionedEvent(call) {
+        case let .value(found): mention = found
+        case let .refused(refusal): return .refuse(refusal)
+        }
+        var draft: EventDraft
+        switch self.draft(of: mention) {
+        case let .value(found): draft = found
+        case let .refused(refusal): return .refuse(refusal)
+        }
+        guard let raw = call.string("start"),
+              let parsed = AgentTime.parse(raw, now: now, calendar: day)
+        else {
+            return .refuse(AgentToolResult(text: badDate, label: t("Не понял время")))
+        }
+
+        // Год вперёд здесь не перекатывается, в отличие от создания встречи.
+        // Разница в том, чем оборачивается промах: у новой встречи год —
+        // единственное, чего модель не знает, а при переносе она называет
+        // и день, и час — и прошлогодняя дата, перекатившись, даёт «через
+        // год без двух дней». Такую карточку человек подтверждает не глядя,
+        // потому что час в ней верный.
+        //
+        // Поэтому день дальше года отвергается тем же правилом, что
+        // и у читающих инструментов, с настоящей датой в ответе: у круга
+        // есть ещё заходы, и модель поправляется сама.
+        guard AgentTime.isPlausible(parsed.date, now: now) else {
+            DebugLog.write("помощник: перенос на «\(raw)» — день не из этого времени")
+            return .refuse(AgentToolResult(
+                text: tf("«%@» — это не тот год. Сейчас %@. Назови день заново.",
+                         raw, AgentTime.stamp(now: now)),
+                label: t("День не из этого времени")
+            ))
+        }
+
+        let was = draft.start
+        let wasAllDay = draft.isAllDay
+        let moment = parsed
+        draft.start = moment.date
+        // День без часа не превращает встречу в событие на весь день:
+        // «перенеси на четверг» — это про день, а не про то, что встреча
+        // растянется на сутки. Час тогда остаётся прежним.
+        if moment.isDateOnly, !wasAllDay {
+            draft.start = AgentTime.keepingTime(of: was, onDayOf: moment.date, calendar: day)
+        }
+        if let minutes = call.integer("duration_minutes"), !wasAllDay {
+            draft.duration = TimeInterval(AgentTime.minutes(minutes, default: 60, in: 5...(24 * 60))) * 60
+        }
+
+        guard draft.start != was else {
+            return .refuse(AgentToolResult(
+                text: t("Встреча уже стоит на это время. Скажи об этом и ничего не делай."),
+                label: t("Переносить нечего")
+            ))
+        }
+
+        // Год в подписи виден всегда, когда он не нынешний: перенос
+        // на будущий год — законное дело, но человек обязан увидеть его
+        // раньше, чем нажмёт.
+        let detail = AgentTime.humanize(was, isDateOnly: wasAllDay, calendar: day)
+            + " → " + AgentTime.humanize(draft.start, isDateOnly: draft.isAllDay, calendar: day)
+
+        return .confirm(pending(
+            tool: .moveEvent,
+            call: call,
+            payload: .event(draft),
+            title: tf("Перенести «%@»", draft.title),
+            detail: detail,
+            confirm: t("Перенести")
+        ))
+    }
+
+    private func prepareCancel(_ call: ToolCall, calendar day: Calendar = .current) -> AgentAction {
+        let mention: Mention
+        switch mentionedEvent(call) {
+        case let .value(found): mention = found
+        case let .refused(refusal): return .refuse(refusal)
+        }
+        switch draft(of: mention) {
+        case let .refused(refusal):
+            return .refuse(refusal)
+        case let .value(draft):
+            // Подпись кнопки — «Удалить», а не «Отменить»: рядом стоит
+            // «Отмена», и две кнопки одного корня на одной карточке
+            // означали бы противоположное одним и тем же словом.
+            return .confirm(pending(
+                tool: .cancelEvent,
+                call: call,
+                payload: .eventCancel(draft),
+                title: tf("Отменить «%@»", draft.title),
+                detail: AgentTime.humanize(draft.start, isDateOnly: draft.isAllDay, calendar: day),
+                confirm: t("Удалить")
+            ))
+        }
+    }
 
     private func prepareEvent(_ call: ToolCall, now: Date, calendar day: Calendar) -> AgentAction {
         guard let title = call.string("title") else {

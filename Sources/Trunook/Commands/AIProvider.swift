@@ -187,17 +187,44 @@ enum RecommendedModel {
 
     /// Есть ли такая модель среди уже установленных.
     ///
-    /// Сравнение по имени без метки версии: Ollama зовёт скачанное
-    /// `nomic-embed-text:latest`, а просят её обычно без метки, и точное
-    /// сравнение отвечало бы «нет» на установленную модель.
+    /// Сравнение терпит отсутствие метки — Ollama зовёт скачанное
+    /// `nomic-embed-text:latest`, а просят её обычно без метки, — но сами
+    /// метки различает: `qwen3:4b` и `qwen3:8b` разные модели.
+    ///
+    /// Прежде здесь сравнивались только основы имён, и одной модели
+    /// семейства в списке хватало, чтобы приложение сочло установленной
+    /// любую другую. Пока рекомендованная была одна, это не проявлялось;
+    /// с каталогом из трёх разрядов `qwen3` проявилось сразу.
     static func isInstalled(_ name: String, among models: [ModelRef]) -> Bool {
-        let wanted = base(of: name)
-        return models.contains { base(of: $0.name) == wanted }
+        models.contains { same($0.name, name) }
     }
 
+    /// Одна ли это модель. Имя без метки означает `:latest` — так считает
+    /// сама Ollama.
+    static func same(_ one: String, _ other: String) -> Bool {
+        tagged(one) == tagged(other)
+    }
+
+    /// Имя с меткой и без приставки провайдера: `ollama|qwen3` → `qwen3:latest`.
+    static func tagged(_ name: String) -> String {
+        let text = stripProvider(name)
+        // Двоеточие ищется после последней косой черты: у имени с чужого
+        // склада (`hf.co/Qwen/…`) косые есть, а метка стоит в хвосте.
+        let lastSlash = text.lastIndex(of: "/")
+        let tail = lastSlash.map { text[text.index(after: $0)...] } ?? text[...]
+        return tail.contains(":") ? text : text + ":latest"
+    }
+
+    /// Основа имени — семейство, без метки версии. Нужна там, где разряд
+    /// неважен: векторная модель в семействе одна.
     static func base(of name: String) -> String {
-        let text = name.hasPrefix("ollama|") ? String(name.dropFirst(7)) : name
+        let text = stripProvider(name)
         guard let colon = text.firstIndex(of: ":") else { return text }
         return String(text[text.startIndex..<colon])
+    }
+
+    private static func stripProvider(_ name: String) -> String {
+        guard let bar = name.firstIndex(of: "|") else { return name }
+        return String(name[name.index(after: bar)...])
     }
 }

@@ -82,6 +82,8 @@ struct AssistantPanel: View {
     let onSaveAnswer: () -> Void
     let onOpenNotes: () -> Void
     let onToggleNotesSearch: () -> Void
+    /// Выбрали запись из списка «@».
+    let onPickMention: (Mention) -> Void
     let onSelectMode: (NotePanelMode) -> Void
     let onClose: () -> Void
     /// Оборвать голосовой заход. Кнопка нужна и здесь, а не только
@@ -136,7 +138,27 @@ struct AssistantPanel: View {
         width(notchWidth: notchWidth)
             - 2 * (bodyPadding + NotchStyle.shoulderInset)
             - 2 * GrowingTextField.inset.width
+            - questionGutter
     }
+
+    /// Полоса справа внутри поля вопроса: имя модели и микрофон.
+    ///
+    /// Поле у́же капсулы ровно на неё — иначе набранное уезжает под них.
+    /// Раньше туда уезжал один микрофон, и это терпели; с именем модели,
+    /// которое видно всегда, под полосой оказывалась бы каждая длинная
+    /// строка.
+    ///
+    /// Число постоянное, хотя микрофона при выключенном голосе нет: высоту
+    /// поля считает статический расчёт, и полоса, зависящая от настроек,
+    /// развела бы его с рисунком.
+    static var questionGutter: CGFloat { questionModelWidth + dictateSize + 8 }
+
+    /// Сколько отдано имени модели. Длинное подрезается с головы: хвост
+    /// имени и различает модели одного семейства.
+    static var questionModelWidth: CGFloat { NotchStyle.scaled(72) }
+
+    /// Сторона кнопки микрофона в поле вопроса.
+    static var dictateSize: CGFloat { 22 }
 
     /// Высота поля вопроса под набранный текст.
     ///
@@ -306,6 +328,7 @@ struct AssistantPanel: View {
         hasCapture: Bool = false,
         captureExpanded: Bool = false,
         commandRows: Int = 0,
+        mentionRows: Int? = nil,
         modelEnabled: Bool = true,
         notesEnabled: Bool = true,
         hasPending: Bool = false,
@@ -346,7 +369,9 @@ struct AssistantPanel: View {
             //
             // Ноль строк — признак того, что списка нет вовсе: команды
             // выключены в настройках.
-            if hasAnswer {
+            if let mentionRows {
+                content += NotchStyle.gridSpacing + MentionRows.height(rows: mentionRows)
+            } else if hasAnswer {
                 let rows = answerActionCount(notesEnabled: notesEnabled)
                 content += NotchStyle.gridSpacing
                     + CGFloat(rows) * CommandRows.rowHeight
@@ -385,20 +410,27 @@ struct AssistantPanel: View {
         // довольно его одного, — но так потолок зависел бы от того, сколько
         // у человека команд: с одной-единственной строка действий оказалась
         // бы выше, и панель с ответом обрезалась бы краем окна.
+        //
+        // Список «@» перебирается наравне с ними по той же причине: сегодня
+        // он ростом с список команд, но это совпадение мерок, а не закон,
+        // и держаться за него значило бы однажды обрезать панель краем окна.
         var tallest: CGFloat = 0
         for mode in NotePanelMode.allCases {
             for hasAnswer in [false, true] {
-                tallest = max(tallest, height(
-                    notchHeight: notchHeight,
-                    notchWidth: notchWidth,
-                    mode: mode,
-                    question: longQuestion,
-                    hasCapture: true,
-                    captureExpanded: true,
-                    commandRows: QuickCommands.visibleRows,
-                    hasPending: true,
-                    hasAnswer: hasAnswer
-                ))
+                for mentionRows in [nil, MentionRows.visibleRows] {
+                    tallest = max(tallest, height(
+                        notchHeight: notchHeight,
+                        notchWidth: notchWidth,
+                        mode: mode,
+                        question: longQuestion,
+                        hasCapture: true,
+                        captureExpanded: true,
+                        commandRows: QuickCommands.visibleRows,
+                        mentionRows: mentionRows,
+                        hasPending: true,
+                        hasAnswer: hasAnswer
+                    ))
+                }
             }
         }
         return tallest
@@ -492,7 +524,17 @@ struct AssistantPanel: View {
                     // самая дальняя от ответа точка панели: прочитав ответ,
                     // глаз шёл вниз и упирался в список команд, который своё
                     // дело уже сделал.
-                    if hasAnswer {
+                    // Список «@» — первым: он открыт ровно тогда, когда
+                    // человек его набрал, и отвечает на то, что печатают
+                    // сейчас. Действия с ответом и команды подождут —
+                    // и то и другое никуда не денется, когда список закроется.
+                    if session.isPickingMention {
+                        MentionRows(
+                            mentions: session.mentionMatches,
+                            highlighted: session.highlightedMention,
+                            onPick: onPickMention
+                        )
+                    } else if hasAnswer {
                         answerActions
                     } else if !commands.isEmpty {
                         commandList
@@ -839,6 +881,10 @@ struct AssistantPanel: View {
             onEscape: onEscapeHighlight
         )
         .frame(height: questionFieldHeight)
+        // Текст кончается там, где начинается полоса с именем модели
+        // и микрофоном. Поле от этого у́же капсулы, а капсула остаётся
+        // во всю ширину: подложка кладётся уже на отступ.
+        .padding(.trailing, Self.questionGutter)
         // Скругление постоянное — то, что делает пустое поле капсулой.
         // Настоящая `Capsule` подросшее поле превратила бы в пилюлю
         // с полукруглыми боками; постоянный радиус оставляет его
@@ -880,58 +926,71 @@ struct AssistantPanel: View {
             }
         }
         .overlay(alignment: .bottomTrailing) { flashPill }
-        // Микрофон в самом поле, а не в крыле панели: он относится к этому
-        // полю и ни к чему больше, а крыло у панели общее на все её режимы.
-        // Правым краем, где кончается набранное, — там же, где у обычного
-        // поля стоит кнопка очистки.
+        // Имя модели и микрофон — одной полосой, а не двумя наложениями
+        // по разным углам. Порознь они и налезали друг на друга: имя стояло
+        // сверху справа, микрофон снизу справа, а пустое поле высотой
+        // в строку — это один и тот же угол.
         .overlay(alignment: .bottomTrailing) {
-            if voiceEnabled, flash.text == nil {
-                Button(action: onDictateQuestion) {
-                    Image(systemName: isDictating ? "waveform" : "mic")
-                        .font(.system(size: NotchStyle.font(11)))
-                        .foregroundStyle(
-                            isDictating
-                                ? Palette.assistant
-                                : .white.opacity(NotchStyle.secondaryOpacity)
-                        )
-                        .frame(width: 22, height: 22)
-                        // Форма нажатия обязательна: без неё кнопка
-                        // нажимается только по самим штрихам значка.
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(PressableStyle())
-                .notchHint(t("Надиктовать"))
-                // Курсор приходится ставить руками. Кнопка лежит **поверх**
-                // `NSTextView`, а тот выставляет себе курсор ввода на всю
-                // свою рамку — и делает это сам, поверх всего, что на нём
-                // нарисовано. Кнопка от этого выглядела частью поля:
-                // наведёшь — палка ввода, и нажать на неё никто не пробует.
-                .onHover { inside in
-                    if inside {
-                        NSCursor.pointingHand.push()
-                    } else {
-                        NSCursor.pop()
-                    }
+            if flash.text == nil {
+                HStack(spacing: 4) {
+                    questionModelName
+                    if voiceEnabled { dictateButton }
                 }
                 .padding(.trailing, 4)
                 .padding(.bottom, 2)
             }
         }
-        // Какой моделью уйдёт этот вопрос. Видно только когда её выбрали
-        // руками: «как в настройках» — обычное состояние, и подпись о нём
-        // была бы шумом на каждом вопросе. Появившаяся подпись и есть
-        // ответ на нажатый Tab.
-        .overlay(alignment: .topTrailing) {
-            if let model = session.questionModel {
-                Text(ModelRef.parse(model, fallback: defaultModel.provider)?.shortName ?? model)
-                    .font(.system(size: NotchStyle.font(9.5)))
-                    .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
-                    .lineLimit(1)
-                    .truncationMode(.head)
-                    .frame(maxWidth: CommandRows.modelWidth, alignment: .trailing)
-                    .padding(.horizontal, 9)
-                    .padding(.top, 4)
-                    .allowsHitTesting(false)
+    }
+
+    /// Какой моделью уйдёт этот вопрос.
+    ///
+    /// Видно всегда, а не только когда модель выбрали руками. Прежде подпись
+    /// появлялась лишь после Tab — и человек, набирая вопрос, не знал,
+    /// кто на него ответит: «как в настройках» выглядело как «неизвестно».
+    /// Выбранное руками показано ярче — так видно, что Tab сработал.
+    @ViewBuilder
+    private var questionModelName: some View {
+        let chosen = session.questionModel
+        let shown = chosen.flatMap { ModelRef.parse($0, fallback: defaultModel.provider)?.shortName }
+            ?? chosen
+            ?? defaultModel.shortName
+        Text(shown)
+            .font(.system(size: NotchStyle.font(9.5)))
+            .foregroundStyle(.white.opacity(chosen == nil ? NotchStyle.secondaryOpacity : 0.9))
+            .lineLimit(1)
+            .truncationMode(.head)
+            .frame(maxWidth: Self.questionModelWidth, alignment: .trailing)
+            .allowsHitTesting(false)
+    }
+
+    /// Микрофон в самом поле, а не в крыле панели: он относится к этому
+    /// полю и ни к чему больше, а крыло у панели общее на все её режимы.
+    private var dictateButton: some View {
+        Button(action: onDictateQuestion) {
+            Image(systemName: isDictating ? "waveform" : "mic")
+                .font(.system(size: NotchStyle.font(11)))
+                .foregroundStyle(
+                    isDictating
+                        ? Palette.assistant
+                        : .white.opacity(NotchStyle.secondaryOpacity)
+                )
+                .frame(width: Self.dictateSize, height: Self.dictateSize)
+                // Форма нажатия обязательна: без неё кнопка нажимается
+                // только по самим штрихам значка.
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
+        .notchHint(t("Надиктовать"))
+        // Курсор приходится ставить руками. Кнопка лежит **поверх**
+        // `NSTextView`, а тот выставляет себе курсор ввода на всю свою
+        // рамку — и делает это сам, поверх всего, что на нём нарисовано.
+        // Кнопка от этого выглядела частью поля: наведёшь — палка ввода,
+        // и нажать на неё никто не пробует.
+        .onHover { inside in
+            if inside {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
             }
         }
     }

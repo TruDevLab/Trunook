@@ -59,6 +59,45 @@ enum CodeSignatureCheck {
         return verdict(for: status)
     }
 
+    /// Проверяет бандл по пути против **названного** требования.
+    ///
+    /// Нужно для чужого кода: `matchesSelf` сверяет с нашим собственным
+    /// требованием, а у Ollama чужой Developer ID, и наше требование ей
+    /// не подходит по определению. Требование приходит строкой — для Ollama
+    /// это `OllamaApp.requirement`, где названы её идентификатор, владелец
+    /// подписи и нотаризация.
+    ///
+    /// Флаги те же, что и у своей проверки, и `kSecCSCheckNestedCode`
+    /// здесь не менее важен: внутри чужого бандла лежит и сервер, который
+    /// потом будет работать отдельным процессом.
+    ///
+    /// Тестом не покрыто и покрыто быть не может — нужен живой бандл
+    /// и живая служба; под тестом `verdict(for:)` и сама строка требования.
+    static func matches(_ bundle: URL, requirement text: String) -> Verdict {
+        var requirement: SecRequirement?
+        let made = SecRequirementCreateWithString(text as CFString, [], &requirement)
+        guard made == errSecSuccess, let requirement else {
+            DebugLog.write("подпись: требование не собралось — \(made)")
+            return .rejected(.damaged)
+        }
+
+        var candidate: SecStaticCode?
+        let created = SecStaticCodeCreateWithPath(bundle as CFURL, [], &candidate)
+        guard created == errSecSuccess, let candidate else { return verdict(for: created) }
+
+        let flags = SecCSFlags(rawValue: UInt32(
+            kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate
+        ))
+
+        var failure: Unmanaged<CFError>?
+        let status = SecStaticCodeCheckValidityWithErrors(candidate, flags, requirement, &failure)
+        if status != errSecSuccess {
+            let reason = failure?.takeRetainedValue().localizedDescription ?? "\(status)"
+            DebugLog.write("подпись: \(bundle.lastPathComponent) отклонён — \(reason)")
+        }
+        return verdict(for: status)
+    }
+
     /// Что означает код, вернувшийся из Security.framework.
     ///
     /// Вынесено отдельно и без побочных действий: это единственная часть

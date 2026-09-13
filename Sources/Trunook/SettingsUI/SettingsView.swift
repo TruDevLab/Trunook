@@ -70,6 +70,13 @@ final class SettingsSelection: ObservableObject {
     /// окно — целей одновременно всё равно не бывает двух.
     @Published var commandDropTarget: Int?
 
+    /// Раскрыт ли раздел «Дополнительно» с адресами и ключами.
+    ///
+    /// В объекте, а не в настройке напрямую: `@State` в этом тулчейне
+    /// недоступен, а раскрытие обязано пережить перерисовку. Настройка
+    /// хранит его между запусками — здесь живёт то, что видно сейчас.
+    @Published var showsAdvancedProviders = Settings.shared.showsAdvancedProviders
+
     /// У какой команды открыт выбор значка. `nil` — ни у какой.
     ///
     /// Здесь по той же причине, что и подсветка цели: `@State` в этом
@@ -93,6 +100,7 @@ struct SettingsView: View {
     @ObservedObject var obsidian: ObsidianService
     let linker: NoteLinker
     @ObservedObject private var installer = ModelInstaller.shared
+    @ObservedObject private var engine = OllamaEngine.shared
     /// Языковые наборы расшифровки: что установлено и как поставить.
     @ObservedObject private var transcripts = TranscriptAssets()
     /// Обновления: строка состояния и подпись кнопки живут от её состояния.
@@ -429,6 +437,56 @@ struct SettingsView: View {
         }
     }
 
+    /// Модель голоса — своя, по умолчанию самая лёгкая: разбор у `VoiceModel`.
+    ///
+    /// Выбранная, но не скачанная модель не молчит: голос отвечает моделью
+    /// разговора, и здесь это сказано прямо, с кнопкой скачать рядом.
+    /// Иначе человек выбрал бы лёгкую и не понял, почему голос не ускорился.
+    private var voiceModelRow: some View {
+        let stored = settings.voiceModel
+        let wanted = ModelRef.parse(stored, fallback: settings.aiProvider)
+        let isMissing = !stored.isEmpty && !models.models.isEmpty
+            && VoiceModel.resolve(stored: stored, installed: models.models, fallback: settings.aiProvider) == nil
+
+        return VStack(alignment: .leading, spacing: 4) {
+            Picker(t("Модель ответа"), selection: settings.binding(\.voiceModel)) {
+                Text(t("Как в разговоре")).tag("")
+                ForEach(voiceModelChoices, id: \.self) { choice in
+                    Text(ModelRef.parse(choice, fallback: settings.aiProvider)?.shortName ?? choice)
+                        .tag(choice)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+            .disabled(!settings.voiceEnabled || !settings.ollamaEnabled)
+            hint(t("Голосу важнее скорость — по умолчанию самая лёгкая."))
+
+            if isMissing, let wanted {
+                Text(tf("%@ не скачана — пока отвечает модель разговора.", wanted.shortName))
+                    .font(.callout)
+                    .foregroundStyle(Palette.warning)
+                if wanted.provider == .ollama {
+                    installRow(wanted.name)
+                }
+            }
+        }
+        .onAppear { if settings.ollamaEnabled { models.refreshIfNeeded() } }
+    }
+
+    /// Что предлагать голосу: разговорные модели всех включённых провайдеров
+    /// и сам выбор, даже если его нет в списке — иначе поле выглядело бы
+    /// пустым, будто модель не выбрана.
+    private var voiceModelChoices: [String] {
+        var choices = settings.enabledProviders
+            .flatMap { models.models(of: $0, kind: .chat) }
+            .map(\.stored)
+        let current = settings.voiceModel
+        if !current.isEmpty, !choices.contains(where: { RecommendedModel.same($0, current) }) {
+            choices.insert(current, at: 0)
+        }
+        return choices
+    }
+
     private var voiceSection: some View {
         Group {
             section(t("Голосовой ассистент"), icon: "waveform") {
@@ -505,6 +563,12 @@ struct SettingsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Ждать ответа после сказанного"), isOn: settings.binding(\.voiceKeepsListening))
+                        .disabled(!settings.voiceEnabled)
+                    hint(t("Дочитав ответ, вырез слушает снова. Молчание гасит заход."))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
                     Picker(t("Заметок в голосовой вопрос"), selection: settings.binding(\.voiceNotesContextLimit)) {
                         ForEach([2_000, 4_000, 6_000, 12_000, 24_000], id: \.self) { value in
                             Text(tf("%d тыс. знаков", value / 1_000)).tag(value)
@@ -518,6 +582,8 @@ struct SettingsView: View {
             }
 
             section(t("Как отвечать"), icon: "speaker.wave.2") {
+                voiceModelRow
+
                 VStack(alignment: .leading, spacing: 4) {
                     Picker(t("Голос"), selection: Binding(
                         get: { settings.voiceIdentifier },
@@ -1987,8 +2053,11 @@ struct SettingsView: View {
                     hint(t("Нужна командам, разговору и заметкам."))
                 }
 
-                if settings.ollamaEnabled, settings.enabledProviders.count > 1 {
-                    providerPicker
+                if settings.ollamaEnabled {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(t("Отвечать без раздумий"), isOn: settings.binding(\.fastAnswers))
+                        hint(t("Быстрее в разы, но некоторые модели начинают рассуждать прямо в ответе."))
+                    }
                 }
 
                 if let error = models.error, settings.ollamaEnabled {
@@ -1998,9 +2067,157 @@ struct SettingsView: View {
                 }
             }
 
+            if settings.ollamaEnabled, settings.aiProvider == .ollama { engineSection }
+            if settings.ollamaEnabled, settings.aiProvider == .ollama { catalogueSection }
             if settings.ollamaEnabled { agentCard }
+            if settings.ollamaEnabled { advancedSection }
+        }
+    }
 
-            if settings.ollamaEnabled {
+    // MARK: - Движок моделей
+
+    /// Сам движок: стоит ли, работает ли, и одна кнопка по делу.
+    ///
+    /// Рисуется только у местного провайдера: у облачного движка нет вовсе,
+    /// и предлагать там установку было бы бессмыслицей.
+    private var engineSection: some View {
+        section(t("Движок моделей"), icon: "shippingbox.fill") {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    if case let .downloading(share) = engine.state {
+                        ProgressView(value: share).controlSize(.small).frame(width: 90)
+                    }
+                    Text(engine.line.text)
+                        .font(.system(size: SettingsStyle.font(12.5)))
+                    Spacer(minLength: 8)
+                    engineButton
+                }
+                // Сказать прямо: Ollama — чужая программа, она останется
+                // на машине и будет видна в строке меню. Прятать это
+                // значило бы поставить её втихую.
+                hint(t("Ollama — бесплатная программа с открытым кодом. Она запускает модели на этом компьютере и остаётся в строке меню."))
+                if settings.didInstallOllamaApp {
+                    hint(t("Её поставил Trunook. Удаляется как обычная программа, из папки «Программы»."))
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Запускать Ollama вместе с Trunook"), isOn: settings.binding(\.ollamaAutoStart))
+                hint(t("Иначе первый вопрос дня не дойдёт до модели."))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var engineButton: some View {
+        switch engine.line.action {
+        case .none, .busy:
+            EmptyView()
+        case .install:
+            Button(t("Установить Ollama")) { engine.install() }
+        case .start:
+            Button(t("Запустить")) { engine.start() }
+        case .check:
+            Button(t("Проверить")) { engine.refresh() }
+        case .cancel:
+            Button(t("Отменить")) { engine.cancelInstall() }
+        case .reveal:
+            Button(t("Показать в Finder")) { engine.revealImage() }
+        case .copyCommand:
+            Button(t("Скопировать команду")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(OllamaApp.serveCommand, forType: .string)
+            }
+        }
+    }
+
+    // MARK: - Модели к скачиванию
+
+    /// Что скачать: три разряда по ресурсам машины и модель для заметок.
+    private var catalogueSection: some View {
+        section(t("Модели"), icon: "square.and.arrow.down") {
+            ModelOfferRows(
+                rows: ModelCatalogue.rows(
+                    on: MachineResources.current(),
+                    installed: models.models(of: .ollama),
+                    selected: settings.apiModel(for: .ollama),
+                    installing: installer.installing,
+                    share: installedShare,
+                    queued: installer.waiting
+                ),
+                onInstall: { tag in
+                    installer.enqueue([tag])
+                    // Скачанное надо сделать тем, чем отвечают: иначе
+                    // человек качает одно, а приложение просит другое,
+                    // и первый же вопрос падает «модели нет».
+                    settings.setAPIModel(tag, for: .ollama)
+                },
+                onSelect: { tag in settings.setAPIModel(tag, for: .ollama) }
+            )
+
+            if let pair = pairToInstall {
+                VStack(alignment: .leading, spacing: 4) {
+                    Button(t("Установить рекомендованное")) {
+                        installer.enqueue(pair)
+                        if let chat = pair.first { settings.setAPIModel(chat, for: .ollama) }
+                    }
+                    .disabled(!engine.state.isRunning)
+                    hint(t("Модель для разговора и модель для заметок — подряд, одной кнопкой."))
+                }
+            }
+
+            if case let .failed(text) = installer.state {
+                Text(text)
+                    .font(.callout)
+                    .foregroundStyle(Palette.warning)
+            }
+        }
+    }
+
+    /// Что осталось поставить из рекомендованного. `nil` — всё уже стоит,
+    /// и кнопка была бы предложением сделать сделанное.
+    private var pairToInstall: [String]? {
+        let pair = ModelCatalogue.recommendedPair(on: MachineResources.current())
+        let installed = models.models(of: .ollama)
+        let left = pair.filter { !RecommendedModel.isInstalled($0, among: installed) }
+        return left.isEmpty ? nil : pair
+    }
+
+    // MARK: - Дополнительно
+
+    /// Адреса, ключи и двенадцать провайдеров — для тех, у кого свой сервер
+    /// или облачный ключ.
+    ///
+    /// Свёрнуто: человеку, которому всё это не нужно, оно мешало, стоя
+    /// первым на экране. Но у того, кто ключ уже прописал, раздел раскрыт
+    /// с самого начала — свёрнутый читался бы как «ключ пропал после
+    /// обновления».
+    ///
+    /// `DisclosureGroup` не используется: в проекте его нет ни разу,
+    /// а модификаторы `Section` здесь ложатся на каждую строку отдельно.
+    private var advancedSection: some View {
+        Group {
+            section(t("Дополнительно"), icon: "slider.horizontal.3") {
+                Button {
+                    selection.showsAdvancedProviders.toggle()
+                    settings.showsAdvancedProviders = selection.showsAdvancedProviders
+                } label: {
+                    HStack(spacing: 6) {
+                        let chevron = selection.showsAdvancedProviders ? "chevron.down" : "chevron.right"
+                        Image(systemName: chevron)
+                            .font(.system(size: SettingsStyle.font(10), weight: .semibold))
+                        Text(t("Свой сервер или облачный ключ"))
+                        Spacer(minLength: 0)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if selection.showsAdvancedProviders, settings.enabledProviders.count > 1 {
+                    providerPicker
+                }
+            }
+
+            if selection.showsAdvancedProviders {
                 ForEach(settings.enabledProviders) { provider in
                     providerSection(provider)
                 }

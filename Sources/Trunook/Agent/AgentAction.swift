@@ -19,6 +19,10 @@ struct PendingAction: Equatable, Identifiable {
     /// Что именно заведут, уже разобранное и выверенное.
     enum Payload: Equatable {
         case event(EventDraft)
+        /// Встречу отменяют. Отдельным разрядом, а не признаком внутри
+        /// `event`: у записи и у удаления разные дороги в хранилище,
+        /// и перепутать их значило бы стереть встречу вместо переноса.
+        case eventCancel(EventDraft)
         case reminder(title: String, due: Date?, hasTime: Bool, list: String?)
         case note(title: String?, text: String)
     }

@@ -108,6 +108,16 @@ final class AgentLoop {
                     sink.onFinish(.failure(error))
                 case let .success(completion):
                     guard !completion.calls.isEmpty else {
+                        // Ни слова, ни вызова, и потолок кончился — модель
+                        // думала и не успела. Отдать это как пустой ответ
+                        // значило бы показать человеку пустую панель после
+                        // минуты ожидания: он решит, что сломалось
+                        // приложение.
+                        if completion.text.isEmpty, completion.isTruncated {
+                            DebugLog.write("помощник: ответ оборван потолком, круг \(round + 1)")
+                            sink.onFinish(.failure(ModelClient.ModelError.truncated))
+                            return
+                        }
                         sink.onFinish(.success(completion.text))
                         return
                     }

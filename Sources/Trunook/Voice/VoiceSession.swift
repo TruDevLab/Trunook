@@ -51,6 +51,16 @@ final class VoiceSession: ObservableObject {
     /// Сколько тиков подряд заход выглядит законченным, а фаза ещё держится.
     private var idleTicks = 0
 
+    /// Слушаем не первый раз за заход: ответ дочитан, и вырез ждёт, что
+    /// человек скажет дальше.
+    ///
+    /// От этого зависит, чем считается молчание. В начале захода молчание —
+    /// осечка: человек звал ассистента и ждёт хоть чего-то, поэтому ему
+    /// говорят «ничего не расслышал». На следующем круге молчание — это
+    /// «разговор окончен», и плашка об осечке была бы упрёком за то, что
+    /// человеку больше нечего сказать.
+    private var isFollowUp = false
+
     init(
         assistant: AssistantSession,
         notes: NotesService,
@@ -62,7 +72,7 @@ final class VoiceSession: ObservableObject {
 
         listener.onFinish = { [weak self] text in self?.ask(text) }
         listener.onFailure = { [weak self] reason in self?.fail(reason) }
-        speaker.onFinish = { [weak self] in self?.stop() }
+        speaker.onFinish = { [weak self] in self?.answerRead() }
     }
 
     // MARK: - Заход
@@ -90,6 +100,7 @@ final class VoiceSession: ObservableObject {
             return
         }
 
+        isFollowUp = false
         phase = .listening
         onStart?()
         listener.start(language: language, silence: settings.voiceSilence)
@@ -102,7 +113,44 @@ final class VoiceSession: ObservableObject {
         speaker.stop()
         stopWatchingAnswer()
         stopWatchdog()
+        isFollowUp = false
         phase = nil
+    }
+
+    /// Ответ дочитан. Разговор на этом либо кончается, либо идёт дальше.
+    ///
+    /// Дальше — потому что разговор голосом состоит из кругов: сказали,
+    /// услышали, уточнили. Заход, гаснущий сразу после ответа, требовал
+    /// поднимать руку к жесту на каждую реплику, и уточнить сказанное
+    /// выходило дороже, чем спросить заново.
+    ///
+    /// Три случая, когда круга не будет. Выключено в настройках — человек
+    /// так решил. Висит карточка подтверждения — на неё отвечают нажатием,
+    /// и слушать в это время значило бы обещать голосу то, чего он
+    /// не может. И заход уже оборван: сюда можно попасть от синтезатора,
+    /// который дочитывал последнюю фразу, когда всё остальное уже погасло.
+    private func answerRead() {
+        guard Self.awaitsReply(
+            keepsListening: settings.voiceKeepsListening,
+            hasPending: assistant.pending != nil,
+            wasSpeaking: phase == .speaking
+        ) else {
+            stop()
+            return
+        }
+        listener.cancel()
+        stopWatchingAnswer()
+        stopWatchdog()
+        isFollowUp = true
+        phase = .listening
+        DebugLog.write("голос: жду ответа человека")
+        // С паузой: микрофон, открытый в тот же миг, поймал бы хвост
+        // собственного синтезатора — систему это не смущает, а вот
+        // распознавание принимает его за начало фразы.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.phase == .listening, self.isFollowUp else { return }
+            self.listener.start(language: self.language, silence: self.settings.voiceSilence)
+        }
     }
 
     func shutdown() {
@@ -161,7 +209,15 @@ final class VoiceSession: ObservableObject {
 
     private func ask(_ text: String) {
         guard !text.isEmpty else {
-            // Молчать нельзя: человек звал ассистента и ждёт хоть чего-то.
+            // Молчание на следующем круге — это «всё, спасибо»: человек
+            // дослушал и говорить больше не стал. Гасим заход молча.
+            if isFollowUp {
+                DebugLog.write("голос: ответа не было — заход погашен")
+                stop()
+                return
+            }
+            // В начале захода молчать нельзя: человек звал ассистента
+            // и ждёт хоть чего-то.
             fail(t("Ничего не расслышал"))
             return
         }
@@ -174,13 +230,44 @@ final class VoiceSession: ObservableObject {
         // вовсе**: ранний выход из этой ветки уносил заход мимо
         // `speaker.begin()` и мимо слежения за ответом. Выглядело это как
         // «ответ не прозвучал», а лечится одним путём вместо двух.
-        assistant.send(text, style: .spoken)
+        // Своей модели у голоса нет — ждать списка незачем.
+        guard !settings.voiceModel.isEmpty, settings.ollamaEnabled else {
+            answer(text, model: nil)
+            return
+        }
+        // Список скачанных нужен, чтобы понять, стоит ли выбранная модель.
+        // После запуска приложения он ещё не пришёл, и без ожидания первый
+        // голосовой вопрос уходил бы модели разговора.
+        ModelList.shared.whenLoaded { [weak self] installed in
+            guard let self, self.phase == .thinking else { return }
+            let model = VoiceModel.resolve(
+                stored: self.settings.voiceModel,
+                installed: installed,
+                fallback: self.settings.aiProvider
+            )
+            if model == nil {
+                DebugLog.write("голос: \(self.settings.voiceModel) не скачана — отвечаю моделью разговора")
+            }
+            self.answer(text, model: model)
+        }
+    }
+
+    private func answer(_ text: String, model: String?) {
+        assistant.send(text, style: .spoken, modelOverride: model)
         speaker.begin(
             language: language,
             rate: SpeechSpeaker.rate(forStep: settings.voiceRateStep),
             voiceIdentifier: settings.voiceIdentifier
         )
         watchAnswer()
+    }
+
+    /// Ждать ли ответа, дочитав сказанное.
+    ///
+    /// Правилом, а не условием по месту: оно решает, гаснет заход или идёт
+    /// дальше, и проверять его надо прогоном, а не микрофоном.
+    static func awaitsReply(keepsListening: Bool, hasPending: Bool, wasSpeaking: Bool) -> Bool {
+        keepsListening && !hasPending && wasSpeaking
     }
 
     /// Язык захода: заданный для голоса, а иначе язык интерфейса.

@@ -179,6 +179,49 @@ final class Settings: ObservableObject {
         set { store(newValue, "ollamaEnabled") }
     }
 
+    /// Просить модель отвечать сразу, без раздумий.
+    ///
+    /// Выключено: выигрыш во времени бывает большим, но он зависит
+    /// от модели. `qwen3:8b` с этим проходит круг помощника за 0,7 секунды
+    /// вместо 5,6 и не теряет ни одного вызова; `qwen3:4b` с тем же полем
+    /// начинает рассуждать прямо в ответе. Решать это за человека нельзя —
+    /// ошибка видна не в скорости, а в тексте, который он прочтёт.
+    var fastAnswers: Bool {
+        get { flag("fastAnswers", default: false) }
+        set { store(newValue, "fastAnswers") }
+    }
+
+    /// Запускать стоящую Ollama вместе с Trunook.
+    ///
+    /// Включено: самая частая беда с местным движком — он установлен
+    /// и не запущен, и первый вопрос дня падает ни за чем. Чужое приложение
+    /// всё-таки чужое, поэтому выключатель есть, и правило работает только
+    /// при включённой модели.
+    var ollamaAutoStart: Bool {
+        get { flag("ollamaAutoStart", default: true) }
+        set { store(newValue, "ollamaAutoStart") }
+    }
+
+    /// Ollama поставлена нами.
+    ///
+    /// Нужно не для учёта, а для правдивости слов: только зная это, можно
+    /// написать «её поставил Trunook» и сказать, что удалять её придётся
+    /// отдельно — она останется, даже если Trunook убрать.
+    var didInstallOllamaApp: Bool {
+        get { flag("didInstallOllamaApp", default: false) }
+        set { store(newValue, "didInstallOllamaApp") }
+    }
+
+    /// Раскрыт ли раздел «Дополнительно» в настройках модели.
+    ///
+    /// Решение по умолчанию принимает `migrateAdvancedProviders()`: тому,
+    /// кто уже настроил ключ или второго провайдера, прятать настроенное
+    /// нельзя.
+    var showsAdvancedProviders: Bool {
+        get { flag("showsAdvancedProviders", default: false) }
+        set { store(newValue, "showsAdvancedProviders") }
+    }
+
     /// Помощник может действовать, а не только отвечать словами.
     ///
     /// Выключено по умолчанию, как и всё, что трогает чужие данные. Своего
@@ -385,6 +428,33 @@ final class Settings: ObservableObject {
     /// ключ и модель второго провайдера — в общих `apiURL`, `apiKey`
     /// и `apiModel`. Провайдеров стало сколько угодно, и общие поля потеряли
     /// смысл: переносим их тому, кто был выбран, и больше к ним не возвращаемся.
+    /// Разовое решение: раскрыть ли «Дополнительно» с самого начала.
+    ///
+    /// Тому, у кого прописан облачный ключ, включён второй провайдер или
+    /// задан свой адрес, новый экран обязан показать всё это сразу.
+    /// Свёрнутый раздел читался бы как «ключ пропал после обновления» —
+    /// а он на месте: прятать провайдеров это лишь отрисовка, и ничего
+    /// сохранённого не переносится и не удаляется.
+    func migrateAdvancedProviders() {
+        guard !flag("didDecideAdvancedProviders", default: false) else { return }
+
+        // Адрес считается своим, только если он **не** тот, что подставлен
+        // по умолчанию. Первая проверка на живой машине показала обратное:
+        // `migrateProviderSettings` переписывает `localhost:11434` в поле
+        // провайдера прямым текстом, и «непустой адрес» оказался у всех —
+        // раздел раскрылся бы каждому, то есть не спрятался бы ни у кого.
+        let address = apiURLRaw(for: .ollama).trimmingCharacters(in: .whitespacesAndNewlines)
+        let ownAddress = !address.isEmpty && address != Self.defaultOllamaURL
+
+        let custom = enabledProviders.count > 1
+            || aiProvider != .ollama
+            || AIProvider.allCases.contains { !apiKey(for: $0).isEmpty }
+            || ownAddress
+        store(custom, "showsAdvancedProviders")
+        store(true, "didDecideAdvancedProviders")
+        DebugLog.write("настройки: «Дополнительно» \(custom ? "раскрыто" : "свёрнуто") по прошлым настройкам")
+    }
+
     func migrateProviderSettings() {
         guard !flag("didSplitProviderSettings", default: false) else { return }
 
@@ -990,6 +1060,27 @@ final class Settings: ObservableObject {
     }
 
     var voiceSilence: TimeInterval { TimeInterval(voiceSilenceTenths) / 10 }
+
+    /// Слушать дальше, дочитав ответ.
+    ///
+    /// Включено: разговор голосом идёт кругами, как разговор с человеком, —
+    /// уточнить сказанное можно не поднимая руки. Молчание в ответ гасит
+    /// заход само, поэтому выключать это ради тишины не нужно; выключатель
+    /// здесь для тех, кому микрофон, живущий лишнюю секунду, важнее удобства.
+    var voiceKeepsListening: Bool {
+        get { flag("voiceKeepsListening", default: true) }
+        set { store(newValue, "voiceKeepsListening") }
+    }
+
+    /// Какой моделью отвечать голосу. Пустая строка — как в разговоре.
+    ///
+    /// По умолчанию самая лёгкая модель каталога: голосу скорость важнее,
+    /// разбор — у `VoiceModel`. Не скачанная модель не подставляется,
+    /// и голос тогда отвечает моделью разговора.
+    var voiceModel: String {
+        get { defaults.string(forKey: "voiceModel") ?? VoiceModel.defaultStored }
+        set { store(newValue, "voiceModel") }
+    }
 
     /// Сколько символов заметок уходит в контекст **голосового** вопроса.
     ///

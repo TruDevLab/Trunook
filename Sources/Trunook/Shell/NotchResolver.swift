@@ -64,6 +64,9 @@ struct NotchInputs: Equatable {
     var assistantCaptureExpanded = false
     /// Сколько команд показывает список под полем. Ноль — списка нет вовсе.
     var assistantCommandRows = 0
+    /// Сколько строк показывает список «@». `nil` — список закрыт, и слот
+    /// под полем занят обычным: командами или действиями с ответом.
+    var assistantMentionRows: Int?
     /// Модель включена. Без неё в панели нет ни ленты, ни поля вопроса.
     var assistantModelEnabled = true
     /// Помощник предлагает что-то сделать — в панели стоит карточка.
@@ -150,6 +153,7 @@ struct NotchInputs: Equatable {
             assistantHasCapture: assistantHasCapture,
             assistantCaptureExpanded: assistantCaptureExpanded,
             assistantCommandRows: assistantCommandRows,
+            assistantMentionRows: assistantMentionRows,
             assistantModelEnabled: assistantModelEnabled,
             assistantPending: assistantPending,
             assistantHasAnswer: assistantHasAnswer,

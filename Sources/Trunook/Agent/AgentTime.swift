@@ -131,6 +131,25 @@ enum AgentTime {
     /// Читает это человек, решая, то ли поняла модель, — поэтому день
     /// недели стоит рядом с числом. «Двенадцатое» ни о чём не говорит,
     /// «суббота» говорит сразу.
+    /// Тот же час, но на другом дне.
+    ///
+    /// «Перенеси на четверг» — это про день: часа человек не называл,
+    /// и взять полночь значило бы переставить встречу на ночь. Час поэтому
+    /// остаётся от прежнего начала, меняется только дата.
+    static func keepingTime(
+        of source: Date,
+        onDayOf day: Date,
+        calendar: Calendar = .current
+    ) -> Date {
+        let time = calendar.dateComponents([.hour, .minute, .second], from: source)
+        return calendar.date(
+            bySettingHour: time.hour ?? 0,
+            minute: time.minute ?? 0,
+            second: time.second ?? 0,
+            of: day
+        ) ?? day
+    }
+
     static func humanize(
         _ date: Date,
         isDateOnly: Bool,

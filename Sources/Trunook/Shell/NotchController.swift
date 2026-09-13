@@ -303,7 +303,11 @@ final class NotchController {
         // а уйдёт вопрос. Enter и так отдаётся вопросу, но обещание на экране
         // должно совпадать с делом.
         questionObservation = draft.$question.sink { [weak self] text in
-            guard let self, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            guard let self else { return }
+            // Список «@» — про то, что набирают прямо сейчас, поэтому он
+            // пересобирается на каждое изменение, включая опустевшее поле.
+            self.refreshMentions(for: text)
+            guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
             guard self.assistant.highlightedAnswerAction != nil else { return }
             self.assistant.highlightedAnswerAction = nil
             NotchHintTracker.shared.focus(nil)
@@ -736,6 +740,9 @@ final class NotchController {
             assistantHasCapture: !assistant.captured.isEmpty,
             assistantCaptureExpanded: assistant.isCaptureExpanded,
             assistantCommandRows: visibleCommands.count,
+            assistantMentionRows: assistant.isPickingMention
+                ? max(1, min(assistant.mentionMatches.count, MentionRows.visibleRows))
+                : nil,
             assistantModelEnabled: settings.ollamaEnabled,
             assistantPending: assistant.pending != nil,
             assistantHasAnswer: !assistant.answer.isEmpty,
@@ -1178,6 +1185,221 @@ final class NotchController {
         voice.debugAsk(text)
     }
 
+    // MARK: - Модели: отладка
+
+    /// Каталог предложений с числами этой машины — в журнал.
+    ///
+    /// Совет по ресурсам проверяется тестом на выдуманных числах, и это
+    /// правильно. Но настоящая память и настоящее свободное место есть
+    /// только здесь, а промах в единицах — гигабайты против байтов —
+    /// на выдуманных числах не виден вовсе: тест сойдётся сам с собой.
+    func debugModelOffers() {
+        // Список установленного надо спросить, и он приходит по сети:
+        // в свежем процессе он пуст, и без ожидания все строки выглядят
+        // как «не скачано» — первая же проверка так и соврала.
+        guard ModelList.shared.models.isEmpty else {
+            printModelOffers()
+            return
+        }
+        ModelList.shared.refreshIfNeeded()
+        DebugLog.write("модели: список пуст, спрашиваю сервер")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.printModelOffers()
+        }
+    }
+
+    private func printModelOffers() {
+        let machine = MachineResources.current()
+        let памяти = ByteCountFormatter.string(fromByteCount: machine.ram, countStyle: .file)
+        let диска = ByteCountFormatter.string(fromByteCount: machine.freeDisk, countStyle: .file)
+        DebugLog.write("модели: у машины памяти \(памяти), свободно \(диска)")
+        DebugLog.write("модели: советуем \(ModelCatalogue.recommended(on: machine).tag)")
+
+        let rows = ModelCatalogue.rows(
+            on: machine,
+            installed: ModelList.shared.models(of: .ollama),
+            selected: settings.apiModel(for: .ollama),
+            installing: ModelInstaller.shared.installing,
+            share: 0,
+            queued: []
+        )
+        for row in rows {
+            let verdict: String
+            switch ModelCatalogue.fit(row.offer, on: machine) {
+            case .fits: verdict = "по силам"
+            case .needsRAM: verdict = "не хватает памяти"
+            case .needsDisk: verdict = "не хватает места"
+            }
+            DebugLog.write(
+                "модели: \(row.offer.tag) — \(row.offer.title), \(row.offer.sizeText), "
+                    + "\(verdict), пометка \(row.badge), кнопка \(row.action)"
+            )
+        }
+    }
+
+    /// Что движок думает о себе — в журнал.
+    ///
+    /// Главное, что здесь проверяется: уже работающая Ollama должна
+    /// подхватываться, а не переставляться. На машине, где она стоит
+    /// и работает, в журнале обязано быть «порт ответил», и ни слова
+    /// про установку.
+    func debugEngine() {
+        let engine = OllamaEngine.shared
+        let address = settings.apiURL(for: .ollama)
+        DebugLog.write("движок: адрес \(address), местный — \(OllamaApp.isLocalAddress(address))")
+        switch OllamaApp.installed() {
+        case let .app(bundle): DebugLog.write("движок: найден бандл \(bundle.path)")
+        case let .brew(cli): DebugLog.write("движок: найдена утилита \(cli.path), это Homebrew")
+        case .foreign: DebugLog.write("движок: что-то есть, но не опознано")
+        case nil: DebugLog.write("движок: на диске не найдено ничего")
+        }
+
+        engine.refresh()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            let line = engine.line
+            DebugLog.write("движок: состояние \(engine.state)")
+            DebugLog.write("движок: строка «\(line.text)», кнопка \(line.action)")
+        }
+    }
+
+    /// Поднять движок и дождаться порта.
+    func debugEngineStart() {
+        let engine = OllamaEngine.shared
+        engine.refresh()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            DebugLog.write("движок: запускаю из состояния \(engine.state)")
+            engine.start()
+            self?.reportEngineState(times: 20)
+        }
+    }
+
+    /// Попросить приложение Ollama выйти.
+    ///
+    /// Просим, а не убиваем: `pkill` по чужому приложению — то же
+    /// самоуправство, от которого держится в стороне установщик обновлений.
+    ///
+    /// **Случай «стоит, но молчит» этим не получить, и это находка.**
+    /// Сервер `ollama serve` — отдельный процесс, поднятый её агентом
+    /// `com.ollama.ollama`, и выход приложения из строки меню его не гасит:
+    /// порт продолжает отвечать. Значит состояние `running` после такого
+    /// выхода — верное, а не промах опознания: порт старше бандла.
+    /// Настоящее «молчит» бывает после перезагрузки без автозапуска
+    /// и после «Quit» в её собственном меню, где она гасит и сервер.
+    func debugEngineQuit() {
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: OllamaApp.bundleID)
+        guard !running.isEmpty else {
+            DebugLog.write("движок: приложение Ollama не запущено — просить выйти некого")
+            return
+        }
+        for app in running { app.terminate() }
+        DebugLog.write("движок: попросил приложение Ollama выйти — \(running.count) шт.")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            OllamaEngine.shared.refresh()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                let state = OllamaEngine.shared.state
+                DebugLog.write("движок: после выхода приложения состояние \(state)")
+                if state.isRunning {
+                    DebugLog.write("движок: порт жив — сервер работает отдельно от приложения")
+                }
+            }
+        }
+    }
+
+    /// Сверяет подпись у уже лежащего образа, ничего не устанавливая.
+    ///
+    /// Обязано идти **в процессе приложения**: скрипт под `swift` подписан
+    /// Apple, и Security отвечает ему иначе — на этом уже обжигались
+    /// с голосами. Сам по себе отказ здесь — самая вероятная поломка
+    /// всей работы: у Ollama сменится владелец подписи, и установка встанет.
+    func debugEngineVerify() {
+        let image = OllamaDownload.imageFile
+        guard FileManager.default.fileExists(atPath: image.path) else {
+            DebugLog.write("движок: образа нет — \(image.path)")
+            return
+        }
+        DebugLog.write("движок: требование — \(OllamaApp.requirement)")
+        guard let volume = DiskImage.attach(image) else {
+            DebugLog.write("движок: образ не смонтировался")
+            return
+        }
+        defer { DiskImage.detach(volume) }
+
+        guard let app = DiskImage.application(in: volume.mountPoint) else {
+            DebugLog.write("движок: на образе не одно приложение")
+            return
+        }
+        switch CodeSignatureCheck.matches(app, requirement: OllamaApp.requirement) {
+        case .valid:
+            DebugLog.write("движок: подпись сошлась — \(app.lastPathComponent)")
+        case let .rejected(reason):
+            DebugLog.write("движок: подпись отклонена — \(OllamaDownload.failure(for: reason))")
+        }
+    }
+
+    /// Весь путь установки живьём: скачать, сверить, положить, запустить.
+    ///
+    /// Трогает «Программы», поэтому зовётся только руками и только
+    /// осознанно — как `updateInstall`.
+    func debugEngineInstall() {
+        DebugLog.write("движок: ставлю Ollama с нуля")
+        OllamaEngine.shared.install()
+        reportEngineState(times: 90)
+    }
+
+    private func reportEngineState(times: Int) {
+        guard times > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self else { return }
+            let engine = OllamaEngine.shared
+            DebugLog.write("движок: состояние \(engine.state)")
+            guard engine.state.isBusy else { return }
+            self.reportEngineState(times: times - 1)
+        }
+    }
+
+    /// Качает одну векторную модель — самую дешёвую в каталоге.
+    ///
+    /// Полосу иначе не проверить: нажать «Скачать» из сессии нечем,
+    /// а счёт доли по слоям виден только на живом ответе Ollama.
+    func debugPullEmbed() {
+        let offer = ModelCatalogue.embed
+        DebugLog.write("модели: пробная загрузка \(offer.tag), \(offer.sizeText)")
+        ModelInstaller.shared.enqueue([offer.tag])
+        reportInstallerState(every: 2, times: 30)
+    }
+
+    /// Ставит рекомендованную пару — проверка очереди.
+    ///
+    /// На машине, где разговорная модель уже есть, очередь обязана её
+    /// пропустить: повторная загрузка пяти гигабайт ни за чем — ровно то,
+    /// от чего очередь и сделана.
+    func debugPullPair() {
+        let machine = MachineResources.current()
+        let pair = ModelCatalogue.recommendedPair(on: machine)
+        DebugLog.write("модели: пара к установке — \(pair.joined(separator: ", "))")
+        ModelInstaller.shared.enqueue(pair)
+        DebugLog.write("модели: в очереди — \(ModelInstaller.shared.waiting.joined(separator: ", "))")
+        reportInstallerState(every: 2, times: 30)
+    }
+
+    /// Пишет состояние загрузки в журнал, пока она идёт.
+    ///
+    /// Загрузка живёт минутами и отчитывается замыканиями в вёрстку;
+    /// из сессии вёрстки нет, и единственный способ увидеть ход — журнал.
+    private func reportInstallerState(every seconds: Int, times: Int) {
+        guard times > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(seconds)) { [weak self] in
+            guard let self else { return }
+            let installer = ModelInstaller.shared
+            DebugLog.write(
+                "модели: состояние \(installer.state), качается \(installer.installing ?? "—"),"
+                    + " в очереди \(installer.waiting.count)"
+            )
+            guard installer.isBusy || !installer.waiting.isEmpty else { return }
+            self.reportInstallerState(every: seconds, times: times - 1)
+        }
+    }
+
     // MARK: - Помощник: отладка
 
     /// Что уходит модели прямо сейчас — в журнал.
@@ -1355,6 +1577,152 @@ final class NotchController {
         takeKeyboard()
     }
 
+    // MARK: - Указания через «@»
+
+    /// На сколько дней вперёд «@» показывает встречи.
+    ///
+    /// Две недели: дальше человек переносит и отменяет редко, а список,
+    /// в котором сотня строк, ищет хуже, чем календарь.
+    private static let mentionHorizon = 14
+
+    /// Сколько заметок попадает в список. Свежие сверху — по ним и ищут.
+    private static let mentionNotes = 60
+
+    /// Сколько знаков заметки уходит модели. Дальше это уже не «покажи
+    /// на заметку», а выгрузка архива в один вопрос.
+    private static let mentionNoteLimit = 1200
+
+    /// Всё, на что можно показать. Собирается один раз на открытие списка:
+    /// чтение календаря — поход в EventKit, и делать его на каждую букву
+    /// значило бы платить за него всё время, пока набирают имя.
+    private var mentionPool: [Mention] = []
+
+    /// Запрос, который человек закрыл клавишей Esc. Пока набранное
+    /// не изменилось, список не всплывает снова.
+    private var dismissedMention: String?
+
+    /// Набранное изменилось: открыть, обновить или закрыть список.
+    private func refreshMentions(for text: String) {
+        guard state.overlay == .assistant, draft.mode == .model, settings.ollamaEnabled else {
+            assistant.hideMentions()
+            return
+        }
+        guard let query = MentionQuery.query(in: text) else {
+            dismissedMention = nil
+            mentionPool = []
+            assistant.hideMentions()
+            return
+        }
+        guard dismissedMention != query else { return }
+        dismissedMention = nil
+        if mentionPool.isEmpty { mentionPool = buildMentionPool() }
+        assistant.showMentions(MentionQuery.matches(
+            mentionPool,
+            query: query,
+            limit: MentionRows.visibleRows * 4
+        ))
+    }
+
+    /// Встречи ближайших дней и свежие заметки — одним списком.
+    ///
+    /// Встречи первыми: «@» завели ради них, а заметку чаще открывают
+    /// списком, чем зовут в вопрос. Выключенная в настройках функция своих
+    /// записей не даёт — иначе человек показал бы на встречу, которой
+    /// приложению нечем распорядиться.
+    private func buildMentionPool() -> [Mention] {
+        var pool: [Mention] = []
+        let day = Calendar.current
+
+        if settings.calendarEnabled {
+            let now = Date()
+            let until = day.date(byAdding: .day, value: Self.mentionHorizon, to: now) ?? now
+            // Час назад, а не «сейчас»: идущую встречу тоже переносят
+            // и отменяют, и чаще всего именно её.
+            let events = calendar.events(from: now.addingTimeInterval(-3600), to: until)
+            for (index, item) in events.enumerated() where !item.title.isEmpty {
+                pool.append(Mention(
+                    kind: .event,
+                    handle: "e\(index + 1)",
+                    target: item.id,
+                    start: item.start,
+                    title: item.title,
+                    detail: AgentTime.humanize(item.start, isDateOnly: item.isAllDay, calendar: day)
+                ))
+            }
+        }
+
+        if settings.notesEnabled {
+            for (index, note) in notes.notes.prefix(Self.mentionNotes).enumerated()
+            where !note.title.isEmpty {
+                pool.append(Mention(
+                    kind: .note,
+                    handle: "n\(index + 1)",
+                    target: String(note.id),
+                    start: nil,
+                    title: note.title,
+                    detail: AgentTime.humanize(note.updatedAt, isDateOnly: true, calendar: day)
+                ))
+            }
+        }
+
+        DebugLog.write("упоминания: собрано \(pool.count)")
+        return pool
+    }
+
+    /// Выбрали запись — она встаёт в текст вопроса словом.
+    ///
+    /// Именно словом, а не невидимой пометкой: человек должен видеть
+    /// в своём вопросе то, что уйдёт модели, и уметь это стереть.
+    func pickMention(_ mention: Mention) {
+        draft.question = MentionQuery.insert(mention, into: draft.question)
+        assistant.remember(mention)
+        assistant.hideMentions()
+        dismissedMention = nil
+        takeKeyboard()
+        DebugLog.write("упоминание: выбрано \(mention.handle) «\(mention.title)»")
+    }
+
+    /// Что модель узнает о позванных записях.
+    ///
+    /// Ярлыком вперёд: им же она потом назовёт встречу инструменту переноса
+    /// или отмены. Настоящий идентификатор EventKit сюда не попадает вовсе —
+    /// маленькая модель, переписывая тридцать знаков в аргумент, ошибается
+    /// чаще, чем попадает.
+    private func mentionContext(for mentions: [Mention]) -> String? {
+        guard !mentions.isEmpty else { return nil }
+        var lines = [t("Человек показал в вопросе на эти записи. Работай с ними, заново их не ищи:")]
+        for mention in mentions {
+            switch mention.kind {
+            case .event: lines.append(eventLine(mention))
+            case .note: lines.append(noteLine(mention))
+            }
+        }
+        if mentions.contains(where: { $0.kind == .event }) {
+            lines.append(t("Перенести или отменить встречу можно инструментом, назвав её ярлыком — например «e1»."))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func eventLine(_ mention: Mention) -> String {
+        var line = tf("Встреча %@ «%@» — %@", mention.handle, mention.title, mention.detail)
+        if let start = mention.start,
+           let draft = calendar.draft(eventID: mention.target, start: start) {
+            if !draft.isAllDay { line += ", " + draft.durationLabel }
+            if !draft.location.isEmpty { line += ", " + tf("место: %@", draft.location) }
+        }
+        return line + "."
+    }
+
+    private func noteLine(_ mention: Mention) -> String {
+        let head = tf("Заметка %@ «%@» от %@", mention.handle, mention.title, mention.detail)
+        guard let id = Int64(mention.target), let note = notes.note(id: id) else {
+            return head + "."
+        }
+        let body = note.plain.prefix(Self.mentionNoteLimit)
+        guard !body.isEmpty else { return head + "." }
+        return head + ":\n" + body
+    }
+
     // MARK: - Список команд в панели
 
     /// Команды, которые видно в панели прямо сейчас.
@@ -1383,6 +1751,16 @@ final class NotchController {
         // команд: увести подсветку из-под открытого выбора значило бы менять
         // модель не у той команды.
         guard assistant.choosingModelFor == nil else { return false }
+
+        // Список «@» стоит в том же слоте и открыт ровно тогда, когда его
+        // набрали: стрелки принадлежат ему, пока он на экране.
+        if assistant.isPickingMention {
+            guard !assistant.mentionMatches.isEmpty else { return false }
+            let last = assistant.mentionMatches.count - 1
+            let current = assistant.highlightedMention ?? 0
+            assistant.highlightedMention = min(max(0, current + offset), last)
+            return true
+        }
 
         if !assistant.answer.isEmpty {
             return moveAnswerAction(offset)
@@ -1556,6 +1934,14 @@ final class NotchController {
             assistant.choosingModelFor = nil
             return true
         }
+        // Esc над списком «@» закрывает список, а не панель. Набранное
+        // остаётся как есть: человек передумал выбирать, а не передумал
+        // писать. Снова список поднимется, когда он изменит запрос.
+        if assistant.isPickingMention {
+            dismissedMention = MentionQuery.query(in: draft.question)
+            assistant.hideMentions()
+            return true
+        }
         if assistant.highlightedAnswerAction != nil {
             assistant.highlightedAnswerAction = nil
             NotchHintTracker.shared.focus(nil)
@@ -1631,6 +2017,15 @@ final class NotchController {
             confirmPendingAction()
             return
         }
+        // Список «@» забирает Enter себе: он открыт ровно тогда, когда
+        // человек набирает имя записи, и отправлять недописанное «@пла»
+        // модели незачем.
+        if assistant.isPickingMention,
+           let index = assistant.highlightedMention,
+           assistant.mentionMatches.indices.contains(index) {
+            pickMention(assistant.mentionMatches[index])
+            return
+        }
         // Набранный вопрос старше любой подсветки. Подсветку на «Скопировать»
         // ставит **само приложение**, как только ответ дописан, — человек её
         // не наводил. Пока она стояла первой, уточняющий вопрос уходил
@@ -1653,8 +2048,20 @@ final class NotchController {
         let text = typed
         guard !text.isEmpty, settings.ollamaEnabled else { return }
 
+        // Позванное через «@» сужается до того, что уцелело в наборе:
+        // стёртое упоминание не должно оставаться в поле зрения помощника,
+        // иначе он отменит встречу, о которой в вопросе уже ни слова.
+        //
+        // Уточняющий вопрос при этом ничего не теряет: «перенеси её на час
+        // позже» упоминаний не содержит вовсе, и прежнее поле зрения
+        // остаётся при нём.
+        let alive = MentionQuery.surviving(assistant.mentions, in: text)
+        if !alive.isEmpty || assistant.isFirstQuestion { assistant.keepMentions(alive) }
+        agent.setMentions(assistant.mentions)
+        let mentioned = mentionContext(for: assistant.mentions)
+
         guard assistant.usesNotes, settings.notesEnabled else {
-            assistant.send(text)
+            assistant.send(text, mentionContext: mentioned)
             draft.clearQuestion()
             return
         }
@@ -1671,7 +2078,7 @@ final class NotchController {
                 activities.present(.command(text: t("В заметках такого нет"), state: .failed))
                 return
             }
-            assistant.send(text, notesContext: context)
+            assistant.send(text, mentionContext: mentioned, notesContext: context)
         }
     }
 
@@ -2004,6 +2411,9 @@ final class NotchController {
         // Инструменты подвешиваются и голосу: заметки перестали быть
         // отдельным входом, и добраться до них модель может только так.
         armAgent()
+        // Список скачанных нужен, чтобы выбрать модель голоса. Спрашивается
+        // здесь, пока человек ещё говорит: к концу фразы он уже придёт.
+        if settings.ollamaEnabled { ModelList.shared.refreshIfNeeded() }
         voice.toggle()
     }
 
@@ -2865,6 +3275,7 @@ final class NotchController {
             onNewNote: { [weak self] seed in self?.openNoteComposer(seededWith: seed) },
             onSaveAnswer: { [weak self] in self?.saveAnswer() },
             onToggleNotesSearch: { [weak self] in self?.toggleNotesSearch() },
+            onPickMention: { [weak self] mention in self?.pickMention(mention) },
             onCloseAssistant: { [weak self] in self?.closeAssistant() },
             onOpenNotes: { [weak self] in self?.openNotes() },
             onOpenCalendar: { [weak self] in self?.openCalendar() },
@@ -3122,6 +3533,49 @@ final class NotchController {
         router.set(.assistant)
         takeKeyboard()
         DebugLog.write("панель: длинный вопрос в поле, знаков \(draft.question.count)")
+    }
+
+    /// Панель с набранной «@» в поле: список записей открыт.
+    ///
+    /// Собаку из сессии не нажать — синтетические нажатия до Carbon
+    /// не доходят, — а без неё списка не увидеть ни глазами, ни снимком.
+    func debugMention() {
+        assistant.ask(target: NSWorkspace.shared.frontmostApplication)
+        draft.setMode(.model)
+        router.set(.assistant)
+        takeKeyboard()
+        // С задержкой, как и всё, что кладётся в свежеоткрытую панель:
+        // подряд, в одном такте, панель к этому мигу ещё не построена.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            self.draft.question = "@"
+            self.host.updateInteractiveRect()
+            DebugLog.write("упоминания: список открыт, строк \(self.assistant.mentionMatches.count)")
+        }
+    }
+
+    /// Весь круг с указанием живьём: выбрать первую встречу из списка «@»
+    /// и попросить перенести её.
+    ///
+    /// Ничего не меняет: пишущее останавливается карточкой, а нажать её
+    /// из сессии нечем. Так и задумано — это проверка провода, а не правка
+    /// чужого календаря.
+    func debugMentionRun() {
+        askAssistant()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            self.draft.question = "@"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                guard let first = self.assistant.mentionMatches.first(where: { $0.kind == .event }) else {
+                    DebugLog.write("упоминания: встреч под рукой нет, переносить нечего")
+                    return
+                }
+                self.pickMention(first)
+                self.draft.question += t("перенеси на завтра в 15:00")
+                DebugLog.write("упоминания: отладочный вопрос — \(self.draft.question)")
+                self.sendDraft()
+            }
+        }
     }
 
     func debugAskNotes() {

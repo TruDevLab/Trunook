@@ -193,7 +193,8 @@ struct WelcomeView: View {
                 settings: settings,
                 state: ai,
                 models: .shared,
-                installer: .shared
+                installer: .shared,
+                engine: .shared
             )
         case .permissions: permissionsStep
         case .done: doneStep

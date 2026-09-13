@@ -55,17 +55,30 @@ changed in settings or right in the welcome window.
   them off into any window — the file moves for good.
 - **Model prompts.** The question goes off with Enter, the answer is written
   right in the notch, and can be copied or pasted into the active window.
-  Answering is Ollama on your own machine, another local server with an
-  OpenAI interface (LM Studio, llama.cpp, vLLM, Unsloth Studio) or a cloud one
-  — OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek. Addresses for all
-  of those fill in themselves; anything else connects as a custom provider.
-  Several can be kept at once: each has its own address, key and model, and
-  a command picks a model from any of them.
+  Answering is Ollama on your own machine, and there is no need to install it
+  by hand: the app downloads and starts it itself, and suggests models your
+  machine can carry — light, medium and powerful for chat, plus one for notes.
+  The one that fits is marked “recommended”, and a single button installs the
+  pair you need. The “Answer without thinking first” switch makes answers
+  several times faster; the catalogue's medium model already answers that way.
+- **Your own server or the cloud.** Under “Advanced” — another local server
+  with an OpenAI interface (LM Studio, llama.cpp, vLLM, Unsloth Studio) or a
+  cloud one — OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek. Addresses
+  for all of those fill in themselves; anything else connects as a custom
+  provider. Several can be kept at once: each has its own address, key and
+  model, and a command picks a model from any of them.
 - **An assistant that acts.** Allow it, and the model does more than answer:
   it sets timers and the stopwatch, checks what is coming up, a day's agenda
   and the weather, and creates events, reminders and notes. Reading happens
   at once; writing only after a card in the notch says “Create” or “Cancel”.
   Off by default, and it needs a model that can call tools.
+- **Pointing with “@”.** Type an at sign in the question and a list opens
+  below the field: meetings for the next two weeks and recent notes. What
+  you pick goes into the question as a word — “@Standup move it to Tuesday
+  at 15:00”, or “@Standup cancel it”. The assistant moves and cancels the
+  meeting itself, asking for confirmation with a card; a note it reads and
+  answers from. It will not look a meeting up by title — with three
+  standups in a week, the choice is yours.
 - **Voice assistant.** A double press of ⌃ asks out loud. If the assistant is
   allowed to act, voice goes the same way a typed question does: the model
   looks into your notes, the calendar or the weather by itself when it needs
@@ -73,7 +86,10 @@ changed in settings or right in the welcome window.
   while it listens, the model's colour while it thinks and answers — and a live
   level meter on the side shows that you are being heard. The answer is short
   and read aloud as the model writes it; a button in the notch stops it. Click
-  the notch to open the conversation and read it with your eyes. Speech is
+  the notch to open the conversation and read it with your eyes. Having read
+  the answer out, the notch listens again: you can follow up without reaching
+  for the gesture, and silence ends the conversation. Voice has a model of its
+  own, the lightest by default: speed matters most out loud. Speech is
   recognised **on your own machine** and never leaves it.
 - **Dictation.** The microphone in the question line puts speech straight into
   the field as you talk; whatever was typed before it stays. A whole note can
@@ -210,8 +226,10 @@ separate service.
   displays.
 - macOS 14 or newer. Glass in the notch needs macOS 26; below that the notch is black.
 - Command Line Tools to build.
-- [Ollama](https://ollama.com) or any server with an OpenAI interface for
-  model prompts, installed separately.
+- [Ollama](https://ollama.com) for model prompts. You do not install it
+  yourself: the app downloads and installs it, then offers models that suit
+  your machine. Your own OpenAI-compatible server or a cloud key works too —
+  see “Advanced” in the settings.
 
 ## Development
 

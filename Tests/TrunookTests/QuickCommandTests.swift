@@ -209,6 +209,27 @@ struct QuickCommandTests {
         #expect(plain.prompt(with: "") == "переведи на английский")
     }
 
+    // MARK: - Новая команда
+
+    /// Кнопка «Добавить команду» в настройках выглядела не работающей:
+    /// заготовка заводилась без имени и без запроса, а разбор набора
+    /// выбрасывает ровно такие записи — пустышки старого формата. Команда
+    /// исчезала в тот же миг, в который появлялась.
+    @Test("Новая команда переживает перезагрузку набора")
+    func новаяКомандаНеИсчезает() {
+        let store = defaults()
+        let settings = Settings(defaults: store)
+        let before = settings.quickCommands.count
+
+        let id = settings.addCommand()
+
+        let after = settings.quickCommands
+        #expect(after.count == before + 1)
+        #expect(after.contains { $0.id == id }, "заготовка не пережила чтения набора")
+        // В список выреза она при этом не попадает: запроса в ней ещё нет.
+        #expect(after.first { $0.id == id }?.isConfigured == false)
+    }
+
     // MARK: - Размер списка
 
     @Test("Список не растёт выше своего потолка")

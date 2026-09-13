@@ -21,6 +21,54 @@ final class AssistantSession: ObservableObject {
     /// а признак обязан пережить перерисовку.
     @Published var usesNotes = false
 
+    /// Кого показывает список под полем на набранное «@». Пустой список
+    /// при `isPickingMention` — «ничего похожего», строкой; `false` —
+    /// списка нет вовсе.
+    ///
+    /// Собирает его контроллер: встречи и заметки живут в службах, а сессия
+    /// про них не знает и знать не должна.
+    @Published private(set) var mentionMatches: [Mention] = []
+    /// Список открыт. Отдельно от пустоты списка: пустой список — это тоже
+    /// ответ на набранное, и высота панели от него та же.
+    @Published private(set) var isPickingMention = false
+    /// Какая строка списка подсвечена клавишами.
+    @Published var highlightedMention: Int?
+
+    /// На что человек показал через «@» в этом вопросе.
+    ///
+    /// Не текст, а записи: по ним модель получит подробности, а инструменты
+    /// переноса и отмены — настоящее событие. Живут до отправки; что из них
+    /// уцелело в наборе, решает `MentionQuery.surviving`.
+    @Published private(set) var mentions: [Mention] = []
+
+    /// Открыть или обновить список. Подсветка сбрасывается на первую строку:
+    /// набранное изменилось, и прежний выбор больше ни на что не показывает.
+    func showMentions(_ matches: [Mention]) {
+        mentionMatches = matches
+        isPickingMention = true
+        highlightedMention = matches.isEmpty ? nil : 0
+    }
+
+    func hideMentions() {
+        guard isPickingMention || !mentionMatches.isEmpty else { return }
+        mentionMatches = []
+        isPickingMention = false
+        highlightedMention = nil
+    }
+
+    /// Запомнить позванное. Повтор не удваивается: показать на одну встречу
+    /// дважды — обычное дело, когда набранное стёрли и набрали заново.
+    func remember(_ mention: Mention) {
+        guard !mentions.contains(where: { $0.handle == mention.handle }) else { return }
+        mentions.append(mention)
+    }
+
+    func forgetMentions() { mentions = [] }
+
+    /// Оставить только эти. Зовётся перед отправкой: в поле зрения помощника
+    /// остаётся ровно то, на что вопрос и показывает.
+    func keepMentions(_ list: [Mention]) { mentions = list }
+
     /// Текст, захваченный при вызове: то, что было выделено в чужом окне.
     ///
     /// Живёт отдельно от поля ввода нарочно. В поле его клали — и это было
@@ -187,7 +235,7 @@ final class AssistantSession: ObservableObject {
     ///
     /// Не `messages.isEmpty`: в переписке к этому моменту может уже лежать
     /// системное указание, как отвечать, — оно репликой человека не является.
-    private var isFirstQuestion: Bool {
+    var isFirstQuestion: Bool {
         !messages.contains { $0.role == "user" }
     }
 
@@ -326,6 +374,7 @@ final class AssistantSession: ObservableObject {
         answer = ""
         error = nil
         messages = [.user(prompt)]
+        hasAgentInstruction = false
         hiddenMessages = [0]
         highlightedAnswerAction = nil
         run()
@@ -378,10 +427,20 @@ final class AssistantSession: ObservableObject {
     /// Заметки и захваченный текст кладутся **только в первую реплику**:
     /// дальше они уже в переписке, и слать их заново значило бы удваивать
     /// контекст на каждом встречном вопросе.
-    func send(_ question: String, notesContext: String? = nil, style: AnswerStyle = .written) {
+    func send(
+        _ question: String,
+        mentionContext: String? = nil,
+        notesContext: String? = nil,
+        style: AnswerStyle = .written,
+        modelOverride: String? = nil
+    ) {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
         self.style = style
+        // Запоминается до того, как в переписку ляжет хоть что-то: ниже
+        // туда встаёт указание, как отвечать, и считать реплики после
+        // этого значит ошибиться.
+        let opensConversation = isFirstQuestion
 
         if !answer.isEmpty {
             messages.append(.assistant(answer))
@@ -398,6 +457,10 @@ final class AssistantSession: ObservableObject {
         // ближе к вопросу должно лежать то, что к нему относится теснее.
         var preamble: [String] = []
         if isFirstQuestion {
+            // Указанное через «@» — первым: это самое узкое место вопроса,
+            // и модель обязана увидеть его раньше архива заметок и раньше
+            // захваченного абзаца.
+            if let mentionContext { preamble.append(mentionContext) }
             if let notesContext {
                 title = t("По заметкам")
                 preamble.append(notesContext)
@@ -420,16 +483,39 @@ final class AssistantSession: ObservableObject {
             )
         }
         // Модель разговора назначается первым вопросом и дальше не меняется.
-        if messages.count <= 1, model == nil { model = questionModel }
+        //
+        // Прежде здесь стояло `messages.count <= 1`, и у голоса это не
+        // срабатывало никогда: перед его вопросом в переписку ложится
+        // указание «ответ прочитают вслух», реплик уже две — и выбранная
+        // модель до голоса не доходила вовсе.
+        if opensConversation, model == nil { model = modelOverride ?? questionModel }
         answer = ""
         error = nil
         highlightedAnswerAction = nil
         run()
     }
 
+    /// Указание помощнику уже стоит в переписке.
+    ///
+    /// Ставится один раз на разговор: оно длинное, и повторять его перед
+    /// каждым вопросом значило бы платить за одно и то же место в контексте
+    /// столько раз, сколько было реплик.
+    private var hasAgentInstruction = false
+
     private func run() {
         isStreaming = true
         let tools = availableTools()
+        // Указание про сегодняшнее число — первой репликой и **раньше
+        // расчёта окна**: без него думающая модель уходит выяснять, какое
+        // сегодня число, у самой себя. Она не выясняет: `qwen3:4b`
+        // на «создай встречу на завтра» израсходовала на рассуждение весь
+        // потолок ответа и вернула пустоту — ни текста, ни вызова.
+        // С указанием тот же вопрос укладывается втрое короче и кончается
+        // верным вызовом.
+        if !tools.isEmpty, !hasAgentInstruction {
+            messages.insert(.system(AgentTool.instruction()), at: 0)
+            hasAgentInstruction = true
+        }
         // Инструменты занимают место в контексте, и место немалое. Ollama
         // режет переросшее **молча** — и выглядит это как выдумка модели,
         // а не как потеря половины промта. Просим окно с их учётом.
@@ -572,6 +658,9 @@ final class AssistantSession: ObservableObject {
         runningTool = nil
         pending = nil
         questionModel = nil
+        hasAgentInstruction = false
+        mentions = []
+        hideMentions()
     }
 
     // MARK: - Отладка

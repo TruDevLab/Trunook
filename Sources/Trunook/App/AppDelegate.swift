@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // До всего, что спрашивает адрес модели: провайдеры разъезжаются
         // по своим полям, и до переноса общие поля читались бы как чужие.
         settings.migrateProviderSettings()
+        // После разъезда провайдеров: решение зависит от того, что у них
+        // в полях, и до переноса поля ещё общие.
+        settings.migrateAdvancedProviders()
         settings.migrateEmbedModel()
         // До всего остального: меню и окна собираются уже переведёнными.
         Localization.shared.apply(settings.language)
@@ -26,6 +29,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.start()
         installStatusItem()
         installDebugTrigger()
+        // Движок опознаётся при запуске, и стоящая, но молчащая Ollama
+        // поднимается сама: иначе первый вопрос дня падает ни за что.
+        OllamaEngine.shared.refresh()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            OllamaEngine.shared.ensureUp()
+        }
         // Меню строки состояния — AppKit, само себя не перерисует.
         NotificationCenter.default.addObserver(
             self,
@@ -85,6 +94,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.noteNew", #selector(newNote)),
             ("com.trunook.debug.noteSelection", #selector(noteSelection)),
             ("com.trunook.debug.askLong", #selector(askLong)),
+            ("com.trunook.debug.mention", #selector(mention)),
+            ("com.trunook.debug.mentionRun", #selector(mentionRun)),
             ("com.trunook.debug.voice", #selector(toggleVoice)),
             ("com.trunook.debug.voiceGlow", #selector(showVoiceGlow)),
             ("com.trunook.debug.voiceSpeak", #selector(speakSample)),
@@ -103,6 +114,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.expand", #selector(expandNotch)),
             ("com.trunook.debug.assistant", #selector(testAssistant)),
             ("com.trunook.debug.ask", #selector(testAsk)),
+            ("com.trunook.debug.models", #selector(dumpModelOffers)),
+            ("com.trunook.debug.engine", #selector(dumpEngine)),
+            ("com.trunook.debug.engineStart", #selector(startEngine)),
+            ("com.trunook.debug.engineQuit", #selector(quitEngine)),
+            ("com.trunook.debug.engineVerify", #selector(verifyEngineImage)),
+            ("com.trunook.debug.engineInstall", #selector(installEngine)),
+            ("com.trunook.debug.modelPull", #selector(pullEmbedModel)),
+            ("com.trunook.debug.modelsPair", #selector(pullModelPair)),
             ("com.trunook.debug.agentTools", #selector(dumpAgentTools)),
             ("com.trunook.debug.agentTime", #selector(dumpAgentTime)),
             ("com.trunook.debug.agentSteps", #selector(showAgentSteps)),
@@ -285,6 +304,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func askByVoice() { controller.debugAskByVoice("что я записывал про Trunook") }
 
+    @objc private func dumpModelOffers() { controller.debugModelOffers() }
+    @objc private func dumpEngine() { controller.debugEngine() }
+    @objc private func startEngine() { controller.debugEngineStart() }
+    @objc private func quitEngine() { controller.debugEngineQuit() }
+    @objc private func verifyEngineImage() { controller.debugEngineVerify() }
+    @objc private func installEngine() { controller.debugEngineInstall() }
+    @objc private func pullEmbedModel() { controller.debugPullEmbed() }
+    @objc private func pullModelPair() { controller.debugPullPair() }
+
     @objc private func dumpAgentTools() { controller.debugAgentTools() }
     @objc private func dumpAgentTime() { controller.debugAgentTime() }
     @objc private func showAgentSteps() { controller.debugAgentSteps() }
@@ -370,6 +398,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// подросшую вслед за ним. Набрать текст из сессии нечем.
     @objc private func askLong() {
         controller.debugLongQuestion()
+    }
+
+    /// Список «@»: панель с набранной собакой в поле. Нажать её из сессии
+    /// нечем, а без неё списка не увидеть вовсе.
+    @objc private func mention() {
+        controller.debugMention()
+    }
+
+    /// Весь круг с указанием: выбрать встречу и попросить перенести.
+    /// Останавливается карточкой подтверждения — календарь не трогается.
+    @objc private func mentionRun() {
+        controller.debugMentionRun()
     }
 
     /// Голосовой заход — то же, что двойное нажатие модификатора.

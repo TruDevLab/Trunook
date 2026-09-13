@@ -51,6 +51,14 @@ final class ModelClient {
     struct Completion: Equatable {
         let text: String
         let calls: [ToolCall]
+        /// Ответ оборвали потолком, а не моделью: `done_reason` — «length».
+        ///
+        /// Различать обязательно. Думающая модель тратит на рассуждение
+        /// тот же потолок, что и на ответ, и, не уложившись, отдаёт **пустоту
+        /// без единой жалобы**: ни ошибки, ни текста, ни вызова. На экране
+        /// это выглядит как «модель перестала работать», а на деле она
+        /// думала и не успела.
+        var isTruncated = false
     }
 
     private let settings: Settings
@@ -137,7 +145,13 @@ final class ModelClient {
             contextWindow: contextWindow,
             model: model,
             onToken: onToken,
-            onFinish: { result in onFinish(result.map(\.text)) }
+            onFinish: { result in
+                onFinish(result.flatMap { completion in
+                    completion.isTruncated && completion.text.isEmpty
+                        ? .failure(ModelError.truncated)
+                        : .success(completion.text)
+                })
+            }
         )
     }
 
@@ -201,8 +215,10 @@ final class ModelClient {
                 // OpenAI-совместимый — строку вида `data: {…}` и `data: [DONE]`
                 // на конце. Разбор поэтому разный, а всё вокруг — общее.
                 var collector = ToolCallStream()
+                var truncated = false
                 for try await line in bytes.lines {
                     if Task.isCancelled { return }
+                    if let cut = Self.isTruncated(line, dialect: dialect) { truncated = cut }
                     // Вызовы снимаются с каждой строки и **до** разбора
                     // текста: одна посылка законно несёт и кусок ответа,
                     // и кусок вызова, а `continue` ниже унёс бы её мимо.
@@ -217,7 +233,11 @@ final class ModelClient {
                 }
 
                 if Task.isCancelled { return }
-                let final = Completion(text: answer, calls: collector.calls())
+                let final = Completion(
+                    text: answer,
+                    calls: collector.calls(),
+                    isTruncated: truncated
+                )
                 await MainActor.run { onFinish(.success(final)) }
             } catch {
                 if Task.isCancelled || error is CancellationError { return }
@@ -243,6 +263,26 @@ final class ModelClient {
                   let delta = choices.first?["delta"] as? [String: Any]
             else { return nil }
             return delta["content"] as? String
+        }
+    }
+
+    /// Ответ оборван потолком длины. `nil` — в строке об этом ничего нет.
+    static func isTruncated(_ line: String, dialect: AIProvider.Dialect) -> Bool? {
+        switch dialect {
+        case .ollama:
+            guard let data = line.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["done"] as? Bool == true
+            else { return nil }
+            return object["done_reason"] as? String == "length"
+        case .openAI:
+            guard let payload = Self.sseData(line), payload != "[DONE]",
+                  let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let choices = object["choices"] as? [[String: Any]],
+                  let reason = choices.first?["finish_reason"] as? String
+            else { return nil }
+            return reason == "length"
         }
     }
 
@@ -344,6 +384,13 @@ final class ModelClient {
         // устроен по образцу OpenAI. Пустой список не кладём вовсе: запрос
         // без агента обязан остаться ровно таким, каким был.
         if !tools.isEmpty { body["tools"] = tools }
+
+        // Просьба не рассуждать. Только у Ollama: в интерфейсе OpenAI такого
+        // поля нет, а строгий сервер на лишнее поле отвечает отказом.
+        if Self.skipsThinking(fast: settings.fastAnswers, model: target.name, dialect: provider.dialect) {
+            body["think"] = false
+            DebugLog.write("модель: \(target.name) — без раздумий")
+        }
 
         switch provider.dialect {
         case .ollama:
@@ -525,9 +572,10 @@ final class ModelClient {
                     await MainActor.run { onFinish(.failure(ModelError.server(code, name))) }
                     return
                 }
+                var progress = PullProgress()
                 for try await line in bytes.lines {
                     if Task.isCancelled { return }
-                    if let share = Self.pullProgress(in: line) {
+                    if let share = progress.share(of: line) {
                         await MainActor.run { onProgress(share) }
                     }
                     if let failure = Self.pullError(in: line) {
@@ -545,8 +593,96 @@ final class ModelClient {
         }
     }
 
-    /// Доля скачанного из строки ответа. `nil` — строка без чисел
+    /// Просить ли модель не рассуждать перед ответом.
+    ///
+    /// Замерено на шести случаях помощника: у `qwen3:8b` весь круг уходит
+    /// с 5,6 секунды до 0,7 при тех же шести верных вызовах из шести.
+    /// Но это **не общее правило**: та же просьба у `qwen3:4b` и рассуждение
+    /// не убирает, а выносит в сам ответ — человек читает «Хорошо,
+    /// пользователь попросил поставить таймер…» вместо «таймер пошёл».
+    /// Поэтому для чужих моделей это выключатель человека, а для моделей
+    /// каталога — замеренный признак: `ModelCatalogue.answersWithoutThinking`.
+    ///
+    /// Только у Ollama: в интерфейсе OpenAI поля `think` нет, и строгий
+    /// сервер на лишнее поле отвечает отказом. Моделям, думать не умеющим,
+    /// поле не мешает — проверено на `llama3:8b` и `gemma4:12b`.
+    static func skipsThinking(fast: Bool, model: String, dialect: AIProvider.Dialect) -> Bool {
+        guard dialect == .ollama else { return false }
+        return fast || ModelCatalogue.answersWithoutThinking(model)
+    }
+
+    /// Номер версии движка — для строки состояния и журнала.
+    ///
+    /// Только у Ollama: у остальных такого запроса нет. Неудача не значит
+    /// ничего плохого — движок уже ответил на опрос порта, — поэтому
+    /// возвращается `nil`, а не ошибка.
+    func engineVersion(from provider: AIProvider, completion: @escaping (String?) -> Void) {
+        guard provider.dialect == .ollama,
+              let url = endpoint("/api/version", of: provider)
+        else {
+            completion(nil)
+            return
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        authorize(&request, as: provider)
+
+        session.dataTask(with: request) { data, _, _ in
+            let version = data.flatMap {
+                (try? JSONSerialization.jsonObject(with: $0) as? [String: Any])?["version"] as? String
+            }
+            DispatchQueue.main.async { completion(version) }
+        }.resume()
+    }
+
+    /// Доля скачанного по всем слоям разом.
+    ///
+    /// Ollama шлёт `completed` и `total` **по каждому слою отдельно**,
+    /// и доля одного слоя полосе не годится: на переходе к следующему она
+    /// падает с восьмидесяти процентов до нуля. Человек видит, как
+    /// загрузка откатывается назад, — а при установке пары моделей дважды.
+    /// Комментарий у `pull` это и обещал, но счёт по слоям так и не был
+    /// написан: обещанное и сделанное разошлись молча.
+    ///
+    /// Слои складываются по отпечаткам, а доле ещё и не даётся убывать:
+    /// пока о других слоях не сказано, первый составляет всё целое,
+    /// и объявление второго само по себе уронило бы полосу.
+    struct PullProgress {
+        private var layers: [String: (total: Double, done: Double)] = [:]
+        private var highest: Double = 0
+
+        /// Доля после этой строки или `nil`, если строка без чисел —
+        /// таких у Ollama больше половины.
+        mutating func share(of line: String) -> Double? {
+            guard let layer = ModelClient.pullLayer(in: line) else { return nil }
+            layers[layer.digest] = (layer.total, layer.done)
+
+            let total = layers.values.reduce(0) { $0 + $1.total }
+            guard total > 0 else { return nil }
+            let done = layers.values.reduce(0) { $0 + $1.done }
+            highest = max(highest, min(1, max(0, done / total)))
+            return highest
+        }
+    }
+
+    /// Слой из строки ответа: отпечаток, сколько всего и сколько скачано.
+    ///
+    /// Отпечатка может не быть — тогда пусть слой зовётся пустой строкой:
+    /// две безымянные строки подряд про один и тот же слой, а не про разные.
+    static func pullLayer(in line: String) -> (digest: String, total: Double, done: Double)? {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let total = (object["total"] as? NSNumber)?.doubleValue, total > 0,
+              let done = (object["completed"] as? NSNumber)?.doubleValue
+        else { return nil }
+        return (object["digest"] as? String ?? "", total, done)
+    }
+
+    /// Доля скачанного из одной строки ответа. `nil` — строка без чисел
     /// (их у Ollama больше половины: «pulling manifest», «verifying»).
+    ///
+    /// Одна строка — один слой, поэтому полосе эта доля не годится:
+    /// ей нужна `PullProgress`.
     static func pullProgress(in line: String) -> Double? {
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -636,6 +772,8 @@ final class ModelClient {
         case notOllama
         case badURL
         case emptyResponse
+        /// Потолок ответа кончился раньше самого ответа.
+        case truncated
         case server(Int, String)
 
         var errorDescription: String? {
@@ -643,6 +781,10 @@ final class ModelClient {
             case .notOllama: return t("Модели скачиваются только у Ollama")
             case .badURL: return t("Неверный адрес сервера модели")
             case .emptyResponse: return t("Сервер модели вернул пустой ответ")
+            // Молчать здесь нельзя: пустая панель после минуты ожидания
+            // читается как «приложение сломалось», а сломалось не оно.
+            case .truncated:
+                return t("Модель думала слишком долго и не успела ответить. Попробуйте ещё раз или выберите другую модель.")
             case let .server(code, body):
                 // 401 стоит отдельно: у Ollama ключа нет вовсе, и человек,
                 // подключивший свой сервер, увидит именно этот код — а по

@@ -30,6 +30,16 @@ extension CalendarService {
             }
     }
 
+    /// События промежутка — для списка «@».
+    ///
+    /// Не `upcoming`: та держит ровно сутки, а показывают через «@» и на то,
+    /// что через неделю. И не `events(on:)`: перебирать дни по одному
+    /// значило бы столько же запросов к хранилищу, сколько дней в горизонте.
+    func events(from start: Date, to end: Date) -> [CalendarItem] {
+        guard eventsAccess == .fullAccess, end > start else { return [] }
+        return items(from: start, to: end).sorted { $0.start < $1.start }
+    }
+
     /// Числа месяца, в которые что-то есть, — по ним рисуются точки под датой.
     func markedDays(inMonthOf anchor: Date, calendar: Calendar = .current) -> Set<Int> {
         guard eventsAccess == .fullAccess else { return [] }
@@ -87,6 +97,25 @@ extension CalendarService {
             isRecurring: event.hasRecurrenceRules,
             originalStart: start
         )
+    }
+
+    /// Событие по идентификатору и началу вхождения.
+    ///
+    /// Для «@»: там на руках не `CalendarItem`, а то немногое, что человек
+    /// позвал в вопрос, — идентификатор да время начала. Собирать ради
+    /// одного вызова целый `CalendarItem` из выдуманных полей значило бы
+    /// показать хранилищу запись, которой нигде нет.
+    func draft(eventID: String, start: Date) -> EventDraft? {
+        draft(for: CalendarItem(
+            id: eventID,
+            title: "",
+            start: start,
+            end: nil,
+            isAllDay: false,
+            source: .event,
+            link: nil,
+            colorComponents: nil
+        ))
     }
 
     /// Приглашённые — именами и ответами.

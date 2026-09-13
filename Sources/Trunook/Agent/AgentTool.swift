@@ -8,6 +8,12 @@ import Foundation
 /// действительно умеет, на первой же правке.
 enum AgentTool: String, CaseIterable, Identifiable {
     case createEvent = "calendar_create_event"
+    // Перенос и отмена — только про то, на что человек показал через «@».
+    // Искать событие по названию инструменты не умеют нарочно: «отмени
+    // планёрку» при трёх планёрках в неделе — это выбор, который делает
+    // человек, а не модель.
+    case moveEvent = "calendar_move_event"
+    case cancelEvent = "calendar_cancel_event"
     case upcoming = "calendar_upcoming"
     case dayAgenda = "calendar_day_agenda"
     case startTimer = "timer_start"
@@ -45,7 +51,7 @@ enum AgentTool: String, CaseIterable, Identifiable {
         switch self {
         case .upcoming, .dayAgenda, .weatherNow, .searchNotes: return .read
         case .startTimer, .stopTimer, .startStopwatch: return .act
-        case .createEvent, .createReminder, .createNote: return .write
+        case .createEvent, .moveEvent, .cancelEvent, .createReminder, .createNote: return .write
         }
     }
 
@@ -57,6 +63,8 @@ enum AgentTool: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .createEvent: return t("Создать встречу")
+        case .moveEvent: return t("Перенести встречу")
+        case .cancelEvent: return t("Отменить встречу")
         case .upcoming: return t("Ближайшие дела")
         case .dayAgenda: return t("Дела на день")
         case .startTimer: return t("Поставить таймер")
@@ -72,6 +80,8 @@ enum AgentTool: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .createEvent: return "calendar.badge.plus"
+        case .moveEvent: return "calendar.badge.clock"
+        case .cancelEvent: return "calendar.badge.minus"
         case .upcoming: return "calendar"
         case .dayAgenda: return "list.bullet"
         case .startTimer, .stopTimer: return "timer"
@@ -94,7 +104,8 @@ enum AgentTool: String, CaseIterable, Identifiable {
     func isEnabled(_ settings: Settings) -> Bool {
         guard settings.agentEnabled else { return false }
         switch self {
-        case .createEvent, .upcoming, .dayAgenda: return settings.calendarEnabled
+        case .createEvent, .moveEvent, .cancelEvent, .upcoming, .dayAgenda:
+            return settings.calendarEnabled
         case .createReminder: return settings.remindersEnabled
         case .startTimer, .stopTimer, .startStopwatch: return settings.timerEnabled
         case .weatherNow: return settings.weatherEnabled
@@ -111,7 +122,8 @@ enum AgentTool: String, CaseIterable, Identifiable {
         guard !isEnabled(settings) else { return nil }
         guard settings.agentEnabled else { return t("Помощник выключен в настройках.") }
         switch self {
-        case .createEvent, .upcoming, .dayAgenda: return t("Календарь выключен в настройках.")
+        case .createEvent, .moveEvent, .cancelEvent, .upcoming, .dayAgenda:
+            return t("Календарь выключен в настройках.")
         case .createReminder: return t("Напоминания выключены в настройках.")
         case .startTimer, .stopTimer, .startStopwatch: return t("Таймер выключен в настройках.")
         case .weatherNow: return t("Погода выключена в настройках.")
@@ -136,6 +148,10 @@ enum AgentTool: String, CaseIterable, Identifiable {
         switch self {
         case .createEvent:
             return t("Завести встречу в календаре. Спрашивай только то, чего не хватает; остальное не выдумывай.")
+        case .moveEvent:
+            return t("Перенести встречу, на которую человек показал через «@». Меняет время, всё остальное оставляет как было.")
+        case .cancelEvent:
+            return t("Отменить встречу, на которую человек показал через «@». Событие удаляется из календаря.")
         case .upcoming:
             return t("Что впереди на ближайшие сутки: встречи и напоминания по порядку.")
         case .dayAgenda:
@@ -167,6 +183,16 @@ enum AgentTool: String, CaseIterable, Identifiable {
                 .init(name: "all_day", kind: .boolean, description: t("Событие на весь день."), isRequired: false),
                 .init(name: "location", kind: .string, description: t("Место."), isRequired: false),
                 .init(name: "notes", kind: .string, description: t("Описание."), isRequired: false),
+            ]
+        case .moveEvent:
+            return [
+                .init(name: "event", kind: .string, description: eventDescription, isRequired: true),
+                .init(name: "start", kind: .string, description: startDescription, isRequired: true),
+                .init(name: "duration_minutes", kind: .integer, description: t("Новая длительность, минут. Не меняется — не указывай."), isRequired: false),
+            ]
+        case .cancelEvent:
+            return [
+                .init(name: "event", kind: .string, description: eventDescription, isRequired: true),
             ]
         case .upcoming:
             return [
@@ -203,12 +229,31 @@ enum AgentTool: String, CaseIterable, Identifiable {
     /// Образец времени повторяется в описании каждого параметра нарочно.
     /// Сказанное один раз в системной реплике модель забывает к третьему
     /// инструменту, а прочитанное рядом с полем — нет.
+    ///
+    /// **Сначала день словом, потом точная дата** — и это не вопрос вкуса.
+    /// Прежде поле требовало только точную дату, и модель считала дни сама:
+    /// без раздумий `qwen3:8b` на «в понедельник в полдень», сказанное
+    /// в субботу, прислала девятнадцатое — субботу, — а `qwen3:4b-instruct`
+    /// на «послезавтра» промахнулась на день. `AgentTime.parse` при этом
+    /// давно умел «понедельник 12:00» и считал дату сам; модель просто
+    /// не знала, что так можно. С примерами у поля обе перестали ошибаться
+    /// в днях: шесть фраз из шести у `qwen3:8b`. Каждый пример обязан
+    /// разбираться — это держит тест «Примеры из описания разбираются».
     private var startDescription: String {
-        tf("Начало, ровно «%@», местное время: без буквы T, без Z, без смещения.", AgentTime.format)
+        tf("Начало: день словом и время цифрами — «завтра 15:00», «послезавтра 19:00», «понедельник 12:00», «пятница 18:30» — или точная дата «%@». Дату сам не считай: назови день словом.", AgentTime.format)
+    }
+
+    /// Ярлык встречи — из тех, что человек позвал в вопрос через «@».
+    ///
+    /// Настоящий идентификатор EventKit сюда не отдаётся: это тридцать
+    /// с лишним знаков, и маленькая модель, переписывая их в аргумент,
+    /// ошибается чаще, чем попадает.
+    private var eventDescription: String {
+        t("Ярлык встречи из списка указанных человеком, например «e1». Название тоже подойдёт, но ярлык надёжнее.")
     }
 
     private var dueDescription: String {
-        tf("Когда напомнить: «%@» или одна дата. Срока нет — не указывай вовсе.", AgentTime.format)
+        tf("Когда напомнить: день словом и время цифрами — «завтра 09:00», «понедельник 12:00» — или точная дата «%@». Дату сам не считай. Срока нет — не указывай вовсе.", AgentTime.format)
     }
 
     // MARK: - Что уходит модели

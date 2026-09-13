@@ -6,33 +6,15 @@ import SwiftUI
 /// Отдельным объектом, а не полем вида: `@State` в этом SDK недоступен,
 /// а проверка идёт по сети и возвращается позже, чем строится вёрстка.
 final class WelcomeAI: ObservableObject {
-    enum Reach: Equatable {
-        case unknown
-        case checking
-        case up
-        case down
-    }
-
-    @Published private(set) var reach: Reach = .unknown
-
-    private let client = ModelClient()
-    private let settings: Settings
-
-    init(settings: Settings = .shared) {
-        self.settings = settings
-    }
-
-    /// Спрашивает сервер, жив ли он.
+    /// Раскрыт ли выбор провайдера и поле ключа.
     ///
-    /// «Не установлена» и «установлена, но не запущена» человек со стороны
-    /// приложения не различает — снаружи и то и другое выглядит как молчание.
-    /// Поэтому состояние одно, и совет один.
-    func check() {
-        reach = .checking
-        client.ping(settings.aiProvider) { [weak self] alive in
-            DispatchQueue.main.async { self?.reach = alive ? .up : .down }
-        }
-    }
+    /// Свёрнуто: человеку, который просто хочет, чтобы заработало, двенадцать
+    /// провайдеров и поле ключа на первом экране мешают. Тому, у кого свой
+    /// сервер, достаточно одной строки внизу.
+    ///
+    /// В объекте, а не в поле вида: `@State` в этом SDK недоступен,
+    /// а раскрытие обязано пережить перерисовку.
+    @Published var showsAdvanced = false
 }
 
 /// Шаг знакомства, на котором заводят помощника.
@@ -55,60 +37,33 @@ struct WelcomeAIPage: View {
     @ObservedObject var models: ModelList
     @ObservedObject var installer: ModelInstaller
 
+    @ObservedObject var engine: OllamaEngine
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             title
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 8) {
                     promises
-                    providerCard
-                    if state.reach == .up {
-                        modelCard(
-                            title: t("Отвечает на вопросы"),
-                            symbol: "text.bubble",
-                            tint: WelcomePalette.mint,
-                            kind: .chat,
-                            recommended: RecommendedModel.chat,
-                            selection: Binding(
-                                get: { settings.apiModel(for: settings.aiProvider) },
-                                set: { settings.setAPIModel($0, for: settings.aiProvider) }
-                            )
-                        )
-                        modelCard(
-                            title: t("Считает смысл заметок"),
-                            symbol: "point.3.filled.connected.trianglepath.dotted",
-                            tint: WelcomePalette.violet,
-                            kind: .embedding,
-                            recommended: RecommendedModel.embed,
-                            selection: Binding(
-                                get: {
-                                    ModelRef.parse(settings.embedModel, fallback: settings.aiProvider)?.name ?? ""
-                                },
-                                set: {
-                                    settings.embedModel = ModelRef(
-                                        provider: settings.aiProvider,
-                                        name: $0
-                                    ).stored
-                                }
-                            )
-                        )
-                    }
+                    engineCard
+                    offersCard
+                    advancedRow
                     footnote
                 }
             }
         }
         .onAppear {
-            state.check()
+            engine.refresh()
             models.refreshIfNeeded()
         }
     }
 
     private var title: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(t("Заметки, которые отвечают"))
+            Text(t("Помощник, который делает"))
                 .font(.system(size: WelcomeStyle.chapter, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
-            Text(t("Один раз подключите модель — и вырез начнёт отвечать, искать и связывать."))
+            Text(t("Один раз поставьте модель — и вырез начнёт отвечать, искать и делать дела."))
                 .font(.system(size: WelcomeStyle.detail, design: .rounded))
                 .foregroundStyle(Color.white.opacity(0.55))
                 .fixedSize(horizontal: false, vertical: true)
@@ -118,11 +73,20 @@ struct WelcomeAIPage: View {
 
     // MARK: - Что это даёт
 
-    /// Три обещания вместо описания устройства.
+    /// Четыре обещания вместо описания устройства.
     ///
     /// Каждое — про то, что человек получит, а не про то, что мы включим.
     /// «Векторный поиск по эмбеддингам» ему ничего не обещает; «найдётся,
     /// даже если вы забыли слова» — обещает.
+    ///
+    /// Прежде их было три, и все три про заметки: экран звался «Заметки,
+    /// которые отвечают». С тех пор помощник научился действовать —
+    /// календарь, напоминания, таймер, погода, — заговорил голосом
+    /// и стал писать под диктовку. Экран про одни заметки обещал вчетверо
+    /// меньше, чем даёт.
+    ///
+    /// Связи с заметками ушли второй фразой к поиску: это одно умение
+    /// с двух сторон, а пятая строка растила карточку, не добавляя нового.
     private var promises: some View {
         WelcomeCard {
             VStack(alignment: .leading, spacing: 10) {
@@ -133,16 +97,22 @@ struct WelcomeAIPage: View {
                     detail: t("Вопрос голосом или текстом — ответ прямо под чёлкой, поверх любого окна.")
                 )
                 promise(
+                    symbol: "wand.and.stars",
+                    tint: WelcomePalette.amber,
+                    title: t("Поручить, а не делать самому"),
+                    detail: t("Встреча, напоминание, таймер, погода, дела на день. Всё, что записывается, — только после вашего подтверждения.")
+                )
+                promise(
                     symbol: "sparkle.magnifyingglass",
                     tint: WelcomePalette.cyan,
                     title: t("Найти забытое"),
-                    detail: t("Поиск по смыслу: заметка найдётся, даже если вы не помните из неё ни одного слова.")
+                    detail: t("Поиск по смыслу: заметка найдётся, даже если вы не помните из неё ни одного слова. Записи об одном и том же свяжутся сами.")
                 )
                 promise(
-                    symbol: "point.3.filled.connected.trianglepath.dotted",
+                    symbol: "mic.fill",
                     tint: WelcomePalette.violet,
-                    title: t("Увидеть связи"),
-                    detail: t("Записи об одном и том же свяжутся сами — и в приложении, и в графе Obsidian.")
+                    title: t("Говорить вместо печати"),
+                    detail: t("Диктовка в поле вопроса и в заметку, а запись встречи станет заметкой с расшифровкой.")
                 )
             }
             .padding(.horizontal, 14)
@@ -166,41 +136,103 @@ struct WelcomeAIPage: View {
         }
     }
 
-    // MARK: - Кто отвечает
+    // MARK: - Движок
 
-    /// Выбор провайдера.
+    /// Что такое Ollama, в каком она состоянии и одна кнопка по делу.
     ///
-    /// Ollama помечена рекомендованной — она бесплатна и никуда ничего
-    /// не отправляет, — но список открыт: у человека может быть свой сервер
-    /// в сети или ключ к облачному. Заставлять его ставить вторую программу
-    /// ради того, что у него уже есть, незачем.
-    private var providerCard: some View {
+    /// Сказано прямо: программа чужая, бесплатная, с открытым кодом, живёт
+    /// в строке меню и остаётся на машине, даже если Trunook удалить.
+    /// Поставить её втихую было бы проще, но человек должен знать, что
+    /// у него на компьютере появилось.
+    private var engineCard: some View {
         WelcomeCard {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 13) {
-                    WelcomeGlyph(symbol: "server.rack", tint: WelcomePalette.amber, size: WelcomeStyle.tile)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(t("Кто отвечает"))
-                            .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
-                        Text(providerText)
-                            .font(.system(size: WelcomeStyle.detail, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.55))
-                            .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 13) {
+                WelcomeGlyph(
+                    symbol: "shippingbox.fill",
+                    tint: WelcomePalette.amber,
+                    size: WelcomeStyle.tile
+                )
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(t("Движок моделей"))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(engine.line.text)
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.75))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(t("Ollama — бесплатная программа с открытым кодом. Она запускает модели прямо на вашем компьютере и остаётся в строке меню."))
+                        .font(.system(size: WelcomeStyle.caption, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.45))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if case let .downloading(share) = engine.state {
+                        ProgressView(value: share).controlSize(.small).frame(width: 160)
                     }
-                    Spacer(minLength: 8)
-                    providerControls
                 }
-
-                providerPicker
-
-                if settings.aiProvider.usesKey {
-                    keyField
-                }
+                Spacer(minLength: 8)
+                engineButton
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
         }
+    }
+
+    @ViewBuilder
+    private var engineButton: some View {
+        switch engine.line.action {
+        case .none, .busy:
+            EmptyView()
+        case .install:
+            Button(t("Установить")) { engine.install() }
+                .buttonStyle(WelcomeGhostButton())
+        case .start:
+            Button(t("Запустить")) { engine.start() }
+                .buttonStyle(WelcomeGhostButton())
+        case .check:
+            Button(t("Проверить")) { engine.refresh() }
+                .buttonStyle(WelcomeGhostButton())
+        case .cancel:
+            Button(t("Отменить")) { engine.cancelInstall() }
+                .buttonStyle(WelcomeGhostButton())
+        case .reveal:
+            Button(t("Показать в Finder")) { engine.revealImage() }
+                .buttonStyle(WelcomeGhostButton())
+        case .copyCommand:
+            Button(t("Скопировать команду")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(OllamaApp.serveCommand, forType: .string)
+            }
+            .buttonStyle(WelcomeGhostButton())
+        }
+    }
+
+    // MARK: - Свой сервер
+
+    /// Одна строка внизу для тех, у кого свой сервер или облачный ключ.
+    ///
+    /// Прежде выбор из двенадцати провайдеров стоял тут первым делом —
+    /// и первым же вопросом человеку, который не знает, что такое провайдер.
+    /// Теперь он есть, но не на дороге.
+    private var advancedRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                state.showsAdvanced.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: state.showsAdvanced ? "chevron.down" : "chevron.right")
+                        .font(.system(size: WelcomeStyle.caption, weight: .semibold))
+                    Text(t("У меня свой сервер или ключ"))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
+                }
+                .foregroundStyle(Color.white.opacity(0.55))
+            }
+            .buttonStyle(.plain)
+
+            if state.showsAdvanced {
+                providerPicker
+                if settings.aiProvider.usesKey { keyField }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var providerPicker: some View {
@@ -219,9 +251,9 @@ struct WelcomeAIPage: View {
         .accessibilityLabel(t("Кто отвечает"))
     }
 
-    /// Ключ спрашиваем здесь только у тех, кому он нужен: у местного сервера
-    /// его нет вовсе, и пустое поле рядом с ним читалось бы как незаполненная
-    /// обязательная строка.
+    /// Ключ спрашиваем только у тех, кому он нужен: у местного сервера
+    /// его нет вовсе, и пустое поле рядом с ним читалось бы как
+    /// незаполненная обязательная строка.
     private var keyField: some View {
         VStack(alignment: .leading, spacing: 4) {
             SecureField(t("Ключ доступа"), text: Binding(
@@ -236,47 +268,6 @@ struct WelcomeAIPage: View {
         }
     }
 
-    @ViewBuilder
-    private var providerControls: some View {
-        if state.reach == .up {
-            Toggle("", isOn: Binding(
-                get: { settings.ollamaEnabled },
-                set: { settings.ollamaEnabled = $0 }
-            ))
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .accessibilityLabel(t("Отвечать моделью"))
-        } else {
-            // Ставить нужно только местную программу; облачному провайдеру
-            // качать нечего — ему нужен ключ, и он спрашивается ниже.
-            if settings.aiProvider == .ollama {
-                Button(t("Скачать")) {
-                    guard let url = URL(string: "https://ollama.com/download") else { return }
-                    NSWorkspace.shared.open(url)
-                }
-                .buttonStyle(WelcomeGhostButton())
-            }
-            Button(t("Проверить")) { state.check() }
-                .buttonStyle(WelcomeGhostButton())
-                .disabled(state.reach == .checking)
-        }
-    }
-
-    private var providerText: String {
-        switch state.reach {
-        case .unknown, .checking:
-            return t("Проверяю, отвечает ли…")
-        case .up:
-            return settings.aiProvider.isLocal
-                ? t("Отвечает. Всё считается на вашем компьютере, наружу ничего не уходит.")
-                : t("Отвечает. Вопросы и заметки уходят выбранному серверу.")
-        case .down:
-            return settings.aiProvider == .ollama
-                ? t("Не отвечает. Ollama бесплатна: поставьте её и запустите, потом нажмите «Проверить».")
-                : t("Не отвечает. Проверьте адрес и ключ, потом нажмите «Проверить».")
-        }
-    }
-
     /// Смена провайдера: включаем выбранного и делаем его основным.
     ///
     /// Прежнего не выключаем — он мог быть настроен и пригодиться командам;
@@ -284,100 +275,139 @@ struct WelcomeAIPage: View {
     private func choose(_ provider: AIProvider) {
         settings.setProvider(provider, enabled: true)
         settings.aiProvider = provider
-        state.check()
+        engine.refresh()
         models.refresh()
     }
 
     // MARK: - Модели
 
-    /// Карточка одной модели: что она делает, чем сейчас занята и чем её
-    /// заменить.
+    /// Что человек получит: три разряда по силам его машины и модель
+    /// для заметок.
     ///
-    /// Две модели рядом — потому что они разного рода, и человеку это
-    /// неочевидно: одна отвечает словами, вторая не отвечает вовсе. Подписи
-    /// поэтому по делу — «отвечает на вопросы» и «считает смысл», — а не
-    /// «модель» и «модель для эмбеддингов».
-    private func modelCard(
-        title: String,
-        symbol: String,
-        tint: Color,
-        kind: ModelList.Kind,
-        recommended: String,
-        selection: Binding<String>
-    ) -> some View {
+    /// Список виден **до** того, как движок поднялся, — без кнопок.
+    /// В этом и смысл экрана: сперва показать, что будет, а уже потом
+    /// просить согласия поставить чужую программу.
+    private var offersCard: some View {
         WelcomeCard {
-            HStack(spacing: 13) {
-                WelcomeGlyph(symbol: symbol, tint: tint, size: WelcomeStyle.tile)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
-
-                    if installer.isInstalling(recommended) {
-                        HStack(spacing: 8) {
-                            ProgressView(value: share).controlSize(.small).frame(width: 120)
-                            Text(tf("%d%%", Int(share * 100)))
-                                .font(.system(size: WelcomeStyle.detail, design: .rounded))
-                                .foregroundStyle(Color.white.opacity(0.55))
-                        }
-                    } else if isInstalled(recommended) {
-                        picker(kind: kind, selection: selection)
-                    } else {
-                        Text(missingText(recommended))
-                            .font(.system(size: WelcomeStyle.detail, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.55))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+            VStack(alignment: .leading, spacing: 10) {
+                if !engine.state.isRunning {
+                    Text(t("Сначала поставим движок — без него моделям нечем работать."))
+                        .font(.system(size: WelcomeStyle.caption, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.45))
                 }
-                Spacer(minLength: 8)
-
-                // Скачать можно только у Ollama: у прочих провайдеров модели
-                // живут на их стороне, и качать со своей нечего.
-                if !isInstalled(recommended),
-                   !installer.isInstalling(recommended),
-                   settings.aiProvider == .ollama {
-                    Button(t("Скачать")) { installer.install(recommended) }
-                        .buttonStyle(WelcomeGhostButton())
-                        .disabled(installer.isBusy)
+                ForEach(offers) { row in
+                    offerRow(row)
+                }
+                if let pair = pairToInstall, engine.state.isRunning {
+                    Button(t("Установить рекомендованное")) {
+                        installer.enqueue(pair)
+                        if let chat = pair.first { settings.setAPIModel(chat, for: .ollama) }
+                    }
+                    .buttonStyle(WelcomeGhostButton())
                 }
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.vertical, 12)
         }
     }
 
-    private func missingText(_ recommended: String) -> String {
-        settings.aiProvider == .ollama
-            ? tf("Нужна модель %@ — около нескольких гигабайт.", recommended)
-            : t("Выберите модель своего провайдера в настройках.")
+    private var offers: [ModelOfferRow] {
+        ModelCatalogue.rows(
+            on: MachineResources.current(),
+            installed: models.models(of: .ollama),
+            selected: settings.apiModel(for: .ollama),
+            installing: installer.installing,
+            share: share,
+            queued: installer.waiting
+        )
     }
 
-    private func picker(kind: ModelList.Kind, selection: Binding<String>) -> some View {
-        let found = models.models(of: settings.aiProvider, kind: kind)
-        return Picker("", selection: selection) {
-            // Выбранное показываем и тогда, когда список ещё не пришёл:
-            // пустое поле читается как «не выбрано», а оно выбрано.
-            if !found.contains(where: { $0.name == selection.wrappedValue }) {
-                Text(selection.wrappedValue.isEmpty ? t("не выбрана") : selection.wrappedValue)
-                    .tag(selection.wrappedValue)
+    /// Что осталось поставить из рекомендованного. `nil` — всё уже стоит.
+    private var pairToInstall: [String]? {
+        let pair = ModelCatalogue.recommendedPair(on: MachineResources.current())
+        let installed = models.models(of: .ollama)
+        let left = pair.filter { !RecommendedModel.isInstalled($0, among: installed) }
+        return left.isEmpty ? nil : pair
+    }
+
+    /// Одна строка предложения — стеклянная.
+    ///
+    /// Состав строки берётся тот же, что и в настройках
+    /// (`ModelCatalogue.rows`), а вид здесь свой: настройки рисуют формой
+    /// с системными цветами, знакомство — белым по стеклу, и один вид
+    /// на оба экрана был бы выдумкой.
+    private func offerRow(_ row: ModelOfferRow) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(row.offer.title)
+                        .font(.system(size: WelcomeStyle.detail, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    if let mark = badgeText(row.badge) {
+                        Text(mark)
+                            .font(.system(size: WelcomeStyle.caption, weight: .semibold, design: .rounded))
+                            .foregroundStyle(WelcomePalette.mint)
+                    }
+                }
+                Text(row.offer.detail)
+                    .font(.system(size: WelcomeStyle.caption, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.5))
+                    .fixedSize(horizontal: false, vertical: true)
+                if let warning = row.warning {
+                    Text(warning)
+                        .font(.system(size: WelcomeStyle.caption, design: .rounded))
+                        .foregroundStyle(WelcomePalette.amber)
+                }
             }
-            ForEach(found, id: \.self) { model in
-                Text(model.name).tag(model.name)
-            }
+            Spacer(minLength: 8)
+            Text(row.offer.sizeText)
+                .font(.system(size: WelcomeStyle.caption, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.4))
+            offerControl(row)
         }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .frame(maxWidth: 240, alignment: .leading)
+        .opacity(row.badge == .heavy ? 0.55 : 1)
     }
 
-    /// Для векторной модели годится **любая** векторная: человек мог скачать
-    /// не рекомендованную, а другую, и просить его скачать вторую такую же
-    /// незачем.
-    private func isInstalled(_ name: String) -> Bool {
-        if name == RecommendedModel.embed {
-            return !models.models(of: settings.aiProvider, kind: .embedding).isEmpty
+    private func badgeText(_ badge: ModelOfferRow.Badge) -> String? {
+        switch badge {
+        case .recommended: return t("рекомендуем")
+        case .selected: return t("отвечает")
+        case .installed: return t("скачана")
+        case .none, .heavy: return nil
         }
-        return RecommendedModel.isInstalled(name, among: models.models(of: settings.aiProvider))
+    }
+
+    @ViewBuilder
+    private func offerControl(_ row: ModelOfferRow) -> some View {
+        // Пока движок не поднялся, список показывает состав, но нажимать
+        // в нём нечего: качать некуда.
+        if engine.state.isRunning {
+            switch row.action {
+            case .none, .blocked:
+                EmptyView()
+            case .install:
+                Button(t("Скачать")) {
+                    installer.enqueue([row.offer.tag])
+                    settings.setAPIModel(row.offer.tag, for: .ollama)
+                }
+                .buttonStyle(WelcomeGhostButton())
+            case .select:
+                Button(t("Отвечать ею")) { settings.setAPIModel(row.offer.tag, for: .ollama) }
+                    .buttonStyle(WelcomeGhostButton())
+            case let .installing(value):
+                HStack(spacing: 6) {
+                    ProgressView(value: value).controlSize(.small).frame(width: 90)
+                    Text(tf("%d%%", Int(value * 100)))
+                        .font(.system(size: WelcomeStyle.caption, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .monospacedDigit()
+                }
+            case .queued:
+                Text(t("в очереди"))
+                    .font(.system(size: WelcomeStyle.caption, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.4))
+            }
+        }
     }
 
     private var share: Double {
