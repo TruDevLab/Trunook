@@ -23,6 +23,12 @@ enum HubEntry: String, CaseIterable, Identifiable {
     case timer
     case monitor
     case teleprompter
+    // Новости и сайты — две плитки, а не одна «Сводки»: открывают разные
+    // вкладки одной панели, и человек, пришедший за ценой, не должен
+    // пролистывать сводку. Третьего ряда меню они не добавили: сетка стала
+    // в пять колонок, см. `HubPanel.columns`.
+    case news
+    case sites
     // Чашка — девятая. До неё можно было добраться только кнопкой в левом
     // крыле раскрытой панели, то есть сперва раскрыв вырез наведением
     // и попав в значок в одиннадцать пунктов. Бодрость включают на бегу,
@@ -78,6 +84,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .timer: return t("Таймер")
         case .monitor: return t("Нагрузка")
         case .teleprompter: return t("Телесуфлер")
+        case .news: return t("Новости")
+        case .sites: return t("Сайты")
         // Тем же словом, что и панель выбора срока, и кнопка-чашка: одно
         // место с одним именем, откуда бы к нему ни шли.
         case .caffeine: return t("Бодрость")
@@ -96,6 +104,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .timer: return "timer"
         case .monitor: return "gauge.with.dots.needle.67percent"
         case .teleprompter: return "text.alignleft"
+        case .news: return "newspaper"
+        case .sites: return "binoculars"
         case .caffeine: return "cup.and.saucer.fill"
         case .voice: return "waveform"
         case .dictation: return "mic"
@@ -113,6 +123,7 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .monitor: return Palette.monitor
         case .teleprompter: return Palette.teleprompter
         case .caffeine: return Palette.caffeine
+        case .news, .sites: return Palette.feeds
         case .voice, .dictation: return Palette.assistant
         }
     }
@@ -139,6 +150,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         // нечего. Открыли окно — работает, закрыли — нет.
         case .teleprompter: return true
         case .caffeine: return settings.caffeineEnabled
+        case .news: return settings.digestEnabled
+        case .sites: return settings.siteWatchEnabled
         // Голосу нужна и сама модель: спросить вслух не у кого,
         // когда отвечать некому.
         case .voice: return settings.voiceEnabled && settings.ollamaEnabled
@@ -163,6 +176,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         // должна отниматься клавишей у чужого приложения, а нажать её
         // по-прежнему можно в левом крыле раскрытой панели.
         case .caffeine: return nil
+        // Сочетание у панели одно на обе вкладки.
+        case .news, .sites: return settings.feedsHotKey?.display
         // Голос зовут жестом, а не сочетанием, — его и показываем.
         // «Своё сочетание» в списке как раз и означает, что жеста нет.
         case .voice:

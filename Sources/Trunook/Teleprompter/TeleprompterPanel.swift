@@ -232,6 +232,7 @@ struct TeleprompterPanel: View {
             HStack(spacing: 5) {
                 Image(systemName: symbol)
                     .font(.system(size: NotchStyle.font(10), weight: .semibold))
+                    .symbolSwap(symbol)
                 Text(title)
                     .font(.system(size: NotchStyle.hintFontSize + 1.5, weight: .medium))
                     .fixedSize()

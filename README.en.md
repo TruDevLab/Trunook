@@ -26,6 +26,7 @@ changed in settings or right in the welcome window.
 | ⌃⌥D | Mini calendar |
 | ⌃⌥T | Timer and stopwatch |
 | ⌃⌥M | System load |
+| ⌃⌥F | News digests and site tracking |
 | ⌃⌥P | Teleprompter |
 | ⌃⌥Z | New note |
 | ⌃⌥⇧Z | Selected text straight to notes |
@@ -95,6 +96,20 @@ changed in settings or right in the welcome window.
   the field as you talk; whatever was typed before it stays. A whole note can
   be dictated too — from a quick-access circle. Speech is recognised
   **on the computer itself**.
+- **News digest.** Set topics and a schedule — say, every day at 10:00 — and
+  the model collects up to five top stories per topic for the period: the
+  headline, the source, the time and one sentence on why it matters. Links
+  come from the feed, not from the model, so it can't invent an address.
+  A pill tells you the digest is ready, and a mark stays in the notch until
+  you open it. Save the digest to notes or as a Markdown file; earlier ones
+  can be paged through. The model can suggest topics too — just tick the
+  ones you want.
+- **Site tracking.** A page link and, in words, what to track: price,
+  availability, a date, the number of seats, any line of text. The page is
+  opened by a built-in browser on schedule, and when the value changes the
+  notch shows "was → now" with a button that opens the site. Numbers also get
+  "went down", "went up" and threshold conditions. If a site asks whether
+  you're a robot, you pass the check once in the app's window.
 - **Notes.** The same panel has a mode switch: "Commands" is a question line and an
   answer, "Note" is a multi-line field with formatting. The model comes up with
   the note's name. Its answer goes into notes with one button too. The "search
@@ -208,6 +223,13 @@ separate service.
 - **Model prompts** go to the address set in Settings. By default that is
   Ollama on your own machine; if you point it at a server of yours, they go
   there and nowhere else.
+- **News digest** — search queries for your topics go to Google News
+  (news.google.com). The model from Settings picks and summarises the news.
+  It can suggest topics from your note titles — only when it runs on your
+  own machine; a cloud model never sees them.
+- **Site tracking** — the pages you add are opened by a built-in browser,
+  just as if you opened them yourself. The page text goes to the model from
+  Settings.
 - **Notes** live in the app's own file. They go nowhere else; with "search
   notes" on, their text is sent to the same model that answers questions.
 - **Embeddings for note links** are computed by the model whose address is

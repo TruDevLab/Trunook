@@ -64,6 +64,7 @@ struct TimerChipView: View {
                     Image(systemName: timer.mode == .timer ? "timer" : "stopwatch")
                         .font(.system(size: Self.symbolSize, weight: .semibold))
                         .foregroundStyle(Palette.timer)
+                        .symbolSwap(timer.mode == .timer)
                 }
 
                 // Зазор ровно по ширине аппаратного выреза.

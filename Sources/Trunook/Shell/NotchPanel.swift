@@ -101,6 +101,7 @@ struct NotchPanelTitle: View {
             Image(systemName: symbol)
                 .font(.system(size: NotchStyle.font(10), weight: .semibold))
                 .foregroundStyle(tint.opacity(0.85))
+                .symbolSwap(symbol)
             Text(title)
                 .font(.system(size: NotchStyle.headerFontSize, weight: .semibold))
                 .foregroundStyle(.white.opacity(NotchStyle.titleOpacity))
@@ -147,6 +148,7 @@ struct NotchPanelButton: View {
             Image(systemName: symbol)
                 .font(.system(size: NotchStyle.font(10), weight: .medium))
                 .foregroundStyle(tint.opacity(NotchStyle.secondaryOpacity))
+                .symbolSwap(symbol)
                 .frame(width: Self.size, height: Self.size)
                 .contentShape(Rectangle())
         }

@@ -234,7 +234,13 @@ struct TimerPanel: View {
         run: @escaping () -> Void
     ) -> some View {
         Button(action: run) {
-            Label(title, systemImage: symbol)
+            // Не `Label(title, systemImage:)`: перетекать должен только
+            // значок, подпись рядом меняется обычным образом.
+            Label {
+                Text(title)
+            } icon: {
+                Image(systemName: symbol).symbolSwap(symbol)
+            }
                 .font(.system(size: NotchStyle.font(11), weight: .medium))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 11)

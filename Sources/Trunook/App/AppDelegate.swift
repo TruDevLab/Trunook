@@ -25,6 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Без него поля ввода в настройках и в вырезе не копировались.
         AppMenu.install()
         controller.onOpenSettings = { [weak self] in self?.openSettings() }
+        controller.onOpenSettingsTab = { [weak self] tab in
+            self?.settingsWindow.select(tab)
+            self?.openSettings()
+        }
         controller.onOpenReleaseNotes = { [weak self] in self?.openReleaseNotes() }
         controller.start()
         installStatusItem()
@@ -77,6 +81,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.shelf", #selector(showShelf)),
             ("com.trunook.debug.timer", #selector(showTimer)),
             ("com.trunook.debug.monitor", #selector(showMonitor)),
+            ("com.trunook.debug.feeds", #selector(showFeeds)),
+            ("com.trunook.debug.feedsSites", #selector(showFeedsSites)),
+            ("com.trunook.debug.digestRun", #selector(runDigest)),
+            ("com.trunook.debug.digestSuggest", #selector(suggestDigestTopics)),
+            ("com.trunook.debug.digestPill", #selector(testDigestPill)),
+            ("com.trunook.debug.watchCheck", #selector(checkWatches)),
+            ("com.trunook.debug.watchProbe", #selector(probeWatch)),
+            ("com.trunook.debug.watchPill", #selector(testWatchPill)),
             ("com.trunook.debug.teleprompter", #selector(showTeleprompter)),
             ("com.trunook.debug.teleprompterScroll", #selector(scrollTeleprompter)),
             ("com.trunook.debug.teleprompterPrompt", #selector(promptTeleprompter)),
@@ -271,6 +283,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showMonitor() {
         controller.debugToggleMonitor()
     }
+
+    @objc private func showFeeds() { controller.openFeeds() }
+    @objc private func showFeedsSites() {
+        controller.feedsPanel.mode = .sites
+        controller.openFeeds()
+    }
+    @objc private func runDigest() { controller.debugRunDigest() }
+    @objc private func suggestDigestTopics() {
+        controller.digest.suggestTopics(noteTitles: controller.notes.notes.map(\.title))
+    }
+    @objc private func testDigestPill() { controller.debugDigestPill() }
+    @objc private func checkWatches() { controller.debugWatchCheck() }
+    @objc private func probeWatch() { controller.debugWatchProbe() }
+    @objc private func testWatchPill() { controller.debugWatchPill() }
 
     @objc private func showTimer() {
         controller.debugToggleTimer()
@@ -843,6 +869,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             obsidian: controller.obsidian,
             linker: controller.linker,
             updates: controller.updates,
+            digest: controller.digest,
+            siteWatch: controller.siteWatch,
             onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() },
             onLayoutChanged: { [weak self] in self?.controller.relayout() },
             onOpenWelcome: { [weak self] in self?.openWelcome() },

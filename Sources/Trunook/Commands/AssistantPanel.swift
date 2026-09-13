@@ -974,6 +974,7 @@ struct AssistantPanel: View {
                         ? Palette.assistant
                         : .white.opacity(NotchStyle.secondaryOpacity)
                 )
+                .symbolSwap(isDictating)
                 .frame(width: Self.dictateSize, height: Self.dictateSize)
                 // Форма нажатия обязательна: без неё кнопка нажимается
                 // только по самим штрихам значка.
@@ -1236,6 +1237,7 @@ struct AssistantPanel: View {
             HStack(spacing: 6) {
                 Image(systemName: symbol)
                     .font(.system(size: NotchStyle.font(12), weight: .semibold))
+                    .symbolSwap(symbol)
                 Text(title)
                     .font(.system(size: NotchStyle.font(12), weight: .semibold))
                     .lineLimit(1)

@@ -154,6 +154,8 @@ struct ActivityView: View {
             return (item.link?.url).map(ActivityButton.join)
         case .update:
             return .installUpdate
+        case let .siteChanged(_, _, url):
+            return .join(url)
         default:
             return nil
         }
@@ -326,6 +328,10 @@ struct ActivityView: View {
             iconTile("battery.25")
         case .update:
             iconTile("arrow.down.circle.fill")
+        case .digestReady:
+            iconTile("newspaper.fill")
+        case .siteChanged:
+            iconTile("binoculars.fill")
         }
     }
 
@@ -365,6 +371,10 @@ struct ActivityView: View {
             return t("Низкий заряд")
         case let .update(version):
             return tf("Вышла новая версия %@", version)
+        case let .digestReady(entries):
+            return entries > 0 ? tf("Сводка готова: новостей %d", entries) : t("Сводка готова")
+        case let .siteChanged(name, text, _):
+            return "\(name): \(text)"
         }
     }
 
@@ -394,6 +404,10 @@ struct ActivityView: View {
             return "\(percentage)%"
         case .update:
             return t("Обновить")
+        case .digestReady:
+            return nil
+        case .siteChanged:
+            return t("Открыть")
         }
     }
 
@@ -429,6 +443,7 @@ struct ActivityView: View {
         // Мятный, а не янтарный: янтарь в этом наборе означает «что-то
         // не так», а готовое обновление — хорошая новость.
         case .update: return Palette.positive
+        case .digestReady, .siteChanged: return Palette.feeds
         case .powerDisconnected, .trackChanged: return Palette.panel
         }
     }

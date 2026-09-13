@@ -17,6 +17,12 @@ final class SettingsWindowController {
     /// в этом SDK недоступен, а набранному и найденному где-то держаться надо.
     private let placeSearch = WeatherPlaceSearch()
 
+    /// Какой раздел показать при следующем открытии — например, из панели
+    /// сводок сразу «Сводки».
+    func select(_ tab: SettingsSelection.Tab) {
+        selection.tab = tab
+    }
+
     func show(
         settings: Settings,
         launchAtLogin: LaunchAtLogin,
@@ -27,6 +33,8 @@ final class SettingsWindowController {
         obsidian: ObsidianService,
         linker: NoteLinker,
         updates: UpdateService,
+        digest: DigestService,
+        siteWatch: SiteWatchService,
         onHotKeysChanged: @escaping () -> Void,
         onLayoutChanged: @escaping () -> Void,
         onOpenWelcome: @escaping () -> Void,
@@ -72,6 +80,8 @@ final class SettingsWindowController {
             obsidian: obsidian,
             linker: linker,
             updates: updates,
+            digest: digest,
+            siteWatch: siteWatch,
             placeSearch: placeSearch,
             onHotKeysChanged: onHotKeysChanged,
             onLayoutChanged: onLayoutChanged,

@@ -82,6 +82,7 @@ struct WelcomeView: View {
             HStack(spacing: 5) {
                 Image(systemName: model.mode == .notes ? "sparkles" : "doc.text")
                     .font(.system(size: WelcomeStyle.micro, weight: .medium))
+                    .symbolSwap(model.mode == .notes)
                 Text(model.mode == .notes ? t("Знакомство") : t("Описание"))
                     .font(.system(size: WelcomeStyle.caption, weight: .medium, design: .rounded))
             }

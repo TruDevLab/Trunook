@@ -55,6 +55,8 @@ struct MeetingControlsView: View {
                 .frame(width: Self.buttonSize, height: Self.buttonSize)
                 .background(Circle().fill(background(action, isOn: isOn)))
                 .contentShape(Circle())
+                // Ниже подложки: вместе со значком меняется и её цвет.
+                .symbolSwap(isOn)
         }
         .buttonStyle(PressableStyle())
         .notchHint(hint(for: action))

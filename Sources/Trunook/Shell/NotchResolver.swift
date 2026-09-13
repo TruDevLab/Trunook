@@ -47,6 +47,9 @@ struct NotchInputs: Equatable {
     /// часами, а те двое — минутами, и правило здесь общее — чем короче живёт
     /// состояние, тем выше его право занять вырез.
     var caffeineChip: CaffeineChip?
+    /// Метка непрочитанной сводки или изменения на сайте. Ниже всех полосок:
+    /// она живёт часами, пока панель не откроют.
+    var feedChip: FeedChip?
     var activity: Activity?
     var track: NowPlaying?
     var events: [CalendarItem] = []
@@ -108,6 +111,7 @@ struct NotchInputs: Equatable {
         case .notes: return .notes
         case .calendar: return .calendar
         case .eventEditor: return .eventEditor
+        case .feeds: return .feeds
         case nil: break
         }
         // Кольцо выше всего, кроме накладок: его держат рукой прямо сейчас,
@@ -130,7 +134,7 @@ struct NotchInputs: Equatable {
         if isHovered { return .preview }
         if activity != nil { return .activity }
         let hasChip = chip != nil || timerChip != nil || caffeineChip != nil
-            || recordingChip != nil
+            || recordingChip != nil || feedChip != nil
         return hasChip ? .chip : .collapsed
     }
 
@@ -142,6 +146,7 @@ struct NotchInputs: Equatable {
             recordingChip: recordingChip,
             timerChip: timerChip,
             caffeineChip: caffeineChip,
+            feedChip: feedChip,
             events: events,
             taskCount: taskCount,
             meetingActions: meetingActions,

@@ -287,6 +287,7 @@ struct EventEditorPanel: View {
             Image(systemName: draft.isAllDay ? "sun.max.fill" : "clock")
                 .font(.system(size: NotchStyle.font(11), weight: .semibold))
                 .foregroundStyle(draft.isAllDay ? tint : .white.opacity(NotchStyle.secondaryOpacity))
+                .symbolSwap(draft.isAllDay)
                 .frame(width: Self.stepperHeight + 8, height: Self.stepperHeight)
                 .surface(
                     .segment,

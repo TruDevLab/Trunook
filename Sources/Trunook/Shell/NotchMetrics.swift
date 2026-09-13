@@ -85,6 +85,7 @@ struct NotchMetrics: Equatable {
         let calendar = CalendarPanel.height(notchHeight: notchHeight)
         let editor = EventEditorPanel.height(notchHeight: notchHeight)
         let caffeine = CaffeinePanel.height(notchHeight: notchHeight)
+        let feeds = FeedsPanel.height(notchHeight: notchHeight)
         // Кольцо в окне не панель, но обрезает его так же. Веер расходится
         // с ростом списка, и рано или поздно он перерос бы самую высокую
         // панель молча — а окно режет без предупреждения.
@@ -106,6 +107,8 @@ struct NotchMetrics: Equatable {
                 HubPanel.width,
                 TeleprompterPanel.width(notchWidth: notchWidth),
                 CaffeinePanel.width,
+                FeedsPanel.width,
+                FeedChipView.width(metrics: self),
                 CalendarPanel.width,
                 EventEditorPanel.width,
                 ringSize.width,
@@ -117,7 +120,7 @@ struct NotchMetrics: Equatable {
             // оформления.
             height: max(
                 panel.height, clipboard, assistant, shelf, hub,
-                teleprompter, caffeine, notes, calendar, editor,
+                teleprompter, caffeine, notes, calendar, editor, feeds,
                 notchHeight + ringSize.height
             ) + NotchHintLayout.reserved
         )

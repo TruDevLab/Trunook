@@ -38,6 +38,8 @@ enum NotchPresentation: Equatable {
     case calendar
     /// Правка одного события.
     case eventEditor
+    /// Сводки новостей и слежка за сайтами.
+    case feeds
     /// Голосовой заход: панель не раскрывается, светится сам остров.
     case voice
     /// Кольцо быстрого доступа: кружки веером под чёлкой, пока держат кнопку.
@@ -80,7 +82,7 @@ enum NotchPresentation: Equatable {
         case .activity, .preview: return true
         case .collapsed, .chip, .swiping, .voice, .quickRing, .expanded,
              .clipboard, .assistant, .shelf, .hub, .timer, .monitor,
-             .teleprompter, .caffeine, .notes, .calendar, .eventEditor:
+             .teleprompter, .caffeine, .notes, .calendar, .eventEditor, .feeds:
             return false
         }
     }
@@ -105,6 +107,8 @@ struct NotchContent: Equatable {
     var timerChip: TimerChip?
     /// Полоска горящей чашки.
     var caffeineChip: CaffeineChip?
+    /// Метка непрочитанной сводки или изменения на сайте.
+    var feedChip: FeedChip?
     /// Ближайшие встречи: то, что начинается сейчас, и то, что идёт следом.
     /// На один слот в календаре нередко стоят две — они попадают сюда обе.
     var events: [CalendarItem] = []
@@ -260,8 +264,12 @@ enum NotchSizing {
             if content.chip != nil {
                 return metrics.chip(width: ChipView.width(metrics: metrics))
             }
-            guard let caffeine = content.caffeineChip else { return metrics.closed }
-            return metrics.chip(width: CaffeineChipView.width(metrics: metrics, chip: caffeine))
+            if let caffeine = content.caffeineChip {
+                return metrics.chip(width: CaffeineChipView.width(metrics: metrics, chip: caffeine))
+            }
+            // Метка ниже всех: она ждёт часами и никуда не спешит.
+            guard content.feedChip != nil else { return metrics.closed }
+            return metrics.chip(width: FeedChipView.width(metrics: metrics))
         case .activity:
             guard let activity = content.activity else { return metrics.closed }
             let layout = ActivityView.layout(
@@ -354,6 +362,11 @@ enum NotchSizing {
                     notchHeight: metrics.notchHeight,
                     count: content.shelfCount
                 )
+            )
+        case .feeds:
+            return CGSize(
+                width: FeedsPanel.width,
+                height: FeedsPanel.height(notchHeight: metrics.notchHeight)
             )
         case .monitor:
             return CGSize(

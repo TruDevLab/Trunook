@@ -1093,6 +1093,117 @@ final class Settings: ObservableObject {
         set { store(max(1_000, newValue), "voiceNotesContextLimit") }
     }
 
+    // MARK: - Сводка новостей
+
+    var digestEnabled: Bool {
+        get { flag("digestEnabled", default: false) }
+        set { store(newValue, "digestEnabled") }
+    }
+
+    var digestTopics: [DigestTopic] {
+        get { DigestTopics.load(from: defaults) }
+        set {
+            objectWillChange.send()
+            DigestTopics.save(newValue, to: defaults)
+        }
+    }
+
+    @discardableResult
+    func addDigestTopic(_ title: String) -> Int {
+        var all = digestTopics
+        let id = DigestTopics.nextID(after: all)
+        all.append(DigestTopic(id: id, title: title))
+        digestTopics = all
+        return id
+    }
+
+    /// Новое название — новые запросы: старые искали бы прежнюю тему.
+    func updateDigestTopic(_ topic: DigestTopic) {
+        var all = digestTopics
+        guard let index = all.firstIndex(where: { $0.id == topic.id }) else { return }
+        var updated = topic
+        if updated.title != all[index].title { updated.queries = [] }
+        all[index] = updated
+        digestTopics = all
+    }
+
+    func removeDigestTopic(id: Int) {
+        digestTopics = digestTopics.filter { $0.id != id }
+    }
+
+    var digestSchedule: DigestSchedule {
+        get {
+            guard let data = defaults.data(forKey: DigestSchedule.key),
+                  let stored = try? JSONDecoder().decode(DigestSchedule.self, from: data)
+            else { return DigestSchedule() }
+            return stored
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(try? JSONEncoder().encode(newValue), forKey: DigestSchedule.key)
+        }
+    }
+
+    /// Модель сводки. Пустая строка — модель разговора.
+    var digestModel: String {
+        get { defaults.string(forKey: "digestModel") ?? "" }
+        set { store(newValue, "digestModel") }
+    }
+
+    /// От какого времени считается расписание сводки. Пишется при удачной
+    /// сборке и при первом включении — см. `DigestSchedule.anchor`.
+    var lastDigestRun: Date? {
+        get { defaults.object(forKey: "lastDigestRun") as? Date }
+        set {
+            guard let newValue else {
+                objectWillChange.send()
+                defaults.removeObject(forKey: "lastDigestRun")
+                return
+            }
+            store(newValue, "lastDigestRun")
+        }
+    }
+
+    // MARK: - Слежка за сайтами
+
+    var feedsHotKey: HotKeySpec? {
+        get { hotKey("feedsHotKey", default: .feeds) }
+        set { storeHotKey(newValue, "feedsHotKey") }
+    }
+
+    var siteWatchEnabled: Bool {
+        get { flag("siteWatchEnabled", default: false) }
+        set { store(newValue, "siteWatchEnabled") }
+    }
+
+    var siteWatches: [SiteWatch] {
+        get { SiteWatches.load(from: defaults) }
+        set {
+            objectWillChange.send()
+            SiteWatches.save(newValue, to: defaults)
+        }
+    }
+
+    @discardableResult
+    func addSiteWatch(url: String, target: String) -> Int {
+        var all = siteWatches
+        let id = SiteWatches.nextID(after: all)
+        all.append(SiteWatch(id: id, url: url, name: "", target: target))
+        siteWatches = all
+        return id
+    }
+
+    func updateSiteWatch(_ watch: SiteWatch) {
+        var all = siteWatches
+        guard let index = all.firstIndex(where: { $0.id == watch.id }) else { return }
+        all[index] = watch
+        siteWatches = all
+    }
+
+    func removeSiteWatch(id: Int) {
+        siteWatches = siteWatches.filter { $0.id != id }
+    }
+
     // MARK: - Погода
 
     var weatherSource: WeatherSource {

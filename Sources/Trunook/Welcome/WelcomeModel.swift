@@ -65,6 +65,7 @@ final class WelcomeModel: ObservableObject {
     /// подряд.
     enum Feature: String, CaseIterable, Identifiable {
         case music, calendar, meetings, capture, assistant, agent, voice
+        case news, sites
         case notes, record, clipboard, shelf, timer, monitor
         case teleprompter, weather, battery, caffeine
 
@@ -83,6 +84,8 @@ final class WelcomeModel: ObservableObject {
             // это отличается от соседнего «Помощника».
             case .agent: return t("Поручения")
             case .voice: return t("Голос")
+            case .news: return t("Сводка новостей")
+            case .sites: return t("Слежка за сайтами")
             case .notes: return t("Заметки")
             case .record: return t("Запись разговора")
             case .clipboard: return t("Буфер обмена")
@@ -105,6 +108,8 @@ final class WelcomeModel: ObservableObject {
             case .assistant: return "sparkles"
             case .agent: return "wand.and.stars"
             case .voice: return "waveform"
+            case .news: return "newspaper"
+            case .sites: return "binoculars"
             case .notes: return "list.bullet.rectangle"
             case .record: return "waveform.circle.fill"
             case .clipboard: return "doc.on.clipboard.fill"
@@ -128,6 +133,8 @@ final class WelcomeModel: ObservableObject {
             case .assistant: return t("Вопрос модели без единого окна")
             case .agent: return t("Не только отвечает, но и делает")
             case .voice: return t("Спросить вслух и услышать ответ")
+            case .news: return t("Главное по вашим темам — каждое утро")
+            case .sites: return t("Скажет, когда на странице что-то изменится")
             case .notes: return t("Записи с именем от модели и поиском по смыслу")
             case .record: return t("Разговор становится заметкой с задачами")
             case .clipboard: return t("История копирований под рукой")
@@ -159,6 +166,10 @@ final class WelcomeModel: ObservableObject {
                 return t("Вопрос набирается прямо в вырезе, ответ идёт потоком. Модель местная — Ollama или совместимый сервер, — либо облачная по ключу. Ответ можно скопировать, вставить в текущее окно или сохранить заметкой. Если разрешить помощнику действовать, он поставит таймер, посмотрит календарь и погоду, а встречу, напоминание или заметку сперва покажет карточкой — «Создать» или «Отмена».")
             case .voice:
                 return t("Модификатор, нажатый дважды, начинает слушать. Панель при этом не раскрывается: она закрыла бы то, чем вы заняты, — вместо неё оживает сам остров. Речь распознаётся на компьютере и наружу не уходит.")
+            case .news:
+                return t("Задайте темы — «космические запуски», «новинки кино» — или попросите модель предложить их, и выберите расписание, например каждый день в 10:00. Модель просмотрит новости за период и оставит по каждой теме до пяти главных, с источником и ссылкой. О готовой сводке скажет плашка, а метка в чёлке держится, пока вы её не откроете. Сводку можно отправить в заметки или сохранить файлом Markdown. Темы и расписание — в настройках, в разделе «Сводки».")
+            case .sites:
+                return t("Дайте ссылку на страницу и скажите словами, за чем следить: цена, наличие, дата, число мест, любая строка. Страница проверяется по расписанию, и когда значение изменится, вырез покажет плашку «было → стало» с кнопкой, открывающей сайт. Для чисел есть условия «стало меньше», «стало больше» и порог. Если сайт спрашивает, не робот ли вы, проверку можно пройти один раз в окне приложения.")
             case .notes:
                 return t("⌃⌥Z открывает пустую заметку, ⌃⌥⇧Z записывает выделенное, не открывая ничего. Имя придумывает модель. Поиск идёт по смыслу, а не по словам, и умеет искать по хранилищу Obsidian, если синхронизация включена.")
             case .record:
@@ -203,6 +214,10 @@ final class WelcomeModel: ObservableObject {
                 return t("Застряли на формулировке в письме: спросили прямо из чёлки и вставили ответ в то же поле, не переключая окон.")
             case .voice:
                 return t("Руки в тесте, а вспомнить нужно: «что у меня сегодня» — и вырез отвечает вслух, ничего не закрывая на экране.")
+            case .news:
+                return t("Утром некогда листать ленты: в десять вырез скажет, что сводка готова, — пять пунктов по теме и ссылка на каждый.")
+            case .sites:
+                return t("Ждёте, когда откроется запись на курс: укажите страницу и «число свободных мест» — вырез скажет, как только оно изменится.")
             case .notes:
                 return t("Мысль пришла посреди работы: ⌃⌥Z, две строки — и назад. Имя записи придумает модель, искать потом можно по смыслу, а не по словам.")
             case .record:
@@ -262,6 +277,12 @@ final class WelcomeModel: ObservableObject {
         if DebugLog.isEnabled,
            let forced = Step(rawValue: UserDefaults.standard.integer(forKey: "debugWelcomeStep")) {
             step = forced
+        }
+        //   defaults write com.trunook.Trunook debugWelcomeFeature news
+        if DebugLog.isEnabled,
+           let name = UserDefaults.standard.string(forKey: "debugWelcomeFeature"),
+           let forced = Feature(rawValue: name) {
+            feature = forced
         }
         refresh()
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in

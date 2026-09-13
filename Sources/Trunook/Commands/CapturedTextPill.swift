@@ -74,8 +74,9 @@ struct CapturedTextPill: View {
             capturedText
 
             Button(action: onToggle) {
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                Image(systemName: "chevron.down")
                     .font(.system(size: NotchStyle.font(9), weight: .bold))
+                    .disclosureTurn(isExpanded, degrees: 180)
                     .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
                     .frame(width: Self.clearSize, height: Self.clearSize)
                     .contentShape(Circle())

@@ -32,6 +32,7 @@ final class NotchState: ObservableObject {
         case notes
         case calendar
         case eventEditor
+        case feeds
 
         /// Закрывается ли накладка тем, что курсор ушёл за её границы.
         ///
@@ -47,8 +48,10 @@ final class NotchState: ObservableObject {
             // Календарь и правка события — руками: по месяцу водят, в поля
             // печатают, время щёлкают стрелками. Курсор при этом заведомо
             // уходит за края.
+            // Сводку читают и листают, по новостям уходят в браузер — курсор
+            // уходит за края, а панель должна дождаться возвращения.
             case .shelf, .assistant, .teleprompter, .notes,
-                 .calendar, .eventEditor: return false
+                 .calendar, .eventEditor, .feeds: return false
             }
         }
 
@@ -151,6 +154,10 @@ struct NotchView: View {
     /// Держим ли экран от гашения. Наблюдается: подложка под чашкой —
     /// единственное, чем это состояние показано.
     @ObservedObject var wake: WakeGuard
+    /// Сводки новостей и слежка за сайтами: панель и метка в чёлке.
+    @ObservedObject var digest: DigestService
+    @ObservedObject var sites: SiteWatchService
+    @ObservedObject var feedsPanel: FeedsPanelState
     /// Настройки наблюдаются, а не передаются снимком: слоты команд правятся
     /// в окне настроек, и без наблюдения вырез показывал бы набор, каким тот
     /// был на момент запуска.
@@ -293,6 +300,12 @@ struct NotchView: View {
     /// Выбран срок в панели бодрости. Ноль — без ограничения.
     let onChooseAwakeLimit: (Int) -> Void
     let onDisableAwake: () -> Void
+    let onOpenFeeds: () -> Void
+    let onOpenFeedsTab: (FeedsPanelState.Mode) -> Void
+    let onOpenFeedsSettings: () -> Void
+    let onSaveDigest: (Digest) -> Void
+    let onExportDigest: (Digest) -> Void
+    let onVerifySite: (SiteWatch) -> Void
 
     /// Команды для списка под полем вопроса: только настроенные и только
     /// при включённых командах.
@@ -348,6 +361,8 @@ struct NotchView: View {
         case .dictation: onDictateNote()
         case .teleprompter: onOpenTeleprompter()
         case .caffeine: onOpenAwake()
+        case .news: onOpenFeedsTab(.news)
+        case .sites: onOpenFeedsTab(.sites)
         }
     }
 
@@ -397,7 +412,7 @@ struct NotchView: View {
                 switch presentation {
                 case .expanded, .clipboard, .assistant, .shelf, .hub, .timer,
                      .monitor, .teleprompter, .caffeine, .notes,
-                     .calendar, .eventEditor:
+                     .calendar, .eventEditor, .feeds:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
                 case .swiping: return 14
@@ -810,6 +825,10 @@ struct NotchView: View {
         // человек видел ту же строку состояния, что и в плашке, и на этом
         // «подробнее» заканчивалось.
         case .update: onOpenReleaseNotes()
+        case .digestReady: onOpenFeeds()
+        // Тело плашки и капсула ведут в одно место: смотреть на изменение
+        // можно только на самом сайте.
+        case let .siteChanged(_, _, url): onJoin(url)
         default: onOpenClipboard()
         }
     }
@@ -947,6 +966,20 @@ struct NotchView: View {
                 metrics: metrics,
                 onClose: onCloseOverlay
             )
+        case .feeds:
+            FeedsPanel(
+                digest: digest,
+                sites: sites,
+                panel: feedsPanel,
+                settings: settings,
+                metrics: metrics,
+                onOpenLink: onJoin,
+                onSaveToNotes: onSaveDigest,
+                onExport: onExportDigest,
+                onVerify: onVerifySite,
+                onOpenSettings: onOpenFeedsSettings,
+                onClose: onCloseOverlay
+            )
         case .monitor:
             MonitorPanel(
                 monitor: monitor,
@@ -989,6 +1022,8 @@ struct NotchView: View {
                 ChipView(item: chip, metrics: metrics, onOpen: onOpenExpanded)
             } else if wake.isOn {
                 CaffeineChipView(wake: wake, metrics: metrics, onOpen: onOpenAwake)
+            } else if let feed = content.feedChip {
+                FeedChipView(chip: feed, metrics: metrics, onOpen: onOpenFeeds)
             }
         case .activity:
             if let activity = activities.current {
@@ -1398,6 +1433,7 @@ private struct ExpandedPanel: View {
             Image(systemName: symbol)
                 .font(.system(size: NotchStyle.font(13), weight: .medium))
                 .foregroundStyle(.white)
+                .symbolSwap(symbol)
         }
         // Отклик на нажатие и вибрация живут в стиле, а не здесь.
         .buttonStyle(NotchButtonStyle())

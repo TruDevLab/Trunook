@@ -66,6 +66,7 @@ struct RecorderChipView: View {
                         .foregroundStyle(
                             recorder.phase.isRecording ? Palette.negative : Palette.positive
                         )
+                        .symbolSwap(recorder.phase.isRecording)
                 }
 
                 Spacer(minLength: 0)

@@ -117,6 +117,7 @@ final class OverlayRouter {
         case .notes: return "список заметок"
         case .calendar: return "календарь"
         case .eventEditor: return "правка события"
+        case .feeds: return "сводки"
         }
     }
 }

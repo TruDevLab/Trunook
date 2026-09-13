@@ -218,8 +218,9 @@ struct WelcomeAIPage: View {
                 state.showsAdvanced.toggle()
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: state.showsAdvanced ? "chevron.down" : "chevron.right")
+                    Image(systemName: "chevron.right")
                         .font(.system(size: WelcomeStyle.caption, weight: .semibold))
+                        .disclosureTurn(state.showsAdvanced)
                     Text(t("У меня свой сервер или ключ"))
                         .font(.system(size: WelcomeStyle.detail, design: .rounded))
                 }

@@ -112,6 +112,10 @@ struct HotKeySpec: Codable, Equatable, Hashable {
     /// ⌃⌥M — нагрузка на систему.
     static let monitor = HotKeySpec(keyCode: UInt32(kVK_ANSI_M), modifiers: own)
 
+    /// ⌃⌥F — сводки и сайты. «Feeds»: буква свободна, а «новости»
+    /// и «сводка» заняли бы N и S, у которых хозяева уже есть.
+    static let feeds = HotKeySpec(keyCode: UInt32(kVK_ANSI_F), modifiers: own)
+
     /// ⌃⌥P — телесуфлер. Не ⌃⌥T: её занял таймер, а «prompter» начинается
     /// с той же буквы в обоих языках.
     static let teleprompter = HotKeySpec(keyCode: UInt32(kVK_ANSI_P), modifiers: own)

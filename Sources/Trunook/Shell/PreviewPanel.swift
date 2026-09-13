@@ -99,6 +99,7 @@ struct PreviewPanel: View {
                         Color.black.opacity(0.4)
                         Image(systemName: track?.isPlaying == true ? "pause.fill" : "play.fill")
                             .font(.system(size: NotchStyle.font(10), weight: .bold))
+                            .symbolSwap(track?.isPlaying == true)
                             .foregroundStyle(.white)
                     }
                 }
@@ -142,6 +143,7 @@ struct SwipeIndicator: View {
         Image(systemName: direction == .next ? "forward.fill" : "backward.fill")
             .font(.system(size: NotchStyle.font(14), weight: .semibold))
             .foregroundStyle(.white)
+            .symbolSwap(direction == .next)
             .frame(width: NotchSizing.swipeExtension)
             // Плашки под чёлкой здесь быть не может: указатель живёт
             // во время жеста двумя пальцами, а не по наведению — показывать

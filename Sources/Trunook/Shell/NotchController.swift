@@ -56,6 +56,13 @@ final class NotchController {
     /// накладкой в вырезе — у самой камеры, — и своего окна у него нет.
     let teleprompter = TeleprompterStore()
     let notes = NotesService()
+    /// Сводка новостей по расписанию. Без включённой настройки тикает
+    /// вхолостую: расписание спрашивается, но ничего не собирается.
+    let digest = DigestService()
+    /// Слежка за сайтами. Так же молчит, пока её не включили.
+    let siteWatch = SiteWatchService()
+    /// Вкладка и номер сводки в панели — переживают закрытие накладки.
+    let feedsPanel = FeedsPanelState()
     /// Синхронизация заметок с хранилищем Obsidian. По умолчанию выключена
     /// и в этом состоянии не заводит ни таймера, ни слежения за папкой.
     let obsidian = ObsidianService()
@@ -94,6 +101,8 @@ final class NotchController {
 
     /// Вызывается кнопкой настроек в раскрытой панели.
     var onOpenSettings: (() -> Void)?
+    /// Открыть настройки сразу на нужном разделе.
+    var onOpenSettingsTab: ((SettingsSelection.Tab) -> Void)?
     /// Показать описание выпуска. Окном знакомства владеет `AppDelegate` —
     /// контроллер выреза о нём не знает и знать не должен.
     var onOpenReleaseNotes: (() -> Void)?
@@ -112,6 +121,8 @@ final class NotchController {
     private var thingsObservation: AnyCancellable?
     /// Следит за набором вопроса: подсветка действий гаснет с первой буквой.
     private var questionObservation: AnyCancellable?
+    /// Метка сводок меняет размер свёрнутой чёлки — окно обязано узнать.
+    private var feedsObservation: AnyCancellable?
 
     /// Плашку полки убрали крестиком. Держится до следующего файла:
     /// человек уже знает, что на полке лежит.
@@ -179,6 +190,8 @@ final class NotchController {
         timer.stop()
         monitor.stop()
         updates.stop()
+        digest.stop()
+        siteWatch.stop()
         alerts.stop()
         calendarObservation = nil
         thingsObservation = nil
@@ -362,6 +375,24 @@ final class NotchController {
         }
         updates.start()
 
+        digest.onReady = { [weak self] ready in
+            self?.activities.present(.digestReady(entries: ready.entryCount))
+        }
+        siteWatch.onChange = { [weak self] watch, change in
+            guard let self, let url = watch.pageURL else { return }
+            Haptics.tap(.levelChange)
+            self.activities.present(.siteChanged(name: watch.displayName, text: change.text, url: url))
+        }
+        feedsObservation = digest.$hasUnseen.map { _ in () }
+            .merge(with: siteWatch.$states.map { _ in () })
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in
+                self?.updateWindowInteractivity()
+                self?.host.updateInteractiveRect()
+            }
+        digest.start()
+        siteWatch.start()
+
         calendar.start()
         things.start()
         meeting.start()
@@ -447,6 +478,12 @@ final class NotchController {
         if settings.monitorEnabled, let monitorKey = settings.monitorHotKey {
             HotKeyCenter.shared.register(monitorKey, name: "нагрузка") { [weak self] in
                 self?.toggleMonitor()
+            }
+        }
+
+        if settings.digestEnabled || settings.siteWatchEnabled, let feedsKey = settings.feedsHotKey {
+            HotKeyCenter.shared.register(feedsKey, name: "сводки") { [weak self] in
+                self?.toggleFeeds()
             }
         }
 
@@ -662,6 +699,11 @@ final class NotchController {
         // Мониторинг опрашивает систему только пока он на экране: иначе
         // он сам стал бы той нагрузкой, которую показывает.
         overlay == .monitor ? monitor.start() : monitor.stop()
+        // Открытая панель сводок — и есть «прочитано»: метка в чёлке гаснет.
+        if overlay == .feeds {
+            digest.markSeen()
+            siteWatch.markSeen()
+        }
         // Пока полка на экране, зона приёма держится раскрытой: на открытую
         // полку докладывают файлы, и целиться в полоску по чёлке при этом
         // было бы издевательством.
@@ -704,6 +746,13 @@ final class NotchController {
         settings.timerEnabled ? timer.chip : nil
     }
 
+    /// Метка сводок — по той же причине одним местом на оба спроса.
+    private var feedChip: FeedChip? {
+        let news = settings.digestEnabled && digest.hasUnseen
+        let sites = settings.siteWatchEnabled && siteWatch.hasUnseen
+        return news || sites ? FeedChip(digest: news, sites: sites) : nil
+    }
+
     /// Единственное место, где состояние выреза собирается из служб.
     ///
     /// Спрашивают отсюда оба: и зона нажатий окна, и вёрстка, которой снимок
@@ -727,6 +776,7 @@ final class NotchController {
             recordingChip: recorder.chip,
             timerChip: timerChip,
             caffeineChip: wake.chip,
+            feedChip: feedChip,
             activity: activities.current,
             track: music.nowPlaying,
             events: calendar.upcoming.upcomingSlots(limit: NotchMetrics.maxVisibleEvents),
@@ -803,6 +853,8 @@ final class NotchController {
         case .monitor: openMonitor()
         case .teleprompter: openTeleprompter()
         case .caffeine: openAwake()
+        case .news: openFeeds(tab: .news)
+        case .sites: openFeeds(tab: .sites)
         case .voice: toggleVoice()
         case .dictation: dictateNote()
         }
@@ -2879,6 +2931,77 @@ final class NotchController {
         router.set(.timer)
     }
 
+    // MARK: - Сводки и сайты
+
+    /// Открывает панель на том, что новое: пришло только изменение сайта —
+    /// сразу на сайтах, пришла сводка — на свежей сводке.
+    func openFeeds() {
+        if digest.hasUnseen {
+            feedsPanel.mode = .news
+            feedsPanel.digestIndex = 0
+        } else if siteWatch.hasUnseen {
+            feedsPanel.mode = .sites
+        }
+        router.set(.feeds)
+    }
+
+    /// Плитка «Новости» или «Сайты»: вкладку выбрал человек, и то, что
+    /// новое лежит на другой, его выбора не отменяет.
+    func openFeeds(tab: FeedsPanelState.Mode) {
+        feedsPanel.mode = tab
+        if tab == .news { feedsPanel.digestIndex = 0 }
+        router.set(.feeds)
+    }
+
+    private func toggleFeeds() {
+        if state.overlay == .feeds {
+            router.close()
+        } else {
+            openFeeds()
+        }
+    }
+
+    private func saveDigestToNotes(_ shown: Digest) {
+        guard settings.notesEnabled else {
+            flash.show(t("Заметки выключены в настройках"))
+            return
+        }
+        flash.show(digest.saveToNotes(shown, notes: notes) ? t("Сводка в заметках") : t("Не удалось сохранить"))
+    }
+
+    private func exportDigest(_ shown: Digest) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = DigestExport.fileName(for: shown)
+        panel.canCreateDirectories = true
+        panel.message = t("Куда сохранить сводку")
+        // Окно сохранения отбирает фокус у выреза — как у выгрузки заметок.
+        router.close()
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try DigestExport.markdown(for: shown).write(to: url, atomically: true, encoding: .utf8)
+            activities.present(.command(text: t("Сводка сохранена"), state: .done))
+        } catch {
+            DebugLog.write("сводка: файл не записался — \(error.localizedDescription)")
+            activities.present(.command(text: t("Не удалось сохранить"), state: .failed))
+        }
+    }
+
+    private func verifySite(_ watch: SiteWatch) {
+        router.close()
+        siteWatch.openForVerification(watch)
+    }
+
+    func debugRunDigest() { digest.run(manual: true) }
+    func debugDigestPill() { activities.present(.digestReady(entries: 7)) }
+    func debugWatchPill() {
+        activities.present(.siteChanged(
+            name: "Наушники", text: "12 990 ₽ → 11 490 ₽", url: URL(string: "https://example.com")!
+        ))
+    }
+    func debugWatchCheck() { siteWatch.checkAll() }
+    func debugWatchProbe() { siteWatch.probe() }
+
     // MARK: - Нагрузка на систему
 
     func openMonitor() {
@@ -3220,6 +3343,9 @@ final class NotchController {
             player: player,
             flash: flash,
             wake: wake,
+            digest: digest,
+            sites: siteWatch,
+            feedsPanel: feedsPanel,
             settings: settings,
             metrics: metrics,
             // Замыканием, а не значением: вид строится один раз, а состояние
@@ -3321,7 +3447,16 @@ final class NotchController {
             onAskAssistant: { [weak self] in self?.askAssistant() },
             onOpenAwake: { [weak self] in self?.openAwake() },
             onChooseAwakeLimit: { [weak self] minutes in self?.chooseAwakeLimit(minutes: minutes) },
-            onDisableAwake: { [weak self] in self?.disableAwake() }
+            onDisableAwake: { [weak self] in self?.disableAwake() },
+            onOpenFeeds: { [weak self] in self?.openFeeds() },
+            onOpenFeedsTab: { [weak self] tab in self?.openFeeds(tab: tab) },
+            onOpenFeedsSettings: { [weak self] in
+                self?.router.close()
+                self?.onOpenSettingsTab?(.feeds)
+            },
+            onSaveDigest: { [weak self] digest in self?.saveDigestToNotes(digest) },
+            onExportDigest: { [weak self] digest in self?.exportDigest(digest) },
+            onVerifySite: { [weak self] watch in self?.verifySite(watch) }
         )
     }
 

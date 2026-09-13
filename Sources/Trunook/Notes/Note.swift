@@ -29,6 +29,8 @@ struct Note: Identifiable, Equatable {
         /// сама. «Откуда взялась эта запись» — первый вопрос к тексту,
         /// которого ты не печатал.
         case agent
+        /// Сводка новостей, отложенная в заметки из панели сводок.
+        case digest
 
         var symbol: String {
             switch self {
@@ -39,6 +41,7 @@ struct Note: Identifiable, Equatable {
             case .obsidian: return "circle.hexagongrid"
             case .recording: return "waveform"
             case .agent: return "wand.and.stars"
+            case .digest: return "newspaper"
             }
         }
     }

@@ -205,6 +205,7 @@ struct NotesPanel: View {
             Image(systemName: notes.isSearching ? "magnifyingglass" : "square.and.pencil")
                 .font(.system(size: NotchStyle.font(18)))
                 .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+                .symbolSwap(notes.isSearching)
                 .accessibilityHidden(true)
             Text(notes.isSearching
                 ? t("Ничего не нашлось — Enter заведёт заметку с этим текстом")
@@ -345,6 +346,7 @@ struct NotesPanel: View {
                                 ? Palette.notes
                                 : .white.opacity(NotchStyle.secondaryOpacity)
                         )
+                        .symbolSwap(player.isPlaying(note.id))
                         .frame(width: 22, height: 22)
                         .contentShape(Rectangle())
                 }

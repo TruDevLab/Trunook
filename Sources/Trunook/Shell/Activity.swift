@@ -42,6 +42,10 @@ struct Activity: Identifiable, Equatable {
         /// Обновление скачано и проверено, осталось нажать. Номер версии
         /// строкой: плашке незачем знать про выпуск целиком.
         case update(version: String)
+        /// Собрана сводка новостей. По плашке она открывается.
+        case digestReady(entries: Int)
+        /// На сайте изменилось то, за чем следили. Кнопка открывает сайт.
+        case siteChanged(name: String, text: String, url: URL)
     }
 
     /// Чем важнее событие, тем выше приоритет. Событие с приоритетом ниже
@@ -73,6 +77,11 @@ struct Activity: Identifiable, Equatable {
         // Вровень с погодой. Обновление ждало сутки и подождёт ещё девять
         // секунд; встреча и вышедшее время — не подождут.
         case .update: return 2
+        // Сводка — как обновление: подождёт, а не пропадёт — метка в чёлке
+        // держится, пока её не откроют.
+        case .digestReady: return 2
+        // Цена изменилась сейчас, и через час может вернуться: выше сводки.
+        case .siteChanged: return 3
         case .powerConnected, .powerDisconnected: return 2
         case .trackChanged: return 1
         }
@@ -105,6 +114,8 @@ struct Activity: Identifiable, Equatable {
         // курсором. Четырёх секунд на это не хватает, а наведение на вырез
         // уберёт её в любом случае.
         case .update: return 30
+        // Столько же и по той же причине: по плашке надо успеть нажать.
+        case .digestReady, .siteChanged: return 30
         // Столько же, сколько смене трека, и по той же причине: нажимают
         // по чашке в раскрытой панели, а плашку видно только после того,
         // как курсор ушёл, — ей нужно время пережить этот уход.
@@ -123,7 +134,7 @@ struct Activity: Identifiable, Equatable {
         // Обновление здесь по той же причине, что буфер и полка: в плашке
         // кнопка, и убирайся плашка от первого же движения курсора — до кнопки
         // было бы не дотянуться.
-        case .clipboard, .shelf, .update: return true
+        case .clipboard, .shelf, .update, .digestReady, .siteChanged: return true
         default: return false
         }
     }
@@ -168,6 +179,8 @@ extension Activity.Kind {
         case .powerDisconnected: return "зарядка отключена"
         case .lowBattery: return "низкий заряд"
         case .update: return "обновление"
+        case .digestReady: return "сводка"
+        case .siteChanged: return "сайт изменился"
         }
     }
 }
