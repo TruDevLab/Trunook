@@ -11,12 +11,16 @@ final class SettingsSelection: ObservableObject {
         // на модели держатся и команды, и заметки, и голос. Человек, у которого
         // не работает ни одно из трёх, ищет причину там, где её включают, —
         // а раздел был третьим, за командами, то есть за одним из следствий.
-        case general, model, commands, voice, notes, feeds, calendar, inNotch, tools, info
+        //
+        // «Главный экран» — сразу за основными: это то, что человек видит
+        // чаще всего, и собирают его один раз, в самом начале.
+        case general, home, model, commands, voice, notes, feeds, calendar, inNotch, tools, info
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .general: return t("Основные")
+            case .home: return t("Главный экран")
             case .commands: return t("Команды")
             case .model: return t("ИИ")
             case .voice: return t("Голос")
@@ -32,6 +36,7 @@ final class SettingsSelection: ObservableObject {
         var icon: String {
             switch self {
             case .general: return "gearshape.fill"
+            case .home: return "square.grid.3x2.fill"
             case .commands: return "square.grid.2x2.fill"
             case .model: return "sparkles"
             case .voice: return "waveform"
@@ -51,6 +56,7 @@ final class SettingsSelection: ObservableObject {
         var tint: Color {
             switch self {
             case .general: return Palette.neutral
+            case .home: return Palette.welcome
             case .commands: return Palette.commands
             case .model: return Palette.assistant
             case .voice: return Palette.voice
@@ -72,6 +78,11 @@ final class SettingsSelection: ObservableObject {
     /// недоступен, а подсветка цели обязана пережить перерисовку. Одна на всё
     /// окно — целей одновременно всё равно не бывает двух.
     @Published var commandDropTarget: Int?
+
+    /// Над какой плиткой главного экрана держат перетаскиваемую — и какая
+    /// выделена. Здесь по той же причине, что и подсветка цели у команд.
+    @Published var homeDropTarget: Int?
+    @Published var homeSelected: Int?
 
     /// Раскрыт ли раздел «Дополнительно» с адресами и ключами.
     ///
@@ -251,6 +262,7 @@ struct SettingsView: View {
             Group {
                 switch selection.tab {
                 case .general: generalSection
+                case .home: homeSection
                 case .model: modelSection
                 case .commands: commandsSection
                 case .voice: voiceSection
@@ -1669,6 +1681,37 @@ struct SettingsView: View {
     /// Признак деления назван словами, и в этом весь смысл перестройки:
     /// пятнадцать разделов делились по функциям, то есть ни по чему —
     /// предсказать, где искать музыку, было нельзя, её приходилось помнить.
+    // MARK: - Главный экран
+
+    private var homeSection: some View {
+        Group {
+            section(t("Главный экран"), icon: "square.grid.3x2.fill") {
+                HomeLayoutPreview(settings: settings, selection: selection)
+                hint(t("Перетащите плитку, чтобы переставить, или нажмите, чтобы выбрать размер."))
+                HStack {
+                    // Макет — заглушки; как это выглядит на деле, видно
+                    // только в самом вырезе, а он раскрывается по наведению,
+                    // пока курсор занят окном настроек.
+                    Button(t("Показать в вырезе")) { onPreviewNotch(6) }
+                    Spacer()
+                    Button(t("Вернуть как было")) {
+                        selection.homeSelected = nil
+                        settings.resetHomeWidgets()
+                    }
+                }
+            }
+            if let id = selection.homeSelected,
+               let widget = settings.homeWidgets.first(where: { $0.id == id }) {
+                section(t("Выбранная плитка"), icon: "square.dashed") {
+                    HomeWidgetInspector(settings: settings, selection: selection, widget: widget)
+                }
+            }
+            section(t("Добавить виджет"), icon: "plus.square.on.square") {
+                HomeWidgetPalette(settings: settings, selection: selection)
+            }
+        }
+    }
+
     private var inNotchSection: some View {
         Group {
             musicCard

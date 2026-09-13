@@ -553,6 +553,61 @@ final class Settings: ObservableObject {
         quickCommands = all
     }
 
+    // MARK: - Главный экран
+
+    /// Плитки главного экрана в порядке укладки.
+    ///
+    /// Пока раскладку не сохраняли, действует стандартная. Она не пишется
+    /// в настройки при запуске: иначе поправленная в новой версии раскладка
+    /// по умолчанию не дошла бы до того, кто свою так и не заводил.
+    var homeWidgets: [HomeWidget] {
+        get { HomeWidgets.load(from: defaults) ?? HomeWidgets.standard }
+        set {
+            objectWillChange.send()
+            HomeWidgets.save(newValue, to: defaults)
+        }
+    }
+
+    @discardableResult
+    func addHomeWidget(_ kind: HomeWidgetKind) -> Int {
+        var all = homeWidgets
+        let id = HomeWidgets.nextID(after: all)
+        all.append(HomeWidget(id: id, kind: kind, size: kind.defaultSize))
+        homeWidgets = all
+        return id
+    }
+
+    func removeHomeWidget(id: Int) {
+        homeWidgets = homeWidgets.filter { $0.id != id }
+    }
+
+    /// Размер, под который у виджета нет вёрстки, не ставится вовсе.
+    func setHomeWidgetSize(id: Int, _ size: HomeWidgetSize) {
+        var all = homeWidgets
+        guard let index = all.firstIndex(where: { $0.id == id }),
+              all[index].kind.allowedSizes.contains(size)
+        else { return }
+        all[index].size = size
+        homeWidgets = all
+    }
+
+    /// Ставит плитку на место другой — перетаскиванием, как и команды.
+    func moveHomeWidget(id: Int, onto targetID: Int) {
+        guard id != targetID else { return }
+        var all = homeWidgets
+        guard let from = all.firstIndex(where: { $0.id == id }),
+              let to = all.firstIndex(where: { $0.id == targetID })
+        else { return }
+        let moved = all.remove(at: from)
+        all.insert(moved, at: to)
+        homeWidgets = all
+    }
+
+    func resetHomeWidgets() {
+        objectWillChange.send()
+        defaults.removeObject(forKey: HomeWidgets.key)
+    }
+
     // MARK: - Буфер обмена
 
     var clipboardEnabled: Bool {

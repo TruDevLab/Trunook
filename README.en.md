@@ -9,9 +9,11 @@ windows.
 ![The notch in action](docs/demo.gif)
 
 Hover and the notch shows what is playing and when the next meeting is. Click
-or swipe down and the full panel opens. Right click opens the menu of
-everything. Hold the press and a fan of quick-access circles slides out from
-under the notch: move towards the one you want and let go.
+or swipe down and the full panel opens. Hold the press and a fan of
+circles for every feature slides out from under the notch: move towards the
+one you want and let go. Right click, or the button in the home screen's wing,
+opens the same circles without holding: click the one you want, click
+elsewhere to close.
 
 ![Gestures](docs/gestures.png)
 
@@ -37,6 +39,14 @@ changed in settings or right in the welcome window.
 
 ## What it does
 
+- **A home screen of tiles.** The expanded notch is built like a phone's home
+  screen: music, upcoming meetings, the month, tasks, timer, weather, system
+  load, battery, news, site tracking, an AI question field, the coffee cup,
+  clipboard, shelf, notes. Tiles come in 1×1, 2×1, 3×1, 2×2, 4×1 and 4×2 on a
+  four-column grid. Each shows the essentials and does the essentials —
+  pause, start the timer, join the meeting — and clicking it opens the full
+  panel. Pick tiles, order and size in Settings, under Home screen: drag
+  tiles with the mouse.
 - **Music.** Track, artwork, playback controls, a progress line along the
   island's outline. Works with any player: the data comes from the system.
   Swipe with two fingers to change tracks.

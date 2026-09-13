@@ -119,6 +119,8 @@ final class NotchController {
     private var swipeResetTimer: Timer?
     private var calendarObservation: AnyCancellable?
     private var thingsObservation: AnyCancellable?
+    /// Открыт ли главный экран с плиткой нагрузки — от этого зависит опрос.
+    private var monitorObservation: AnyCancellable?
     /// Следит за набором вопроса: подсветка действий гаснет с первой буквой.
     private var questionObservation: AnyCancellable?
     /// Метка сводок меняет размер свёрнутой чёлки — окно обязано узнать.
@@ -208,7 +210,7 @@ final class NotchController {
     private func installHost() {
         host.makeRoot = { [weak self] metrics in self?.makeRootView(metrics: metrics) }
         host.contentSize = { [weak self] metrics in self?.notchSnapshot.size(metrics: metrics) ?? .zero }
-        host.onRightClick = { [weak self] in self?.openHub() }
+        host.onRightClick = { [weak self] in self?.openRingMenu() }
         host.onRebuild = { [weak self] geometry, metrics in
             self?.rebuildShelfDrop(geometry: geometry, metrics: metrics)
         }
@@ -251,11 +253,20 @@ final class NotchController {
         input.onQuickRingOpen = { [weak self] in self?.openQuickRing() }
         input.onQuickRingMove = { [weak self] point in
             guard let self else { return }
-            let picked = QuickRingLayout.index(at: point, count: HubEntry.ringCases.count)
+            let count = HubEntry.ringCases.count
+            // Удержание выбирает направлением руки, щелчок — попаданием:
+            // см. `QuickRingLayout.circleIndex`.
+            let picked = self.ring.isSticky
+                ? QuickRingLayout.circleIndex(at: point, count: count)
+                : QuickRingLayout.index(at: point, count: count)
             // Толчок трекпада на каждом новом кружке: рука ведёт кольцо,
             // не глядя прямо на него, и подтверждение нужно ей, а не глазу.
             if picked != nil, picked != self.ring.highlighted { Haptics.tap(.alignment) }
             self.ring.move(to: picked)
+            // Над кружком окно ловит мышь, мимо — пропускает насквозь.
+            // Пересчёт здесь, а не по движению курсора: то приходит раньше,
+            // чем подсветка успела смениться.
+            if self.ring.isSticky { self.updateWindowInteractivity() }
         }
         input.onQuickRingClose = { [weak self] in self?.closeQuickRing() }
         input.start()
@@ -310,6 +321,16 @@ final class NotchController {
         thingsObservation = things.$tasks.sink { [weak self] _ in
             self?.refreshSchedule()
         }
+        // Нагрузку опрашивают и панель, и плитка главного экрана. Решение
+        // одно на обоих — иначе закрытие одной гасило бы опрос у другой.
+        // Значения берутся из самих публикаций: `@Published` сообщает до того,
+        // как свойство поменялось, и чтение из `state` дало бы прежнее.
+        monitorObservation = state.$overlay
+            .combineLatest(state.$isPinnedOpen, settings.objectWillChange.map { _ in () }.prepend(()))
+            .receive(on: RunLoop.main)
+            .sink { [weak self] overlay, isPinnedOpen, _ in
+                self?.updateMonitorPolling(overlay: overlay, isPinnedOpen: isPinnedOpen)
+            }
         // Начали печатать — подсветка с действий снимается. Её ставит само
         // приложение, когда ответ дописан, и оставлять её поверх набранного
         // значит обещать Enter не тому: обведённой стоит «Скопировать»,
@@ -679,6 +700,15 @@ final class NotchController {
 
     // MARK: - Накладки
 
+    /// Мониторинг опрашивает систему только пока он на экране: иначе
+    /// он сам стал бы той нагрузкой, которую показывает. На экране он
+    /// двояко — панелью или плиткой открытого главного экрана.
+    private func updateMonitorPolling(overlay: NotchState.Overlay?, isPinnedOpen: Bool) {
+        let tileVisible = overlay == nil && isPinnedOpen
+            && HomeGrid.place(settings.homeWidgets).placements.contains { $0.widget.kind == .monitor }
+        overlay == .monitor || tileVisible ? monitor.start() : monitor.stop()
+    }
+
     /// Побочные действия смены накладки. Само решение приняли в `OverlayRouter`,
     /// здесь — только то, что требует служб.
     private func applyOverlay(_ overlay: NotchState.Overlay?) {
@@ -696,9 +726,6 @@ final class NotchController {
         if overlay == .assistant, settings.ollamaEnabled {
             ModelList.shared.refreshIfNeeded()
         }
-        // Мониторинг опрашивает систему только пока он на экране: иначе
-        // он сам стал бы той нагрузкой, которую показывает.
-        overlay == .monitor ? monitor.start() : monitor.stop()
         // Открытая панель сводок — и есть «прочитано»: метка в чёлке гаснет.
         if overlay == .feeds {
             digest.markSeen()
@@ -736,7 +763,8 @@ final class NotchController {
         host.ignoresMouseEvents = !NotchMouseCatch.catchesMouse(
             hasSomethingDrawn: notchSnapshot.presentation != .collapsed,
             cursorOverVisibleRect: host.visibleRectContainsCursor,
-            isDraggingOut: state.isDraggingOut
+            isDraggingOut: state.isDraggingOut,
+            cursorOverRingCircle: ring.isSticky && ring.highlighted != nil
         )
     }
 
@@ -779,7 +807,10 @@ final class NotchController {
             feedChip: feedChip,
             activity: activities.current,
             track: music.nowPlaying,
-            events: calendar.upcoming.upcomingSlots(limit: NotchMetrics.maxVisibleEvents),
+            // Ближайшие встречи подряд, а не «ближайшее время и следующее»:
+            // так было у прежней панели, и плитка высотой в два ряда показывала
+            // две встречи при месте под три — третье время отбрасывалось.
+            events: Array(calendar.upcoming.prefix(NotchMetrics.maxVisibleEvents)),
             taskCount: things.todayTitles.count,
             meetingActions: meeting.availableActions.count,
             clipboardRows: clipboard.entries.count,
@@ -797,11 +828,11 @@ final class NotchController {
             assistantPending: assistant.pending != nil,
             assistantHasAnswer: !assistant.answer.isEmpty,
             shelfCount: shelf.items.count,
-            hubCount: HubEntry.count,
             notesRows: notes.notes.count,
             notesEnabled: settings.notesEnabled,
             voicePhase: voice.phase,
-            isQuickRingOpen: ring.isOpen
+            isQuickRingOpen: ring.isOpen,
+            homeRows: HomeGrid.place(settings.homeWidgets).rows
         ).resolve()
     }
 
@@ -3099,10 +3130,26 @@ final class NotchController {
 
     // MARK: - Меню всех функций
 
-    /// Правая кнопка по вырезу. Возможностей стало больше, чем человек
-    /// удержит в голове, и до половины из них без сочетания было не добраться.
-    func openHub() {
-        router.toggle(.hub)
+    /// Кольцо, открытое нажатием: правой кнопкой по вырезу и кнопкой в крыле
+    /// главного экрана.
+    ///
+    /// Прежде оба пути открывали панель «Всё сразу» — сетку плиток. От неё
+    /// отказались в пользу кольца: одно меню всех функций вместо двух
+    /// с разным составом. Повторное нажатие закрывает кольцо — как и любое
+    /// нажатие мимо кружков.
+    func openRingMenu() {
+        guard !ring.isOpen else {
+            _ = ring.close()
+            updateWindowInteractivity()
+            host.updateInteractiveRect()
+            return
+        }
+        router.close()
+        ring.open(sticky: true)
+        input.openStickyRing()
+        Haptics.tap(.levelChange)
+        DebugLog.write("кольцо: раскрыто нажатием")
+        host.updateInteractiveRect()
     }
 
     // MARK: - Бодрость
@@ -3332,6 +3379,7 @@ final class NotchController {
             assistant: assistant,
             dictation: dictation,
             weather: weather,
+            battery: battery,
             shelf: shelf,
             timer: timer,
             monitor: monitor,
@@ -3441,7 +3489,7 @@ final class NotchController {
             onOpenMonitor: { [weak self] in self?.openMonitor() },
             onOpenActivityMonitor: { [weak self] in self?.openActivityMonitor() },
             onDismissActivity: { [weak self] in self?.dismissShelfChip() },
-            onOpenHub: { [weak self] in self?.openHub() },
+            onOpenHub: { [weak self] in self?.openRingMenu() },
             onOpenTeleprompter: { [weak self] in self?.openTeleprompter() },
             onOpenExpanded: { [weak self] in self?.openExpanded() },
             onAskAssistant: { [weak self] in self?.askAssistant() },

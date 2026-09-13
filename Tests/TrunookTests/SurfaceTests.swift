@@ -213,7 +213,7 @@ private extension NotchPresentation {
     /// значения, — а проверять надо каждое.
     static var все: [NotchPresentation] {
         [.collapsed, .chip, .activity, .preview, .swiping, .voice,
-         .expanded, .clipboard, .assistant, .shelf, .hub, .timer,
+         .expanded, .clipboard, .assistant, .shelf, .timer,
          .monitor, .teleprompter, .caffeine, .notes]
     }
 }

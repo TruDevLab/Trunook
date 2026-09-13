@@ -24,7 +24,6 @@ final class NotchState: ObservableObject {
         case clipboard
         case assistant
         case shelf
-        case hub
         case timer
         case monitor
         case teleprompter
@@ -44,7 +43,7 @@ final class NotchState: ObservableObject {
         /// в тот момент, ради которого она открыта.
         var closesOnCursorExit: Bool {
             switch self {
-            case .clipboard, .hub, .timer, .monitor, .caffeine: return true
+            case .clipboard, .timer, .monitor, .caffeine: return true
             // Календарь и правка события — руками: по месяцу водят, в поля
             // печатают, время щёлкают стрелками. Курсор при этом заведомо
             // уходит за края.
@@ -70,7 +69,6 @@ final class NotchState: ObservableObject {
     var isClipboardOpen: Bool { overlay == .clipboard }
     var isAssistantOpen: Bool { overlay == .assistant }
     var isShelfOpen: Bool { overlay == .shelf }
-    var isHubOpen: Bool { overlay == .hub }
     var isTimerOpen: Bool { overlay == .timer }
     var isMonitorOpen: Bool { overlay == .monitor }
     var isTeleprompterOpen: Bool { overlay == .teleprompter }
@@ -132,6 +130,8 @@ struct NotchView: View {
     /// Ollama дважды незачем.
     @ObservedObject private var models = ModelList.shared
     @ObservedObject var weather: WeatherService
+    /// Батарея — для плитки главного экрана.
+    @ObservedObject var battery: BatteryMonitor
     @ObservedObject var shelf: ShelfStore
     @ObservedObject var timer: TimerService
     @ObservedObject var monitor: MonitorService
@@ -323,57 +323,19 @@ struct NotchView: View {
         )
     }
 
-    /// Плитки меню всех функций: состав задаёт `HubEntry`, здесь к нему
-    /// добавляются только действия. Раньше состав жил здесь, а его длина —
-    /// отдельной константой в контроллере, и они разошлись бы при первой
-    /// же правке.
-    private var hubItems: [HubPanel.Item] { items(of: HubEntry.panelCases) }
-
-    /// Кружки кольца. Состав шире, чем у меню: кольцо — веер, а не сетка,
-    /// и высотой оно не ограничено. Сборка при этом общая — расходиться
-    /// двум спискам можно только длиной.
-    private var ringItems: [HubPanel.Item] { items(of: HubEntry.ringCases) }
-
-    private func items(of entries: [HubEntry]) -> [HubPanel.Item] {
-        entries.map { entry in
-            HubPanel.Item(
+    /// Кружки кольца: состав задаёт `HubEntry`. Что открывает кружок, решает
+    /// контроллер — кольцо выбирает по положению руки, а не нажатием кнопки.
+    private var ringItems: [QuickRingItem] {
+        HubEntry.ringCases.map { entry in
+            QuickRingItem(
                 id: entry.id,
                 title: entry.title,
                 symbol: entry.symbol,
                 tint: entry.tint,
-                isEnabled: entry.isEnabled(settings),
-                hint: entry.hint(settings),
-                action: { run(entry) }
+                isEnabled: entry.isEnabled(settings)
             )
         }
     }
-
-    private func run(_ entry: HubEntry) {
-        switch entry {
-        case .assistant: onAskAssistant()
-        case .notes: onOpenNotes()
-        case .calendar: onOpenCalendar()
-        case .clipboard: onOpenClipboard()
-        case .shelf: onOpenShelf()
-        case .timer: onOpenTimer()
-        case .monitor: onOpenMonitor()
-        case .voice: onStartVoice()
-        case .dictation: onDictateNote()
-        case .teleprompter: onOpenTeleprompter()
-        case .caffeine: onOpenAwake()
-        case .news: onOpenFeedsTab(.news)
-        case .sites: onOpenFeedsTab(.sites)
-        }
-    }
-
-    /// Что обещает кнопка в правом крыле раскрытой панели.
-    ///
-    /// Одно слово на все случаи, хотя открывает кнопка разное: с моделью —
-    /// разговор, команды и заметки, без неё — команды и заметки. Подпись
-    /// перечисляла состав («Модель и заметки»), и выходило, что одно место
-    /// зовётся в трёх местах тремя именами. Имя у места должно быть одно,
-    /// а из чего оно состоит — видно, когда откроешь.
-    private var askHint: String { t("Команды") }
 
     /// Кольцо быстрого доступа. Слой стоит всегда и гаснет прозрачностью,
     /// а не появляется по `if`: ветвление в теле вида меняет его тождество,
@@ -410,7 +372,7 @@ struct NotchView: View {
             topRadius: isOpen ? NotchStyle.shoulderInset : 8,
             bottomRadius: {
                 switch presentation {
-                case .expanded, .clipboard, .assistant, .shelf, .hub, .timer,
+                case .expanded, .clipboard, .assistant, .shelf, .timer,
                      .monitor, .teleprompter, .caffeine, .notes,
                      .calendar, .eventEditor, .feeds:
                     return NotchStyle.panelRadius
@@ -910,13 +872,6 @@ struct NotchView: View {
                 onOpenSettings: onOpenSettings,
                 onClose: onCloseOverlay
             )
-        case .hub:
-            HubPanel(
-                metrics: metrics,
-                items: hubItems,
-                onOpenSettings: onOpenSettings,
-                onClose: onCloseOverlay
-            )
         case .calendar:
             CalendarPanel(
                 planner: planner,
@@ -1070,373 +1025,66 @@ struct NotchView: View {
             )
             .frame(width: PreviewPanel.layout(track: music.nowPlaying, event: events.first, metrics: metrics).panelWidth)
         case .expanded:
-            ExpandedPanel(
-                music: music,
+            HomePanel(
+                settings: settings,
+                weather: weather,
+                wake: wake,
+                services: homeServices,
                 events: events,
-                tasks: things.todayTitles,
                 metrics: metrics,
-                onOpenSettings: onOpenSettings,
-                onJoin: onJoin,
-                onOpenTasks: { ThingsService.openToday() },
-                onCopyLink: onCopyLink,
-                onOpenItem: onOpenItem,
-                onOpenHub: onOpenHub,
-                // Панель модели открывается и без модели: заметки в ней
-                // работают сами по себе. Пропадает кнопка только если
-                // выключено и то и другое.
-                onAsk: (settings.ollamaEnabled || settings.notesEnabled) ? onAskAssistant : nil,
-                askHint: askHint,
-                weather: settings.weatherEnabled ? weather.current : nil,
-                isAwake: wake.isOn,
-                onOpenAwake: settings.caffeineEnabled ? onOpenAwake : nil
+                actions: homeActions
             )
-            .frame(width: metrics.expanded(extraHeight: content.extraHeight).width, alignment: .leading)
-        }
-    }
-}
-
-/// Содержимое раскрытой панели: музыка и ближайшая встреча.
-private struct ExpandedPanel: View {
-    @ObservedObject var music: MusicClient
-    let events: [CalendarItem]
-    let tasks: [String]
-    let metrics: NotchMetrics
-    let onOpenSettings: () -> Void
-    let onJoin: (URL) -> Void
-    let onOpenTasks: () -> Void
-    let onCopyLink: (URL) -> Void
-    let onOpenItem: (CalendarItem) -> Void
-    let onOpenHub: () -> Void
-    /// Открыть панель модели и заметок. nil — выключены обе, и кнопки нет:
-    /// кнопка, которая ничего не делает, хуже её отсутствия.
-    let onAsk: (() -> Void)?
-    /// Что кнопка обещает: она открывает разное в зависимости от того,
-    /// что включено.
-    let askHint: String
-    /// Погода живёт в полосе аппаратного выреза справа: там пусто, и панель
-    /// от неё не растёт.
-    let weather: WeatherService.Snapshot?
-    /// Экран удерживается от гашения.
-    let isAwake: Bool
-    /// Нажатие по чашке. `nil` — чашка выключена в настройках и не рисуется.
-    /// Тем же способом сюда приходят выключенные погода и ответ модели:
-    /// решение принимает тот, у кого настройки под рукой, а панель только
-    /// показывает то, что ей дали.
-    let onOpenAwake: (() -> Void)?
-
-    var body: some View {
-        NotchPanel(
-            metrics: metrics,
-            width: metrics.expanded(extraHeight: 0).width,
-            // Поле отмеряется от чёрного тела, а не от рамки: подложки
-            // тянутся во всю ширину, и вогнутое плечо формы съедало у них
-            // три четверти бокового поля — сбоку оставалось четыре точки
-            // против двенадцати снизу, и подложка нижним углом почти
-            // упиралась в скругление панели.
-            bodyPadding: NotchStyle.bottomPadding
-        ) {
-            // Погода уехала из правого угла в левое крыло, освободив правое
-            // под настройки: в строке музыки шестерёнка отнимала ширину
-            // у названия трека.
-            HStack(spacing: 6) {
-                if let weather {
-                    WeatherCorner(snapshot: weather, notchHeight: metrics.notchHeight)
-                }
-                if let onOpenAwake {
-                    CaffeineButton(isOn: isAwake, action: onOpenAwake)
-                }
-            }
-            .frame(height: metrics.notchHeight)
-        } trailing: {
-            HStack(spacing: 2) {
-                if let onAsk {
-                    NotchPanelButton(symbol: "sparkles", hint: askHint, action: onAsk)
-                }
-                NotchPanelButton(symbol: "gearshape", hint: t("Настройки"), action: onOpenSettings)
-            }
-        } content: {
-            VStack(spacing: NotchStyle.gridSpacing) {
-                musicRow
-                schedule
-            }
-            .foregroundStyle(.white)
+            .frame(width: metrics.expanded(rows: content.homeRows).width, alignment: .leading)
         }
     }
 
-    /// Встречи и задачи — отдельными подложками, а не одной с линией внутри.
-    ///
-    /// Сначала их разделяли `Divider()`, потом волосяная линия внутри общей
-    /// карточки — и то и другое читалось как полоса поперёк панели. Две
-    /// отдельные подложки на чёрном разделяются сами: границу показывает
-    /// зазор между ними, а не проведённая черта.
-    @ViewBuilder
-    private var schedule: some View {
-        VStack(spacing: NotchStyle.cardGap) {
-            // Подложка на каждое время начала. Одновременные встречи лежат
-            // в общей: они про один и тот же слот, и по отдельным карточкам
-            // читались бы как несвязанные события в разные часы. А следующее
-            // время — уже другой слот, и общая подложка слепила бы «сейчас»
-            // и «потом» в один блок расписания.
-            ForEach(eventGroups, id: \.first?.id) { group in
-                card {
-                    VStack(spacing: NotchStyle.rowSpacing) {
-                        ForEach(group) { event in
-                            eventRow(event)
-                        }
-                    }
-                }
-            }
-            if !tasks.isEmpty {
-                card { tasksList }
-            }
-        }
+    private var homeServices: HomeServices {
+        HomeServices(
+            music: music,
+            planner: planner,
+            things: things,
+            timer: timer,
+            monitor: monitor,
+            weather: weather,
+            battery: battery,
+            wake: wake,
+            digest: digest,
+            sites: sites,
+            clipboard: clipboard,
+            shelf: shelf,
+            notes: notes,
+            dictation: dictation
+        )
     }
 
-    /// Те же группы, по которым считается высота панели: расчёт один,
-    /// иначе нарисованное разойдётся с размером окна.
-    private var eventGroups: [[CalendarItem]] {
-        NotchContent(events: events).eventGroups
-    }
-
-    /// Отступ содержимого от края подложки. Он же задаёт вертикаль, по которой
-    /// выравнивается обложка трека.
-    static let cardInset: CGFloat = 12
-
-    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        content()
-            .padding(.horizontal, Self.cardInset)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Та же заливка, что у круглых кнопок панели: подложки и кнопки
-            // лежат рядом, и разная плотность читалась как небрежность.
-            .background(
-                RoundedRectangle(cornerRadius: NotchStyle.cardRadius, style: .continuous)
-                    .fill(.white.opacity(NotchButtonStyle.restingFill))
-            )
-    }
-
-    private var musicRow: some View {
-        HStack(spacing: 12) {
-            artwork
-            VStack(alignment: .leading, spacing: 2) {
-                Text(trackTitle)
-                    .font(.system(size: NotchStyle.font(13), weight: .semibold))
-                    .lineLimit(1)
-                // Пустая вторая строка не рисуется вовсе: без неё название
-                // встаёт по центру обложки, а не липнет к её верху.
-                if hasTrack, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: NotchStyle.font(11)))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 8)
-            transport
-            hubButton
-        }
-        // Тот же отступ, что у содержимого подложек ниже: без него обложка
-        // стояла левее строки встречи, и левый край панели выглядел рваным.
-        .padding(.horizontal, Self.cardInset)
-    }
-
-    /// Переход в меню всех функций — кнопкой, а не жестом.
-    ///
-    /// Горизонтальный свайп двумя пальцами в этом же состоянии уже занят
-    /// переключением трека, а вертикальный — раскрытием панели; вешать на них
-    /// третий смысл значило бы сделать все жесты ненадёжными: система
-    /// не отличит намерение по одному движению.
-    ///
-    /// Раньше кнопка вела прямо в команды. Теперь функций больше, чем одна,
-    /// и вести из панели в одну из них, минуя остальные, — произвол.
-    private var hubButton: some View {
-        button("square.grid.2x2.fill", hint: t("Всё сразу"), action: onOpenHub)
-            .padding(.leading, 6)
-    }
-
-    /// Играет ли что-нибудь на самом деле. MediaRemote в паузах между
-    /// треками присылает запись с пустым названием — по одному только `nil`
-    /// это не отличить.
-    private var hasTrack: Bool {
-        !(music.nowPlaying?.title ?? "").isEmpty
-    }
-
-    /// Название трека либо честное «ничего не играет».
-    ///
-    /// Проверяется не только `nil`: MediaRemote в паузах между треками
-    /// присылает запись с пустым названием, и строка молча оставалась
-    /// пустой — панель выглядела не «музыки нет», а «что-то не загрузилось».
-    private var trackTitle: String {
-        let title = music.nowPlaying?.title ?? ""
-        return title.isEmpty ? t("Ничего не играет") : title
-    }
-
-    /// Исполнитель — и только он. Состояние связи с хелпером («подключён»)
-    /// подписью под названием быть не должно: это слово для журнала, а не
-    /// для человека, и под «ничего не играет» оно читается как ошибка.
-    private var subtitle: String {
-        music.nowPlaying?.artist ?? ""
-    }
-
-    /// Задачи получили собственные строки, а не подпись под треком: пока
-    /// играла музыка, подпись была занята исполнителем, и включённая
-    /// интеграция с Things не показывала ничего вовсе.
-    private var tasksList: some View {
-        Button(action: onOpenTasks) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(visibleTasks.enumerated()), id: \.offset) { index, task in
-                    taskRow(task, isLast: index == visibleTasks.count - 1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PressableStyle())
-    }
-
-    private var visibleTasks: [String] {
-        Array(tasks.prefix(NotchMetrics.maxVisibleTasks))
-    }
-
-    private func taskRow(_ task: String, isLast: Bool) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "circle")
-                .font(.system(size: NotchStyle.font(9), weight: .semibold))
-                .foregroundStyle(.white.opacity(0.5))
-
-            Text(task)
-                .font(.system(size: NotchStyle.font(12)))
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-
-            // Остаток списка показываем последней строкой, чтобы не отнимать
-            // место у самих задач.
-            if isLast, tasks.count > visibleTasks.count {
-                Text("+\(tasks.count - visibleTasks.count)")
-                    .font(.system(size: NotchStyle.font(11), weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .fixedSize()
-            }
-        }
-        .frame(height: NotchMetrics.taskRowHeight)
-    }
-
-    private func eventRow(_ event: CalendarItem) -> some View {
-        HStack(spacing: 10) {
-            // Нажатие на саму строку открывает запись в её приложении.
-            // Кнопки ссылки справа живут отдельно: у них своё действие,
-            // и попасть в них мимо строки должно быть можно.
-            Button { onOpenItem(event) } label: {
-                HStack(spacing: 10) {
-                    Circle()
-                        .fill(event.color)
-                        .frame(width: 7, height: 7)
-
-                    // Название на своей строке, время под ним подписью.
-                    // В одну строку они делили ширину с кнопкой встречи,
-                    // и название обрезалось на третьем слове — притом что
-                    // именно оно и отвечает на вопрос «что за встреча».
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(event.title)
-                            .font(.system(size: NotchStyle.font(12)))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-
-                        Text(event.isAllDay ? event.timeLabel : "\(event.timeLabel) · \(event.countdown())")
-                            .font(.system(size: NotchStyle.font(10), weight: .medium))
-                            .foregroundStyle(.white.opacity(0.55))
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 8)
-                }
-                // Высота задана, а не выведена из содержимого: расчёт размера
-                // панели опирается на неё, и «примерно столько» разъезжается
-                // с нарисованным на пустую полосу внизу. Она же задаёт высоту
-                // всей строки — кнопки ссылки справа ниже и тянутся за ней.
-                .frame(height: NotchMetrics.eventRowHeight)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PressableStyle())
-            // Подсказкой, а не именем: имя строки — название самой встречи,
-            // и подменять его на «Открыть в Календаре» значило бы сделать
-            // все строки расписания неразличимыми на слух.
-            .notchActionHint(t("Открыть в Календаре"))
-
-            if let link = event.link {
-                Button { onCopyLink(link.url) } label: {
-                    Image(systemName: "link")
-                        .font(.system(size: NotchStyle.font(11), weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(7)
-                        .background(Circle().fill(.white.opacity(0.18)))
-                }
-                .buttonStyle(PressableStyle())
-                .notchHint(t("Скопировать ссылку"))
-
-                Button { onJoin(link.url) } label: {
-                    Label(link.provider.title, systemImage: link.provider.symbol)
-                        .font(.system(size: NotchStyle.font(11), weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Capsule().fill(.white.opacity(0.22)))
-                }
-                .buttonStyle(PressableStyle())
-                .fixedSize()
-            }
-        }
-    }
-
-    private var artwork: some View {
-        Group {
-            if let data = music.nowPlaying?.artwork, let image = NSImage(data: data) {
-                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
-            } else {
-                RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
-                    .fill(.white.opacity(0.12))
-                    .overlay(
-                        Image(systemName: "music.note")
-                            .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
-                    )
-            }
-        }
-        .frame(width: 44, height: 44)
-        .clipShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
-    }
-
-    /// Только «играть»: перематывают свайпом двумя пальцами.
-    ///
-    /// Кнопки «назад» и «вперёд» убраны намеренно. Они занимали треть панели,
-    /// повторяя жест, который и так работает, — а место нужнее названию трека:
-    /// оно обрезалось на третьем слове.
-    private var transport: some View {
-        let isPlaying = music.nowPlaying?.isPlaying == true
-        // Подпись меняется вместе со значком, а не остаётся одной на оба
-        // состояния: значок «пауза» и значок «играть» — это разные кнопки
-        // для того, кто их не видит.
-        return button(
-            isPlaying ? "pause.fill" : "play.fill",
-            hint: isPlaying ? t("Пауза") : t("Играть")
-        ) {
-            music.send(.togglePlayPause)
-        }
-    }
-
-    private func button(
-        _ symbol: String,
-        hint: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: NotchStyle.font(13), weight: .medium))
-                .foregroundStyle(.white)
-                .symbolSwap(symbol)
-        }
-        // Отклик на нажатие и вибрация живут в стиле, а не здесь.
-        .buttonStyle(NotchButtonStyle())
-        .notchHint(hint)
+    private var homeActions: HomeActions {
+        HomeActions(
+            openSettings: onOpenSettings,
+            openHub: onOpenHub,
+            openCalendar: onOpenCalendar,
+            openItem: onOpenItem,
+            join: onJoin,
+            copyLink: onCopyLink,
+            openTasks: { ThingsService.openToday() },
+            // Панель модели открывается и без модели: заметки в ней
+            // работают сами по себе. Пропадает вход только если
+            // выключено и то и другое.
+            ask: (settings.ollamaEnabled || settings.notesEnabled) ? onAskAssistant : nil,
+            dictateQuestion: onDictateQuestion,
+            openTimer: onOpenTimer,
+            openMonitor: onOpenMonitor,
+            openAwake: onOpenAwake,
+            chooseAwakeLimit: onChooseAwakeLimit,
+            disableAwake: onDisableAwake,
+            openFeeds: onOpenFeedsTab,
+            openClipboard: onOpenClipboard,
+            openShelf: onOpenShelf,
+            openNotes: onOpenNotes,
+            openNote: onOpenNote,
+            newNote: { onNewNote("") },
+            startVoice: onStartVoice,
+            dictateNote: onDictateNote,
+            openTeleprompter: onOpenTeleprompter
+        )
     }
 }

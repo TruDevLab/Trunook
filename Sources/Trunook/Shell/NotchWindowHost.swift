@@ -98,7 +98,7 @@ final class NotchWindowHost {
         DebugLog.write(
             "ширины: свёрнуто \(Int(metrics.closed.width)), "
             + "плашка минимум \(Int(shortest.panelWidth)), "
-            + "раскрыто \(Int(metrics.expanded(extraHeight: 0).width)), "
+            + "раскрыто \(Int(metrics.expanded(rows: 0).width)), "
             + "отсчёт \(Int(ChipView.width(metrics: metrics))) при окне \(Int(metrics.windowSize.width))"
         )
     }

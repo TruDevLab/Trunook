@@ -104,6 +104,24 @@ enum QuickRingLayout {
         return bestDistance <= step / 2 ? best : nil
     }
 
+    /// Над каким кружком стоит курсор — **попаданием**, а не направлением.
+    ///
+    /// Для кольца, открытого нажатием. Там кнопку не держат, а щёлкают,
+    /// и человек целится, как в любую кнопку. Отбор по направлению в этом
+    /// режиме выбирал бы функцию щелчком далеко в стороне — например, по
+    /// чужому окну ниже веера, — а щелчок мимо кружков должен кольцо закрывать.
+    ///
+    /// Поле попадания чуть больше кружка: выбранный и так растёт на восьмую
+    /// часть, и край, по которому щёлкнули, не должен оказаться «мимо».
+    static func circleIndex(at point: CGPoint, count: Int) -> Int? {
+        let reach = circle * 0.6
+        for (index, center) in offsets(count: count).enumerated()
+        where hypot(point.x - center.x, point.y - center.y) <= reach {
+            return index
+        }
+        return nil
+    }
+
     /// Сколько места занимает веер вместе с кружками.
     static func size(count: Int) -> CGSize {
         let radius = self.radius(count: count)
@@ -120,6 +138,9 @@ final class QuickRing: ObservableObject {
     @Published private(set) var isOpen = false
     /// Номер кружка под рукой. `nil` — рука между кружками или у самой чёлки.
     @Published private(set) var highlighted: Int?
+    /// Кольцо открыто нажатием, а не удержанием: стоит само, выбирают
+    /// щелчком по кружку, закрывают щелчком мимо.
+    @Published private(set) var isSticky = false
 
     /// До какого мгновения нажатие по чёлке считается своим.
     ///
@@ -129,9 +150,10 @@ final class QuickRing: ObservableObject {
     /// шаг опроса, — иначе отпускание успело бы проскочить мимо.
     private var tapSuppressedUntil = Date.distantPast
 
-    func open() {
+    func open(sticky: Bool = false) {
         guard !isOpen else { return }
         isOpen = true
+        isSticky = sticky
         highlighted = nil
     }
 
@@ -146,6 +168,7 @@ final class QuickRing: ObservableObject {
         guard isOpen else { return nil }
         let picked = highlighted
         isOpen = false
+        isSticky = false
         highlighted = nil
         tapSuppressedUntil = Date().addingTimeInterval(0.4)
         return picked

@@ -121,9 +121,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.caffeineOn", #selector(startCaffeine)),
             ("com.trunook.debug.timerRun", #selector(runTimer)),
             ("com.trunook.debug.stopwatchRun", #selector(runStopwatch)),
-            ("com.trunook.debug.hub", #selector(showHub)),
+            ("com.trunook.debug.ringMenu", #selector(showRingMenu)),
             ("com.trunook.debug.openEvent", #selector(openFirstItem)),
             ("com.trunook.debug.expand", #selector(expandNotch)),
+            ("com.trunook.debug.homeAll", #selector(showHomePage)),
+            ("com.trunook.debug.homeReset", #selector(resetHome)),
             ("com.trunook.debug.assistant", #selector(testAssistant)),
             ("com.trunook.debug.ask", #selector(testAsk)),
             ("com.trunook.debug.models", #selector(dumpModelOffers)),
@@ -272,12 +274,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Меню всех функций: правую кнопку из отладочной сессии не нажать.
-    @objc private func showHub() {
-        controller.openHub()
+    @objc private func showRingMenu() {
+        controller.openRingMenu()
     }
 
     @objc private func expandNotch() {
         controller.debugExpand()
+    }
+
+    /// Какую страницу проверочной раскладки показать следующей.
+    private var homePage = 0
+
+    /// Все виджеты во всех размерах — по страницам, каждая в четыре ряда.
+    /// Каждый вызов пишет в настройки следующую страницу и раскрывает вырез
+    /// под снимок; `homeReset` возвращает раскладку по умолчанию.
+    @objc private func showHomePage() {
+        let pages = HomeWidgets.showcasePages()
+        let page = homePage % pages.count
+        homePage += 1
+        Settings.shared.homeWidgets = pages[page]
+        DebugLog.write("главный экран: страница \(page + 1) из \(pages.count) — "
+            + pages[page].map { "\($0.kind.rawValue) \($0.size.title)" }.joined(separator: ", "))
+        controller.debugExpand(seconds: 8)
+    }
+
+    @objc private func resetHome() {
+        homePage = 0
+        Settings.shared.resetHomeWidgets()
+        DebugLog.write("главный экран: раскладка по умолчанию")
     }
 
     @objc private func showMonitor() {

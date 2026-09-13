@@ -848,7 +848,6 @@
 "Куда положить" = "Where to put it";
 "Задержите нажатие на чёлке" = "Press and hold on the notch";
 "Из-под неё веером выедут кружки — по одному на функцию. Не отпуская, ведите руку к нужному" = "Circles fan out from under it, one per feature. Without letting go, move to the one you want";
-"Меню всех функций: команды, заметки, календарь, буфер, полка, таймер, нагрузка, суфлер" = "Every feature: commands, notes, calendar, clipboard, shelf, timer, load, prompter";
 
 /* Помощник с действиями */
 "Действие выполнить нечем." = "There is nothing to carry this out with.";
@@ -1201,3 +1200,43 @@
 "Задайте темы — «космические запуски», «новинки кино» — или попросите модель предложить их, и выберите расписание, например каждый день в 10:00. Модель просмотрит новости за период и оставит по каждой теме до пяти главных, с источником и ссылкой. О готовой сводке скажет плашка, а метка в чёлке держится, пока вы её не откроете. Сводку можно отправить в заметки или сохранить файлом Markdown. Темы и расписание — в настройках, в разделе «Сводки»." = "Set topics — “space launches”, “new movies” — or ask the model to suggest some, and pick a schedule, say every day at 10:00. The model goes through the news for the period and keeps up to five top stories per topic, each with its source and link. A pill tells you the digest is ready, and a mark stays in the notch until you open it. Send the digest to notes or save it as a Markdown file. Topics and schedule live in Settings, in the Digests section.";
 "Дайте ссылку на страницу и скажите словами, за чем следить: цена, наличие, дата, число мест, любая строка. Страница проверяется по расписанию, и когда значение изменится, вырез покажет плашку «было → стало» с кнопкой, открывающей сайт. Для чисел есть условия «стало меньше», «стало больше» и порог. Если сайт спрашивает, не робот ли вы, проверку можно пройти один раз в окне приложения." = "Give a page link and say in words what to track: price, availability, date, number of seats, any line. The page is checked on schedule, and when the value changes the notch shows a “was → now” pill with a button that opens the site. Numbers also get “went down”, “went up” and threshold conditions. If the site asks whether you're a robot, you can pass the check once in the app's window.";
 "Ждёте, когда откроется запись на курс: укажите страницу и «число свободных мест» — вырез скажет, как только оно изменится." = "Waiting for course enrollment to open: add the page and “number of free seats” — the notch tells you as soon as it changes.";
+
+/* Главный экран */
+"Встреч нет" = "No meetings";
+"Открыть в Things" = "Open in Things";
+"Задач на сегодня нет" = "No tasks for today";
+"Спросить…" = "Ask…";
+"Команды и заметки…" = "Commands and notes…";
+"Надиктовать вопрос" = "Dictate a question";
+"Сводок ещё не было" = "No digests yet";
+"Новостей не нашлось" = "No news found";
+"Открыть слежку" = "Open site watch";
+"Слежек нет" = "No watches";
+"проверяю…" = "checking…";
+"Открыть буфер" = "Open clipboard";
+"Буфер пуст" = "Clipboard is empty";
+"Открыть заметки" = "Open notes";
+"Заметок пока нет" = "No notes yet";
+"Сбросить" = "Reset";
+"Нет данных" = "No data";
+"Включить" = "Turn On";
+"Выкл." = "Off";
+"Ближайшие встречи" = "Upcoming meetings";
+"Месяц" = "Month";
+"Задачи Things" = "Things tasks";
+"Вопрос к ИИ" = "Ask AI";
+"Не поместилось" = "Didn't fit";
+"Убрать" = "Remove";
+"Функция выключена" = "Feature is off";
+"На экране" = "On screen";
+"Добавить «%@»" = "Add “%@”";
+"Главный экран" = "Home screen";
+"Перетащите плитку, чтобы переставить, или нажмите, чтобы выбрать размер." = "Drag a tile to move it, or click it to pick a size.";
+"Показать в вырезе" = "Show in notch";
+"Вернуть как было" = "Restore default";
+"Выбранная плитка" = "Selected tile";
+"Добавить виджет" = "Add widget";
+"Соберите вырез из нужных плиток" = "Build the notch from the tiles you need";
+"Раскрытый вырез — это сетка плиток: музыка, ближайшие встречи, месяц, таймер, погода, нагрузка, новости, строка вопроса к ИИ, чашка кофе и другие. Плитка показывает главное и умеет главное — поставить на паузу, пустить таймер, зажечь чашку, — а нажатие по ней открывает полную панель. Состав, порядок и размер плиток — в настройках, в разделе «Главный экран»: плитки перетаскивают мышью, размер выбирают нажатием." = "The expanded notch is a grid of tiles: music, upcoming meetings, the month, timer, weather, system load, news, an AI question field, the coffee cup and more. Each tile shows the essentials and does the essentials — pause, start the timer, light the cup — and clicking it opens the full panel. Choose which tiles appear, their order and size in Settings, under Home screen: drag tiles to move them, click to pick a size.";
+"Весь день работаете с таймером и следите за новостями: поставьте их плитками рядом с музыкой — одно наведение на чёлку, и всё перед глазами." = "You work with a timer all day and keep an eye on the news: put them as tiles next to music — one hover over the notch and it's all in front of you.";
+"Кольцо всех функций стоит открытым: щёлкните по нужному кружку, мимо — закроется" = "Every feature in a ring that stays open: click the circle you want, click elsewhere to close";

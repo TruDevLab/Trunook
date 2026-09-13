@@ -149,4 +149,39 @@ struct QuickRingTests {
         #expect(ring.close() == nil)
         #expect(!ring.swallowsTap())
     }
+
+    // MARK: - Кольцо, открытое нажатием
+
+    /// Щелчок выбирает попаданием: по середине кружка — он, между кружками
+    /// и далеко в стороне по тому же направлению — ничего.
+    @Test("Щелчок выбирает кружок попаданием, а не направлением")
+    func попаданиеВКружок() {
+        let offsets = QuickRingLayout.offsets(count: count)
+        for (index, center) in offsets.enumerated() {
+            #expect(QuickRingLayout.circleIndex(at: center, count: count) == index)
+        }
+        let between = CGPoint(
+            x: (offsets[2].x + offsets[3].x) / 2,
+            y: (offsets[2].y + offsets[3].y) / 2 + QuickRingLayout.circle
+        )
+        #expect(QuickRingLayout.circleIndex(at: between, count: count) == nil)
+        // Направление первого кружка, но втрое дальше: удержание выбрало бы
+        // его, щелчок — нет.
+        let far = CGPoint(x: offsets[0].x * 3, y: offsets[0].y * 3)
+        #expect(QuickRingLayout.index(at: far, count: count) == 0)
+        #expect(QuickRingLayout.circleIndex(at: far, count: count) == nil)
+        #expect(QuickRingLayout.circleIndex(at: .zero, count: count) == nil)
+    }
+
+    @Test("Закрытие снимает и режим нажатия")
+    func закрытиеСнимаетРежим() {
+        let ring = QuickRing()
+        ring.open(sticky: true)
+        #expect(ring.isOpen && ring.isSticky)
+        ring.move(to: 2)
+        #expect(ring.close() == 2)
+        #expect(!ring.isOpen && !ring.isSticky && ring.highlighted == nil)
+        ring.open()
+        #expect(ring.isOpen && !ring.isSticky)
+    }
 }

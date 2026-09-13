@@ -33,12 +33,17 @@ enum NotchMouseCatch {
     ///     непрозрачным во что бы то ни стало: перетаскивание начинается
     ///     внутри панели и уводит курсор за её край, и погасшее на полпути
     ///     окно оборвало бы его.
+    ///   - cursorOverRingCircle: курсор над кружком кольца, открытого
+    ///     нажатием. Кружки рисуются поверх обрезки формы и в её размер
+    ///     не входят, но нарисованы — и щелчок по кружку не должен уйти
+    ///     насквозь в чужое окно под ним. Правило то же: ловим по нарисованному.
     static func catchesMouse(
         hasSomethingDrawn: Bool,
         cursorOverVisibleRect: Bool,
-        isDraggingOut: Bool = false
+        isDraggingOut: Bool = false,
+        cursorOverRingCircle: Bool = false
     ) -> Bool {
-        if isDraggingOut { return true }
+        if isDraggingOut || cursorOverRingCircle { return true }
         return hasSomethingDrawn && cursorOverVisibleRect
     }
 }

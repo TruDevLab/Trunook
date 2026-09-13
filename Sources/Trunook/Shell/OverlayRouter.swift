@@ -109,7 +109,6 @@ final class OverlayRouter {
         case .clipboard: return "история буфера"
         case .assistant: return "ответ модели"
         case .shelf: return "полка"
-        case .hub: return "меню функций"
         case .timer: return "таймер"
         case .monitor: return "нагрузка"
         case .teleprompter: return "телесуфлер"

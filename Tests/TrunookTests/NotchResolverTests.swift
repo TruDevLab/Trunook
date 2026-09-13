@@ -29,7 +29,6 @@ struct NotchResolverTests {
             var inputs = NotchInputs(overlay: overlay)
             inputs.clipboardRows = 3
             inputs.shelfCount = 4
-            inputs.hubCount = HubEntry.count
             let snapshot = inputs.resolve()
 
             #expect(snapshot.presentation != .collapsed, "накладка \(overlay) осталась свёрнутой")

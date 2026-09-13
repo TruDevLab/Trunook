@@ -31,18 +31,15 @@ struct NotchMetrics: Equatable {
         CGSize(width: notchWidth + 2 * Self.concaveOverhang, height: notchHeight)
     }
 
-    /// Высота строки музыки: обложка задаёт её целиком.
-    static var musicRowHeight: CGFloat { NotchStyle.scaled(44) }
-
-    /// Раскрытая панель растёт вниз ровно на высоту того, что показывает.
+    /// Главный экран растёт вниз на столько рядов плиток, сколько занято.
     /// Складывается по общему правилу панелей: шапка живёт в крыльях,
     /// поэтому в расчёте её нет.
-    func expanded(extraHeight: CGFloat) -> CGSize {
+    func expanded(rows: Int) -> CGSize {
         CGSize(
-            width: max(420, notchWidth + 220),
+            width: max(HomeGrid.panelWidth, notchWidth + 220),
             height: NotchStyle.height(
                 notchHeight: notchHeight,
-                contentHeight: Self.musicRowHeight + extraHeight
+                contentHeight: HomeGrid.contentHeight(rows: rows)
             )
         )
     }
@@ -65,7 +62,7 @@ struct NotchMetrics: Equatable {
     var windowSize: CGSize {
         // Потолок панели считается тем же расчётом, что и сама панель:
         // выписанный здесь заново, он разошёлся с ней на поле подложки.
-        let panel = expanded(extraHeight: NotchContent.maxExtraHeight)
+        let panel = expanded(rows: HomeGrid.maxRows)
         let assistant = AssistantPanel.tallest(
             notchHeight: notchHeight,
             notchWidth: notchWidth
@@ -78,9 +75,6 @@ struct NotchMetrics: Equatable {
             notchHeight: notchHeight,
             rows: ClipboardPanel.visibleRows
         )
-        // Потолок считается по настоящему составу меню: раньше здесь стояли
-        // «две строки», и пятая плитка вылезла бы за окно, а окно обрезает.
-        let hub = HubPanel.height(notchHeight: notchHeight, count: HubEntry.count)
         let teleprompter = TeleprompterPanel.height(notchHeight: notchHeight)
         let calendar = CalendarPanel.height(notchHeight: notchHeight)
         let editor = EventEditorPanel.height(notchHeight: notchHeight)
@@ -104,7 +98,6 @@ struct NotchMetrics: Equatable {
                 AssistantPanel.width(notchWidth: notchWidth),
                 NotesPanel.width(notchWidth: notchWidth),
                 ShelfPanel.width,
-                HubPanel.width,
                 TeleprompterPanel.width(notchWidth: notchWidth),
                 CaffeinePanel.width,
                 FeedsPanel.width,
@@ -119,7 +112,7 @@ struct NotchMetrics: Equatable {
             // под самой высокой панелью, телесуфлером с его шестью значками
             // оформления.
             height: max(
-                panel.height, clipboard, assistant, shelf, hub,
+                panel.height, clipboard, assistant, shelf,
                 teleprompter, caffeine, notes, calendar, editor, feeds,
                 notchHeight + ringSize.height
             ) + NotchHintLayout.reserved

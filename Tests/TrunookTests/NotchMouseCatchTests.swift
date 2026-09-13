@@ -75,4 +75,16 @@ struct NotchMouseCatchTests {
             #expect(size.height >= metrics.notchHeight, "накладка \(overlay) ниже чёлки")
         }
     }
+
+    /// Кружки кольца, открытого нажатием, рисуются снаружи формы. Щелчок
+    /// по кружку не должен уйти насквозь в чужое окно под ним.
+    @Test("Над кружком кольца окно ловит мышь")
+    func кружокКольца() {
+        #expect(NotchMouseCatch.catchesMouse(
+            hasSomethingDrawn: true, cursorOverVisibleRect: false, cursorOverRingCircle: true
+        ))
+        #expect(!NotchMouseCatch.catchesMouse(
+            hasSomethingDrawn: true, cursorOverVisibleRect: false, cursorOverRingCircle: false
+        ))
+    }
 }

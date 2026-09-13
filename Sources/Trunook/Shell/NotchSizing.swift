@@ -22,8 +22,6 @@ enum NotchPresentation: Equatable {
     case assistant
     /// Полка с отложенными файлами.
     case shelf
-    /// Меню всех функций.
-    case hub
     /// Таймер и секундомер.
     case timer
     /// Нагрузка на систему.
@@ -81,7 +79,7 @@ enum NotchPresentation: Equatable {
         switch self {
         case .activity, .preview: return true
         case .collapsed, .chip, .swiping, .voice, .quickRing, .expanded,
-             .clipboard, .assistant, .shelf, .hub, .timer, .monitor,
+             .clipboard, .assistant, .shelf, .timer, .monitor,
              .teleprompter, .caffeine, .notes, .calendar, .eventEditor, .feeds:
             return false
         }
@@ -109,8 +107,8 @@ struct NotchContent: Equatable {
     var caffeineChip: CaffeineChip?
     /// Метка непрочитанной сводки или изменения на сайте.
     var feedChip: FeedChip?
-    /// Ближайшие встречи: то, что начинается сейчас, и то, что идёт следом.
-    /// На один слот в календаре нередко стоят две — они попадают сюда обе.
+    /// Ближайшие встречи подряд — столько, сколько вмещает плитка встреч
+    /// в два ряда.
     var events: [CalendarItem] = []
     var taskCount: Int = 0
     /// Сколько кнопок показывает панель встречи. Ноль — встречи нет.
@@ -158,8 +156,6 @@ struct NotchContent: Equatable {
     var assistantHasAnswer = false
     /// Сколько файлов лежит на полке.
     var shelfCount = 0
-    /// Сколько плиток показывает меню всех функций.
-    var hubCount = 0
     /// Сколько строк показывает список заметок — с учётом поиска.
     var notesRows = 0
     /// Заметки включены.
@@ -173,63 +169,12 @@ struct NotchContent: Equatable {
     /// Фазой, а не признаком «идёт»: от неё зависит цвет свечения и рисунок
     /// шкалы, то есть само нарисованное. Признака хватило бы только на размер.
     var voicePhase: VoiceSession.Phase?
-
-    /// Сколько задач реально попадёт в панель.
-    var visibleTasks: Int { min(taskCount, NotchMetrics.maxVisibleTasks) }
-
-    /// Встречи, разложенные по подложкам: одна подложка на одно время начала.
+    /// Сколько рядов занимают плитки главного экрана.
     ///
-    /// Все одновременные встречи лежат в общей подложке — они про один и тот
-    /// же слот, и по отдельным карточкам читались бы как несвязанные. А вот
-    /// следующее время — уже другой слот, и общая подложка слепила бы
-    /// «сейчас» и «потом» в один блок расписания.
-    var eventGroups: [[CalendarItem]] {
-        Array(events.prefix(NotchMetrics.maxVisibleEvents)).groupedByStart()
-    }
-
-    /// Высота всего, что показано под строкой музыки.
-    var extraHeight: CGFloat {
-        let groups = eventGroups
-        return Self.extraHeight(
-            eventRows: groups.reduce(0) { $0 + $1.count },
-            eventCards: groups.count,
-            taskRows: visibleTasks
-        )
-    }
-
-    /// Высота подложек по их составу: строки, поля подложек и зазоры.
-    ///
-    /// Считается по числам, а не по самим записям, потому что тот же расчёт
-    /// нужен потолку размера окна — а у потолка записей нет и быть не может.
-    /// Раньше потолок был выписан отдельной формулой и разошёлся с этой
-    /// на поле подложки и отступ от строки музыки.
-    static func extraHeight(eventRows: Int, eventCards: Int, taskRows: Int) -> CGFloat {
-        let cards = eventCards + (taskRows > 0 ? 1 : 0)
-        guard cards > 0 else { return 0 }
-        /// Поля подложки сверху и снизу.
-        let cardPadding: CGFloat = 12
-        // Отступ от строки музыки.
-        var height = NotchStyle.gridSpacing
-        height += CGFloat(eventRows) * NotchMetrics.eventRowHeight
-        // Зазоров между строками на каждой подложке на один меньше, чем строк.
-        height += CGFloat(max(0, eventRows - eventCards)) * NotchStyle.rowSpacing
-        // Задачи идут вплотную друг к другу: они читаются одним списком.
-        height += CGFloat(taskRows) * NotchMetrics.taskRowHeight
-        height += CGFloat(cards) * cardPadding
-        // Зазор между подложками — он же единственный разделитель.
-        height += CGFloat(cards - 1) * NotchStyle.cardGap
-        return height
-    }
-
-    /// Потолок высоты содержимого: полный запас строк встреч, разложенный
-    /// по двум подложкам — так выше, чем одной, — и полный список задач.
-    static var maxExtraHeight: CGFloat {
-        extraHeight(
-            eventRows: NotchMetrics.maxVisibleEvents,
-            eventCards: min(2, NotchMetrics.maxVisibleEvents),
-            taskRows: NotchMetrics.maxVisibleTasks
-        )
-    }
+    /// Высота раскрытой панели задаётся раскладкой, а не тем, сколько
+    /// сегодня встреч: экран, скачущий по высоте вслед за календарём,
+    /// нельзя было бы честно показать макетом в настройках.
+    var homeRows = 0
 }
 
 enum NotchSizing {
@@ -298,7 +243,7 @@ enum NotchSizing {
                 height: metrics.notchHeight
             )
         case .expanded:
-            return metrics.expanded(extraHeight: content.extraHeight)
+            return metrics.expanded(rows: content.homeRows)
         case .assistant:
             return CGSize(
                 width: AssistantPanel.width(notchWidth: metrics.notchWidth),
@@ -387,14 +332,6 @@ enum NotchSizing {
             return CGSize(
                 width: CaffeinePanel.width,
                 height: CaffeinePanel.height(notchHeight: metrics.notchHeight)
-            )
-        case .hub:
-            return CGSize(
-                width: HubPanel.width,
-                height: HubPanel.height(
-                    notchHeight: metrics.notchHeight,
-                    count: content.hubCount
-                )
             )
         }
     }

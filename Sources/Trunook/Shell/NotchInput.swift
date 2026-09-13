@@ -66,7 +66,7 @@ final class NotchInput {
     var onQuickRingOpen: (() -> Void)?
     /// Рука ведёт по кольцу. Смещение от нижней кромки чёлки, `y` вниз.
     var onQuickRingMove: ((CGPoint) -> Void)?
-    /// Кнопку отпустили.
+    /// Кнопку отпустили — или, у кольца, открытого нажатием, щёлкнули.
     var onQuickRingClose: (() -> Void)?
 
     private var monitors: [Any] = []
@@ -99,6 +99,9 @@ final class NotchInput {
     private var wasPressed = false
     /// Открыто ли кольцо прямо сейчас.
     private var ringIsOpen = false
+    /// Кольцо открыто нажатием: закрывает его следующее нажатие, а не
+    /// отпускание кнопки.
+    private var ringIsSticky = false
 
 
     init(state: NotchState, settings: Settings, host: NotchWindowHost) {
@@ -257,6 +260,18 @@ final class NotchInput {
     private func updateQuickRing(pressed: Bool, at location: CGPoint) {
         let justPressed = pressed && !wasPressed
         wasPressed = pressed
+        // Кольцо, открытое нажатием, живёт до следующего нажатия — куда бы
+        // оно ни пришлось. По кружку — выбор, мимо — закрытие; что из двух,
+        // решает подсветка, а её ставит положение курсора.
+        if ringIsSticky {
+            trackQuickRing(at: location)
+            guard justPressed else { return }
+            ringIsSticky = false
+            ringIsOpen = false
+            pressStartedAt = nil
+            onQuickRingClose?()
+            return
+        }
         guard pressed else {
             pressStartedAt = nil
             guard ringIsOpen else { return }
@@ -285,6 +300,20 @@ final class NotchInput {
         ringIsOpen = true
         onQuickRingOpen?()
         trackQuickRing(at: location)
+    }
+
+    /// Открыть кольцо нажатием — правой кнопкой или кнопкой в крыле главного
+    /// экрана.
+    ///
+    /// Кнопка мыши к этому мигу уже отпущена или нажата правая: левая
+    /// считается нажатой заново только со следующего края, и открывший
+    /// щелчок кольцо сам не закроет.
+    func openStickyRing() {
+        ringIsOpen = true
+        ringIsSticky = true
+        pressStartedAt = nil
+        wasPressed = NSEvent.pressedMouseButtons & 1 != 0
+        trackQuickRing(at: NSEvent.mouseLocation)
     }
 
     /// Куда метит рука — в смещениях от нижней кромки чёлки, `y` вниз.

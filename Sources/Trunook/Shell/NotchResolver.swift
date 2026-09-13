@@ -78,13 +78,14 @@ struct NotchInputs: Equatable {
     /// Ответ готов — под полем стоят действия с ним, а не список команд.
     var assistantHasAnswer = false
     var shelfCount = 0
-    var hubCount = 0
     var notesRows = 0
     var notesEnabled = true
     /// Чем занят голосовой заход. `nil` — заход не идёт.
     var voicePhase: VoiceSession.Phase?
     /// Кольцо быстрого доступа раскрыто — кнопку держат на вырезе.
     var isQuickRingOpen = false
+    /// Сколько рядов занимают плитки главного экрана.
+    var homeRows = 0
 
     /// С какой доли жеста остров начинает расходиться в бока.
     static let swipingEnterProgress: Double = 0.15
@@ -103,7 +104,6 @@ struct NotchInputs: Equatable {
         case .clipboard: return .clipboard
         case .assistant: return .assistant
         case .shelf: return .shelf
-        case .hub: return .hub
         case .timer: return .timer
         case .monitor: return .monitor
         case .teleprompter: return .teleprompter
@@ -163,10 +163,10 @@ struct NotchInputs: Equatable {
             assistantPending: assistantPending,
             assistantHasAnswer: assistantHasAnswer,
             shelfCount: shelfCount,
-            hubCount: hubCount,
             notesRows: notesRows,
             notesEnabled: notesEnabled,
-            voicePhase: voicePhase
+            voicePhase: voicePhase,
+            homeRows: homeRows
         )
     }
 }

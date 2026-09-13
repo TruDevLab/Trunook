@@ -64,6 +64,8 @@ final class WelcomeModel: ObservableObject {
     /// Читают его вразнобой: человек ищет то, чего не понял, а не проходит
     /// подряд.
     enum Feature: String, CaseIterable, Identifiable {
+        // Главный экран — первым: остальное на нём и живёт плитками.
+        case home
         case music, calendar, meetings, capture, assistant, agent, voice
         case news, sites
         case notes, record, clipboard, shelf, timer, monitor
@@ -73,6 +75,7 @@ final class WelcomeModel: ObservableObject {
 
         var title: String {
             switch self {
+            case .home: return t("Главный экран")
             case .music: return t("Музыка")
             case .calendar: return t("Календарь и задачи")
             case .meetings: return t("Встречи")
@@ -101,6 +104,7 @@ final class WelcomeModel: ObservableObject {
 
         var symbol: String {
             switch self {
+            case .home: return "square.grid.3x2.fill"
             case .music: return "music.note"
             case .calendar: return "calendar"
             case .meetings: return "video.fill"
@@ -126,6 +130,7 @@ final class WelcomeModel: ObservableObject {
         /// Одна фраза о том, что это. Её видно рядом с названием в списке.
         var summary: String {
             switch self {
+            case .home: return t("Соберите вырез из нужных плиток")
             case .music: return t("Что играет — прямо в вырезе")
             case .calendar: return t("Месяц, дела дня и правка события в вырезе")
             case .meetings: return t("Управление звонком, не переключаясь на вкладку")
@@ -152,6 +157,8 @@ final class WelcomeModel: ObservableObject {
         /// не угадать по названию.
         var detail: String {
             switch self {
+            case .home:
+                return t("Раскрытый вырез — это сетка плиток: музыка, ближайшие встречи, месяц, таймер, погода, нагрузка, новости, строка вопроса к ИИ, чашка кофе и другие. Плитка показывает главное и умеет главное — поставить на паузу, пустить таймер, зажечь чашку, — а нажатие по ней открывает полную панель. Состав, порядок и размер плиток — в настройках, в разделе «Главный экран»: плитки перетаскивают мышью, размер выбирают нажатием.")
             case .music:
                 return t("Свёрнутый вырез показывает обложку и название трека. Свайп двумя пальцами поперёк острова переключает трек, не убирая курсор. Работает с Музыкой, Spotify и всем, что отдаёт сведения системе.")
             case .calendar:
@@ -200,6 +207,8 @@ final class WelcomeModel: ObservableObject {
         /// как продолжение объяснения, и пример теряется в нём.
         var example: String {
             switch self {
+            case .home:
+                return t("Весь день работаете с таймером и следите за новостями: поставьте их плитками рядом с музыкой — одно наведение на чёлку, и всё перед глазами.")
             case .music:
                 return t("Слушаете музыку и не помните, что за трек: ведёте курсор к чёлке — название и обложка на месте, двумя пальцами вбок — следующий.")
             case .calendar:
@@ -244,7 +253,7 @@ final class WelcomeModel: ObservableObject {
 
     @Published var mode: Mode = .tour
     @Published var step: Step = .intro
-    @Published var feature: Feature = .music
+    @Published var feature: Feature = .home
     @Published private(set) var accessibilityTrusted = AccessibilityAccess.isTrusted
     /// Проверяется опросом по той же причине: TCC своё решение не отдаёт,
     /// а в теле вида ходить на диск нельзя — вид перерисовывается постоянно.
