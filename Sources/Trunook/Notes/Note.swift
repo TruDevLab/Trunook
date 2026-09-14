@@ -77,6 +77,32 @@ struct Note: Identifiable, Equatable {
 
     var hasAudio: Bool { !audio.isEmpty }
 
+    /// Запись не удалять по сроку хранения — флаг ставит человек.
+    var keepAudio = false
+
+    /// Когда запись последний раз меняли: удалили руками или по сроку.
+    ///
+    /// Отдельно от `updatedAt`: по той дате сортируется список, и заметка,
+    /// у которой по сроку ушла запись, всплыла бы наверх, хотя её никто
+    /// не трогал. А сверке с Obsidian знать об этом нужно — в шапке файла
+    /// лежит ссылка на запись, и её надо убрать.
+    var audioChangedAt: Date?
+
+    /// Когда заметку закрепили. `nil` — не закреплена. По дате закреплённые
+    /// и стоят: первой — закреплённая раньше.
+    var pinnedAt: Date?
+
+    var isPinned: Bool { pinnedAt != nil }
+
+    /// Сколько заметок можно закрепить. Больше трёх — уже не «под рукой»,
+    /// а второй список, и плитка закреплённых их не вместила бы.
+    static let pinLimit = 3
+
+    /// Изменение, которое должна увидеть сверка с Obsidian.
+    var syncedChangeAt: Date {
+        max(updatedAt, audioChangedAt ?? updatedAt)
+    }
+
     /// Ещё не записанная заметка. Идентификатор назначит база.
     static let unsaved: Int64 = 0
 
@@ -111,7 +137,9 @@ struct Note: Identifiable, Equatable {
     /// Однострочное представление для списка: переносы в узкой строке всё
     /// равно не видны, а из-за них строка выглядит обрезанной на полуслове.
     var oneLine: String {
-        Self.oneLine(from: plain)
+        // Пункты списка — галочками даже у заметок, записанных разметкой:
+        // `- [ ]` в превью читалось бы мусором.
+        Self.oneLine(from: Checklist.displayText(fromMarkdown: plain))
     }
 
     static func oneLine(from text: String) -> String {
@@ -162,6 +190,9 @@ enum NoteSource {
     case all
     /// Только свои — те, что завели в приложении.
     case own
+    /// Свои и закреплённые из хранилища: список без поиска. Закреплённую
+    /// заметку Obsidian иначе было бы не найти в списке, где её закрепили.
+    case ownOrPinned
     /// Только заметки хранилища Obsidian.
     case vault
 
@@ -170,6 +201,7 @@ enum NoteSource {
         switch self {
         case .all: return nil
         case .own: return "origin <> '\(Note.Origin.obsidian.rawValue)'"
+        case .ownOrPinned: return "(origin <> '\(Note.Origin.obsidian.rawValue)' OR pinnedAt > 0)"
         case .vault: return "origin = '\(Note.Origin.obsidian.rawValue)'"
         }
     }

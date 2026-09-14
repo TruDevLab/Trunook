@@ -1240,3 +1240,54 @@
 "Раскрытый вырез — это сетка плиток: музыка, ближайшие встречи, месяц, таймер, погода, нагрузка, новости, строка вопроса к ИИ, чашка кофе и другие. Плитка показывает главное и умеет главное — поставить на паузу, пустить таймер, зажечь чашку, — а нажатие по ней открывает полную панель. Состав, порядок и размер плиток — в настройках, в разделе «Главный экран»: плитки перетаскивают мышью, размер выбирают нажатием." = "The expanded notch is a grid of tiles: music, upcoming meetings, the month, timer, weather, system load, news, an AI question field, the coffee cup and more. Each tile shows the essentials and does the essentials — pause, start the timer, light the cup — and clicking it opens the full panel. Choose which tiles appear, their order and size in Settings, under Home screen: drag tiles to move them, click to pick a size.";
 "Весь день работаете с таймером и следите за новостями: поставьте их плитками рядом с музыкой — одно наведение на чёлку, и всё перед глазами." = "You work with a timer all day and keep an eye on the news: put them as tiles next to music — one hover over the notch and it's all in front of you.";
 "Кольцо всех функций стоит открытым: щёлкните по нужному кружку, мимо — закроется" = "Every feature in a ring that stays open: click the circle you want, click elsewhere to close";
+
+/* Где показывать вырез */
+"Экраны" = "Screens";
+"С вырезом" = "With notch";
+"Где курсор" = "Under cursor";
+"Все экраны" = "All screens";
+"Остров живёт только на главном экране." = "Only on the main screen.";
+"Остров переезжает на экран под курсором." = "Moves to the screen under the cursor.";
+"События — на главном экране, на остальных тонкая полоска." = "Events on the main screen, a thin strip on the others.";
+
+/* Заметки: срок записей, закрепление */
+"Разрешить удаление по сроку" = "Allow deletion after retention period";
+"Не удалять запись" = "Keep this recording";
+"Открепить" = "Unpin";
+"Закрепить можно не больше трёх заметок" = "You can pin up to three notes";
+"Закрепить" = "Pin";
+"Запись хранится всегда" = "Recording kept forever";
+"Запись удалится %@" = "Recording deleted on %@";
+"Закрепите заметку в списке" = "Pin a note in the list";
+"Закреплённые заметки" = "Pinned notes";
+"Бессрочно" = "Forever";
+"%d дн." = "%d days";
+"Хранить записи" = "Keep recordings";
+"Текст заметки остаётся, удаляется только звук." = "The note text stays; only the audio is deleted.";
+"Запись удалена" = "Recording deleted";
+
+/* Списки с галочками */
+"Список с галочками" = "Checklist";
+
+/* Кот в чёлке */
+"Оживлять вырез" = "Liven up the notch";
+"Изредка в чёлке появляется кот, пока ей нечего показывать." = "Now and then a cat shows up in the notch when it has nothing to show.";
+
+/* Блокировка клавиатуры для чистки */
+"Чистка" = "Cleaning";
+"Чистка клавиатуры" = "Keyboard cleaning";
+"Клавиатура заблокирована — осталось %@" = "Keyboard locked — %@ left";
+"Не удалось — нужен Универсальный доступ" = "Failed — Accessibility access required";
+"Заблокировать клавиатуру, чтобы протереть её" = "Lock the keyboard to wipe it clean";
+"%d с" = "%d s";
+"Разблокировать" = "Unlock";
+"Клавиатура заблокирована — нажмите, чтобы снять" = "Keyboard locked — click to unlock";
+"Заблокировать клавиатуру для чистки" = "Lock keyboard for cleaning";
+"заблокирована" = "locked";
+"работает" = "active";
+
+/* Погодные сценки */
+"Анимация смены погоды" = "Animate weather changes";
+"Дождь капает из чёлки, солнышко всплывает." = "Rain drips from the notch, the sun pops up.";
+
+"Ветрено, %d м/с" = "Windy, %d m/s";

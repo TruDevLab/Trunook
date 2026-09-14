@@ -160,6 +160,30 @@ changed in settings or right in the welcome window.
   icon on the left, the time left on the right — and a click leads straight
   back to the choice of limit. The cup is in quick access too, as a circle
   under the notch.
+- **Keyboard cleaning.** A button next to the cup and a circle in quick access
+  lock the keyboard for 30, 60 or 90 seconds — wipe it without typing anything.
+  The mouse keeps working: the notch shows a countdown and an "Unlock" button.
+  Requires Accessibility access.
+- **Several displays.** The "Screens" setting: the island only on the screen
+  with the notch, on the screen under the cursor, or on all of them. Screens
+  without a notch draw nothing at rest, and in "All screens" mode a thin strip;
+  hovering it opens the island there.
+- **Pinning and recording retention.** Up to three notes can be pinned and stay
+  at the top of the list; the home screen has a "Pinned notes" tile. Meeting
+  recordings can be kept forever or for 60, 30, 14, 7 days or one day — the
+  note text stays. A single recording can be marked "Keep this recording".
+- **Checklists.** In a note, `[] ` at the start of a line or a button in the
+  formatting bar starts a checkbox item; a click checks and strikes it through,
+  Enter continues the list. In Obsidian and exports they are plain `- [ ]`.
+- **Weather under the notch.** When the weather changes, rain drips from the
+  notch, snow falls, lightning flashes, the sun pops up, clouds drift out —
+  and on windy days they rush past. A few seconds of pixel art; turned off
+  with "Animate weather changes".
+- **A cat in the notch.** Now and then, every 20–40 minutes, a pixel cat
+  peeks out from under an idle notch: follows the cursor, swishes its tail,
+  runs by, sleeps, yawns, chases a ball of yarn. It stays away while a window
+  is full screen, with Reduce Motion or in Low Power Mode. Turned off with
+  "Liven up the notch".
 
 - **Updates itself.** Once a day the app asks GitHub whether a newer version
   exists and downloads it in the background. When it is ready, a pill appears

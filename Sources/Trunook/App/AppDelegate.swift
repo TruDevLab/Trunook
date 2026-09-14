@@ -119,12 +119,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.noteSave", #selector(saveNote)),
             ("com.trunook.debug.caffeineExpire", #selector(expireCaffeine)),
             ("com.trunook.debug.caffeineOn", #selector(startCaffeine)),
+            ("com.trunook.debug.keyboardLock", #selector(showKeyboardLock)),
+            ("com.trunook.debug.keyboardLockRun", #selector(runKeyboardLock)),
+            ("com.trunook.debug.keyboardLockExpire", #selector(expireKeyboardLock)),
             ("com.trunook.debug.timerRun", #selector(runTimer)),
             ("com.trunook.debug.stopwatchRun", #selector(runStopwatch)),
             ("com.trunook.debug.ringMenu", #selector(showRingMenu)),
             ("com.trunook.debug.openEvent", #selector(openFirstItem)),
             ("com.trunook.debug.expand", #selector(expandNotch)),
             ("com.trunook.debug.homeAll", #selector(showHomePage)),
+            ("com.trunook.debug.homePinned", #selector(toggleHomePinned)),
+            ("com.trunook.debug.notePin", #selector(togglePinNewestNote)),
+            ("com.trunook.debug.noteChecklist", #selector(showChecklist)),
+            ("com.trunook.debug.critter", #selector(playCritter)),
+            ("com.trunook.debug.critterEyes", #selector(playCritterEyes)),
+            ("com.trunook.debug.critterTail", #selector(playCritterTail)),
+            ("com.trunook.debug.critterRun", #selector(playCritterRun)),
+            ("com.trunook.debug.critterEars", #selector(playCritterEars)),
+            ("com.trunook.debug.critterPaw", #selector(playCritterPaw)),
+            ("com.trunook.debug.critterSleep", #selector(playCritterSleep)),
+            ("com.trunook.debug.critterYawn", #selector(playCritterYawn)),
+            ("com.trunook.debug.critterYarn", #selector(playCritterYarn)),
+            ("com.trunook.debug.critterAngry", #selector(playCritterAngry)),
+            ("com.trunook.debug.weatherScene", #selector(playWeatherScene)),
+            ("com.trunook.debug.weatherChange", #selector(playWeatherChange)),
+            ("com.trunook.debug.weatherSun", #selector(playWeatherSun)),
+            ("com.trunook.debug.weatherClouds", #selector(playWeatherClouds)),
+            ("com.trunook.debug.weatherFog", #selector(playWeatherFog)),
+            ("com.trunook.debug.weatherDrizzle", #selector(playWeatherDrizzle)),
+            ("com.trunook.debug.weatherRain", #selector(playWeatherRain)),
+            ("com.trunook.debug.weatherSnow", #selector(playWeatherSnow)),
+            ("com.trunook.debug.weatherThunder", #selector(playWeatherThunder)),
+            ("com.trunook.debug.weatherWind", #selector(playWeatherWind)),
             ("com.trunook.debug.homeReset", #selector(resetHome)),
             ("com.trunook.debug.assistant", #selector(testAssistant)),
             ("com.trunook.debug.ask", #selector(testAsk)),
@@ -150,6 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.shotDemo", #selector(shotDemo)),
             ("com.trunook.debug.shotSettings", #selector(shotSettings)),
             ("com.trunook.debug.shotNotch", #selector(shotNotch)),
+            ("com.trunook.debug.shotMirror", #selector(shotMirror)),
             ("com.trunook.debug.shotMarks", #selector(shotMarks)),
             ("com.trunook.debug.meeting", #selector(testMeeting)),
             ("com.trunook.debug.links", #selector(testLinkExtraction)),
@@ -296,6 +323,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugLog.write("главный экран: страница \(page + 1) из \(pages.count) — "
             + pages[page].map { "\($0.kind.rawValue) \($0.size.title)" }.joined(separator: ", "))
         controller.debugExpand(seconds: 8)
+    }
+
+    /// Раскладка человека на время показа плитки закреплённых заметок.
+    private var homeBeforePinned: [HomeWidget]?
+
+    /// Плитка закреплённых в двух размерах. Повторный вызов возвращает
+    /// прежнюю раскладку: главный экран человека трогать насовсем нельзя.
+    @objc private func toggleHomePinned() {
+        if let saved = homeBeforePinned {
+            Settings.shared.homeWidgets = saved
+            homeBeforePinned = nil
+            DebugLog.write("главный экран: раскладка возвращена")
+            return
+        }
+        homeBeforePinned = Settings.shared.homeWidgets
+        controller.debugCloseOverlay()
+        Settings.shared.homeWidgets = [
+            HomeWidget(id: 0, kind: .pinnedNotes, size: .large),
+            HomeWidget(id: 1, kind: .pinnedNotes, size: .wide),
+            HomeWidget(id: 2, kind: .pinnedNotes, size: .full),
+        ]
+        DebugLog.write("главный экран: плитки закреплённых заметок")
+        controller.debugExpand(seconds: 8)
+    }
+
+    /// Закрепить или открепить последнюю заметку — нажать булавку из сессии нечем.
+    @objc private func togglePinNewestNote() {
+        controller.debugTogglePinNewestNote()
+    }
+
+    /// Сценки кота — без ожидания в полчаса и без проверки условий:
+    /// что мешало бы по-настоящему, пишется в журнал.
+    @objc private func playCritter() { controller.debugCritter(nil) }
+    @objc private func playCritterEyes() { controller.debugCritter(.eyes) }
+    @objc private func playCritterTail() { controller.debugCritter(.tail) }
+    @objc private func playCritterRun() { controller.debugCritter(.run) }
+    @objc private func playCritterEars() { controller.debugCritter(.ears) }
+    @objc private func playCritterPaw() { controller.debugCritter(.paw) }
+    @objc private func playCritterSleep() { controller.debugCritter(.sleep) }
+    @objc private func playCritterYawn() { controller.debugCritter(.yawn) }
+    @objc private func playCritterYarn() { controller.debugCritter(.yarn) }
+    @objc private func playCritterAngry() { controller.debugCritter(.angry) }
+    @objc private func playWeatherScene() { controller.debugWeatherScene(nil) }
+    @objc private func playWeatherChange() { controller.debugWeatherScene(.rain) }
+    @objc private func playWeatherSun() { controller.debugWeatherScene(.sun) }
+    @objc private func playWeatherClouds() { controller.debugWeatherScene(.clouds) }
+    @objc private func playWeatherFog() { controller.debugWeatherScene(.fog) }
+    @objc private func playWeatherDrizzle() { controller.debugWeatherScene(.drizzle) }
+    @objc private func playWeatherRain() { controller.debugWeatherScene(.rain) }
+    @objc private func playWeatherSnow() { controller.debugWeatherScene(.snow) }
+    @objc private func playWeatherThunder() { controller.debugWeatherScene(.thunder) }
+    @objc private func playWeatherWind() { controller.debugWeatherScene(.wind) }
+
+    /// Черновик заметки со списком с галочками.
+    @objc private func showChecklist() {
+        controller.debugChecklist()
     }
 
     @objc private func resetHome() {
@@ -531,6 +614,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Снимок самого выреза.
     @objc private func shotNotch() {
         controller.snapshot()
+    }
+
+    /// Снимок полоски на чужом экране — в режиме «Все экраны».
+    @objc private func shotMirror() {
+        controller.snapshotMirror()
     }
 
     @objc private func testMeeting() {
@@ -773,6 +861,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.debugExpireAwake()
     }
 
+    /// Панель блокировки клавиатуры.
+    @objc private func showKeyboardLock() {
+        controller.openKeyboardLock()
+    }
+
+    /// Заглушить клавиатуру на 30 секунд тем же путём, что и кнопка панели.
+    @objc private func runKeyboardLock() {
+        controller.openKeyboardLock()
+        controller.lockKeyboard(seconds: 30)
+    }
+
+    @objc private func expireKeyboardLock() {
+        controller.debugExpireKeyboardLock()
+    }
+
 
 
     private func add(to menu: NSMenu, title: String, action: Selector, key: String) {
@@ -820,7 +923,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// него: конфетти летит поверх всего, и ждать его конца значило бы держать
     /// человека две секунды перед пустым экраном.
     private func celebrateUpdate() {
-        confetti.fire()
+        confetti.fire(on: controller.notchScreen)
         openReleaseNotes()
     }
 
@@ -846,7 +949,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Залп из чёлки без обновления: нажать кнопку и дождаться настоящего
     /// выпуска ради одной анимации — плохой цикл разработки.
     @objc private func testConfetti() {
-        confetti.fire()
+        confetti.fire(on: controller.notchScreen)
     }
 
     /// Обход хранилища: сколько файлов видно и сколько из них свои.

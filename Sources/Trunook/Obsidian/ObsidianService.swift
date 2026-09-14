@@ -247,7 +247,9 @@ final class ObsidianService: ObservableObject {
             isReachable: vault.isReachable,
             indexVault: settings.obsidianIndexVault,
             notes: store.all(source: .own).map {
-                SyncNote(id: $0.id, uid: $0.uid, updatedAt: $0.updatedAt)
+                // С учётом записи: удалённая по сроку запись не двигает
+                // заметку в списке, но ссылку на неё из файла убрать надо.
+                SyncNote(id: $0.id, uid: $0.uid, updatedAt: $0.syncedChangeAt)
             },
             bookmarks: bookmarks.own(),
             ownFiles: ownFiles,

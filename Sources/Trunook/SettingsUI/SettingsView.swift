@@ -366,6 +366,19 @@ struct SettingsView: View {
                     ))
                     Toggle(t("Раскрывать вырез при наведении"), isOn: settings.binding(\.expandOnHover))
                     VStack(alignment: .leading, spacing: 4) {
+                        Picker(t("Экраны"), selection: Binding(
+                            get: { settings.notchScreenMode },
+                            set: { settings.notchScreenMode = $0 }
+                        )) {
+                            ForEach(NotchScreenMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+                        hint(settings.notchScreenMode.hint)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text(t("Прозрачность выреза"))
                             Spacer()
@@ -423,6 +436,10 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Toggle(t("Мурчание"), isOn: settings.binding(\.purrEnabled))
                         hint(t("Поводите курсором по чёлке из стороны в сторону — вырез замурчит."))
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(t("Оживлять вырез"), isOn: settings.binding(\.critterEnabled))
+                        hint(t("Изредка в чёлке появляется кот, пока ей нечего показывать."))
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -928,6 +945,18 @@ struct SettingsView: View {
                     transcripts.loadLocales()
                     transcripts.refresh(for: settings.transcribeLocale)
                 }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker(t("Хранить записи"), selection: settings.binding(\.audioRetentionDays)) {
+                        ForEach(AudioRetention.choices, id: \.self) { days in
+                            Text(AudioRetention.title(days: days)).tag(days)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+                    hint(t("Текст заметки остаётся, удаляется только звук."))
+                }
+                .disabled(!settings.notesEnabled)
 
                 hint(tf("Записи лежат рядом с заметками, в папке «%@».", RecorderService.folderName))
             }
@@ -1458,6 +1487,12 @@ struct SettingsView: View {
                     .disabled(!settings.weatherEnabled)
                 } else {
                     hint(t("Один раз на явление, а не каждую проверку."))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Анимация смены погоды"), isOn: settings.binding(\.weatherScenesEnabled))
+                        .disabled(!settings.weatherEnabled)
+                    hint(t("Дождь капает из чёлки, солнышко всплывает."))
                 }
             }
 

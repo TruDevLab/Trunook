@@ -54,10 +54,30 @@ final class Settings: ObservableObject {
         set { store(newValue, "purrEnabled") }
     }
 
+    /// Погодные сценки под чёлкой, когда меняется погода: дождь капает,
+    /// солнышко всплывает.
+    var weatherScenesEnabled: Bool {
+        get { flag("weatherScenesEnabled", default: true) }
+        set { store(newValue, "weatherScenesEnabled") }
+    }
+
+    /// Кот в чёлке: изредка короткая сценка, пока вырезу нечего показывать.
+    var critterEnabled: Bool {
+        get { flag("critterEnabled", default: true) }
+        set { store(newValue, "critterEnabled") }
+    }
+
     /// Раскрывать вырез по наведению курсора.
     var expandOnHover: Bool {
         get { flag("expandOnHover", default: true) }
         set { store(newValue, "expandOnHover") }
+    }
+
+    /// На каких экранах показывать остров. По умолчанию — только на экране
+    /// с вырезом, как было до появления настройки.
+    var notchScreenMode: NotchScreenMode {
+        get { NotchScreenMode(rawValue: defaults.string(forKey: "notchScreenMode") ?? "") ?? .notched }
+        set { store(newValue.rawValue, "notchScreenMode") }
     }
 
     /// Держать вырез полностью чёрным, без стекла.
@@ -864,6 +884,13 @@ final class Settings: ObservableObject {
     /// с Obsidian: с выключенной настройкой приложение не просит доступа
     /// к звуку системы, не заводит отвода и ведёт себя ровно так же,
     /// как до появления этой работы.
+    /// Сколько дней хранить записи в заметках. Ноль — бессрочно: удалять
+    /// записи человека молча, пока он сам не выбрал срок, нельзя.
+    var audioRetentionDays: Int {
+        get { defaults.object(forKey: "audioRetentionDays") as? Int ?? 0 }
+        set { store(newValue, "audioRetentionDays") }
+    }
+
     var recordEnabled: Bool {
         get { flag("recordEnabled", default: false) }
         set { store(newValue, "recordEnabled") }

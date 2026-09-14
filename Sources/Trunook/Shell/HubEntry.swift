@@ -28,6 +28,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
     // Бодрость включают на бегу, под начатое дело, и кружок для неё — путь
     // короче, чем раскрыть вырез и попасть в значок в крыле.
     case caffeine
+    // Рядом с чашкой: чистку клавиатуры тоже включают на бегу.
+    case keyboardLock
     // Голос и диктовка жили только на жесте и на сочетании: до них нельзя
     // было добраться мышью, то есть половине людей их попросту не было видно.
     case voice
@@ -57,6 +59,7 @@ enum HubEntry: String, CaseIterable, Identifiable {
         // Тем же словом, что и панель выбора срока, и кнопка-чашка: одно
         // место с одним именем, откуда бы к нему ни шли.
         case .caffeine: return t("Бодрость")
+        case .keyboardLock: return t("Чистка клавиатуры")
         case .voice: return t("Спросить голосом")
         case .dictation: return t("Надиктовать заметку")
         }
@@ -75,6 +78,7 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .news: return "newspaper"
         case .sites: return "binoculars"
         case .caffeine: return "cup.and.saucer.fill"
+        case .keyboardLock: return "keyboard"
         case .voice: return "waveform"
         case .dictation: return "mic"
         }
@@ -91,6 +95,7 @@ enum HubEntry: String, CaseIterable, Identifiable {
         case .monitor: return Palette.monitor
         case .teleprompter: return Palette.teleprompter
         case .caffeine: return Palette.caffeine
+        case .keyboardLock: return Palette.keyboardLock
         case .news, .sites: return Palette.feeds
         case .voice, .dictation: return Palette.assistant
         }
@@ -118,6 +123,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         // нечего. Открыли окно — работает, закрыли — нет.
         case .teleprompter: return true
         case .caffeine: return settings.caffeineEnabled
+        // Выключателя нет: как телесуфлер, сама по себе ничего не делает.
+        case .keyboardLock: return true
         case .news: return settings.digestEnabled
         case .sites: return settings.siteWatchEnabled
         // Голосу нужна и сама модель: спросить вслух не у кого,
@@ -144,6 +151,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         // должна отниматься клавишей у чужого приложения, а нажать её
         // по-прежнему можно в левом крыле раскрытой панели.
         case .caffeine: return nil
+        // Сочетанием клавиатуру не блокируют: включают мышью и мышью же снимают.
+        case .keyboardLock: return nil
         // Сочетание у панели одно на обе вкладки.
         case .news, .sites: return settings.feedsHotKey?.display
         // Голос зовут жестом, а не сочетанием, — его и показываем.

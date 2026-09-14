@@ -93,6 +93,8 @@ final class NotchController {
     let player = RecordingPlayer()
     /// Удержание экрана от гашения — чашка кофе в раскрытой панели.
     let wake: WakeGuard
+    /// Блокировка клавиатуры для чистки.
+    let keyboardLock = KeyboardLock()
 
     private let alerts = EventAlertScheduler()
     /// Отдельное окно приёма файлов: сам вырез принимать их не может,
@@ -111,12 +113,24 @@ final class NotchController {
     private let state = NotchState()
 
     private let host = NotchWindowHost()
+    /// Кот в чёлке: изредка разыгрывает сценку, пока вырезу нечего показывать.
+    let critter = NotchCritter()
+    /// Погодные сценки под чёлкой при смене погоды.
+    let weatherScenes = WeatherScenePlayer()
+    /// Какой экран у острова и где стоят отражения.
+    private let screens = NotchScreens()
     private let router: OverlayRouter
     private let input: NotchInput
     private let purr: PurrEffects
     private let chime = ChimePlayer()
 
     private var swipeResetTimer: Timer?
+    /// Раз в несколько часов записи сверяются со сроком хранения.
+    private var retentionTimer: Timer?
+    private var retentionObservation: AnyCancellable?
+    /// Срок, по которому чистили последний раз: настройки меняются часто,
+    /// а чистить по каждой смене незачем.
+    private var lastRetentionDays: Int?
     private var calendarObservation: AnyCancellable?
     private var thingsObservation: AnyCancellable?
     /// Открыт ли главный экран с плиткой нагрузки — от этого зависит опрос.
@@ -157,7 +171,7 @@ final class NotchController {
         installHost()
         installInput()
         // Окно строится после того, как хост узнал, из чего собирать вёрстку.
-        host.rebuild()
+        placeScreens(force: true)
         connectSources()
 
         NotificationCenter.default.addObserver(
@@ -172,6 +186,10 @@ final class NotchController {
         input.stop()
         swipeResetTimer?.invalidate()
         swipeResetTimer = nil
+        retentionTimer?.invalidate()
+        retentionTimer = nil
+        critter.stop()
+        weatherScenes.stop()
         purr.shutdown()
         chime.shutdown()
         TimerDialGrip.shared.shutdown()
@@ -181,6 +199,7 @@ final class NotchController {
         // с процессом, но полагаться на это, когда выключение штатное,
         // незачем.
         wake.disable()
+        keyboardLock.unlock()
         HotKeyCenter.shared.stop()
         battery.stop()
         music.stop()
@@ -202,14 +221,32 @@ final class NotchController {
     }
 
     @objc private func screensChanged() {
-        host.rebuild()
+        placeScreens(force: true)
     }
+
+    /// Поставить остров на нужный экран — по режиму из настроек.
+    ///
+    /// Режим читается на каждом тике: смену в настройках `NotchScreens`
+    /// замечает сам и пересобирает окна, отдельной подписки не нужно.
+    private func placeScreens(force: Bool = false) {
+        screens.place(
+            mode: settings.notchScreenMode,
+            host: host,
+            isBusy: state.overlay != nil || state.isPinnedOpen || state.isHovered
+                || ring.isOpen || voice.phase != nil || state.isDraggingOut,
+            force: force
+        )
+    }
+
+    /// Экран, на котором сейчас стоит остров.
+    var notchScreen: NSScreen? { host.geometry?.screen }
 
     // MARK: - Сборка узлов
 
     private func installHost() {
-        host.makeRoot = { [weak self] metrics in self?.makeRootView(metrics: metrics) }
-        host.contentSize = { [weak self] metrics in self?.notchSnapshot.size(metrics: metrics) ?? .zero }
+        host.makeRoot = { [weak self] metrics, id in self?.makeRootView(metrics: metrics, displayID: id) }
+        host.contentSize = { [weak self] metrics, id in self?.snapshot(for: id).size(metrics: metrics) ?? .zero }
+        host.onActivate = { [weak self] id in self?.state.activeDisplay = id }
         host.onRightClick = { [weak self] in self?.openRingMenu() }
         host.onRebuild = { [weak self] geometry, metrics in
             self?.rebuildShelfDrop(geometry: geometry, metrics: metrics)
@@ -229,12 +266,18 @@ final class NotchController {
         // Прозрачность окна пересчитывается на каждом движении курсора,
         // а не только в тике опроса: между тиками десятая доля секунды,
         // и быстрый бросок к полоске с нажатием в неё не уложился бы.
-        input.onCursorMoved = { [weak self] in self?.updateWindowInteractivity() }
+        input.onCursorMoved = { [weak self] in
+            self?.updateWindowInteractivity()
+            self?.updateCritterGaze()
+        }
         // Зона приёма файлов оживает только пока что-то тащат: в покое она
         // прозрачна для мыши и не ест нажатия по тому, что под чёлкой.
         input.onDragChanged = { [weak self] dragging in self?.shelfDrop.isArmed = dragging }
         // То, что пересчитывается по времени, а не по событию.
         input.onTick = { [weak self] in
+            self?.placeScreens()
+            self?.interruptCritterIfBusy()
+            self?.updateWeatherScene()
             self?.updateCountdown()
             self?.host.updateInteractiveRect()
             // Проверка нажатий тоже пересчитывается по времени: таймер
@@ -383,8 +426,24 @@ final class NotchController {
             self?.activities.present(.caffeine(change: .expired))
         }
 
+        // Срок блокировки вышел — панель с отсчётом больше не нужна.
+        keyboardLock.onExpired = { [weak self] in
+            guard let self else { return }
+            if self.state.overlay == .keyboardLock { self.router.close() }
+            Haptics.tap(.levelChange)
+        }
+
         weather.onAlert = { [weak self] text, symbol in
             self?.activities.present(.weather(text: text, symbol: symbol))
+        }
+        // Сценка встаёт в очередь и на ближайшем тике играет вместе
+        // с плашкой о погоде, капая из-под её края.
+        weather.onSceneChange = { [weak self] scene in
+            guard let self, self.settings.weatherScenesEnabled else { return }
+            self.weatherScenes.queue(scene)
+            // Спросить на ближайшем тике, а не через две секунды: плашка
+            // уже раскрывается, и сценке надо начаться вместе с ней.
+            self.weatherSceneCheckedAt = .distantPast
         }
         weather.start()
 
@@ -428,6 +487,9 @@ final class NotchController {
         obsidian.start()
 
         notes.onSaved = { [weak self] id in self?.linker.enqueue(id: id) }
+        installAudioRetention()
+        critter.onDue = { [weak self] in self?.critterDue() }
+        critter.start()
 
         // Заметка из записи готова — показать её так же, как показывают
         // сохранённое выделение: плашкой, если панель закрыта, и вспышкой
@@ -792,7 +854,9 @@ final class NotchController {
     ///
     /// Урок записан в `NotchResolver`: свести расчёт в один **тип** мало,
     /// тип не мешает построить его дважды. Сводить надо в одно место вызова.
-    private var notchSnapshot: NotchSnapshot {
+    private var notchSnapshot: NotchSnapshot { notchInputs.resolve() }
+
+    private var notchInputs: NotchInputs {
         NotchInputs(
             overlay: state.overlay,
             swipe: state.swipe,
@@ -833,8 +897,25 @@ final class NotchController {
             voicePhase: voice.phase,
             isQuickRingOpen: ring.isOpen,
             homeRows: HomeGrid.place(settings.homeWidgets).rows
-        ).resolve()
+        )
     }
+
+    /// Что показывает окно на экране с этим номером.
+    ///
+    /// Главное окно — всё. Неглавное на главном экране в режиме «Все экраны» —
+    /// полоски и плашки, без того, что заведено рукой: с островом работают
+    /// на другом экране, а отсчёт до встречи пропадать не должен. Остальные —
+    /// пустая полоска: события живут на главном экране, и повторять их
+    /// на каждом значило бы показывать одно уведомление трижды.
+    private func snapshot(for id: CGDirectDisplayID) -> NotchSnapshot {
+        if id == state.activeDisplay { return notchSnapshot }
+        if settings.notchScreenMode == .all, screens.isHome(id) {
+            return notchInputs.passive().resolve()
+        }
+        return Self.handleSnapshot
+    }
+
+    private static let handleSnapshot = NotchSnapshot(presentation: .collapsed, content: NotchContent())
 
     // MARK: - Кольцо быстрого доступа
 
@@ -884,6 +965,7 @@ final class NotchController {
         case .monitor: openMonitor()
         case .teleprompter: openTeleprompter()
         case .caffeine: openAwake()
+        case .keyboardLock: openKeyboardLock()
         case .news: openFeeds(tab: .news)
         case .sites: openFeeds(tab: .sites)
         case .voice: toggleVoice()
@@ -2375,11 +2457,26 @@ final class NotchController {
 
     func debugNoteComposer() { toggleNoteComposer() }
 
+    /// Черновик со списком с галочками — посмотреть их вёрстку.
+    func debugChecklist() {
+        draft.debugCompose(ObsidianMarkdown.attributed(
+            from: "Покупки\n- [ ] Хлеб\n- [x] Молоко\n- [ ] Кофе в зёрнах\n  - [x] Вложенный пункт"
+        ))
+        router.set(.assistant)
+        takeKeyboard()
+    }
+
     func debugSaveNote() { saveNote() }
 
     /// Свежая заметка — на правку. Проверяет, что режим переключается сам:
     /// заметка, открытая в разговоре, показывалась бы поверх чужого ответа
     /// и с однострочным полем.
+    func debugTogglePinNewestNote() {
+        guard let note = notes.notes.first(where: { !$0.isReadOnly }) else { return }
+        togglePin(note)
+        DebugLog.write("заметки: булавка у \(note.id), закреплено \(notes.pinned.count)")
+    }
+
     func debugEditNewestNote() {
         guard let note = notes.notes.first else {
             DebugLog.write("заметки: пусто, сперва notesFill")
@@ -2800,6 +2897,225 @@ final class NotchController {
         notes.delete(note)
     }
 
+    // MARK: - Действия с заметкой
+
+    private var noteActions: NoteActions {
+        NoteActions(
+            open: { [weak self] note in self?.openNote(note) },
+            togglePin: { [weak self] note in self?.togglePin(note) },
+            toggleKeepAudio: { [weak self] note in self?.notes.setKeepAudio(note, keep: !note.keepAudio) },
+            deleteAudio: { [weak self] note in self?.deleteAudio(of: note) },
+            play: { [weak self] note in self?.playRecording(note) },
+            openInObsidian: { [weak self] note in self?.openInObsidian(note) },
+            isInVault: { [weak self] note in self?.obsidian.path(ofNote: note.id) != nil }
+        )
+    }
+
+    private func togglePin(_ note: Note) {
+        guard notes.togglePin(note) else {
+            announce(t("Закрепить можно не больше трёх заметок"))
+            return
+        }
+    }
+
+    /// Запись — в Корзину, заметка остаётся. Руками удаляют обратимо:
+    /// нажатие бывает промахом, а час разговора ничем не восстановить.
+    private func deleteAudio(of note: Note) {
+        trashAudio(of: note)
+        notes.clearAudio(note)
+        obsidian.sync(manual: false)
+        flash.show(t("Запись удалена"))
+    }
+
+    // MARK: - Кот в чёлке
+
+    private var critterGate: CritterGate {
+        CritterGate(
+            enabled: settings.critterEnabled,
+            isIdle: notchSnapshot.presentation == .collapsed,
+            hasNotch: host.metrics?.hasNotch == true,
+            reduceMotion: MotionPreference.shared.reduceMotion,
+            lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            idleSeconds: CritterGate.secondsSinceInput,
+            fullScreen: CritterGate.isFullScreen(on: host.geometry?.screen)
+        )
+    }
+
+    private func critterDue() {
+        // Погодная сценка идёт или ждёт своего мига — кот подождёт её.
+        if weatherScenes.scene != nil || weatherScenes.pending != nil {
+            critter.retrySoon()
+            return
+        }
+        let gate = critterGate
+        guard gate.canPlay else {
+            DebugLog.write("кот: не вышел — \(gate.reason)")
+            gate.enabled ? critter.retrySoon() : critter.start()
+            return
+        }
+        critter.play()
+    }
+
+    /// Сценку перебивает всё, что вырезу есть показать, и выключенная
+    /// настройка. Проверка — две булевых, на каждом тике это даром.
+    private func interruptCritterIfBusy() {
+        guard critter.act != nil else {
+            critterForced = false
+            return
+        }
+        // Отладочную сценку полоски не перебивают: снимать её приходится
+        // тогда, когда в чёлке висит отсчёт до встречи.
+        let busy = critterForced
+            ? state.overlay != nil || state.isHovered || state.isPinnedOpen
+            : !settings.critterEnabled || notchSnapshot.presentation != .collapsed
+        if busy { critter.cancel() }
+    }
+
+    /// Сценка вызвана отладочным событием.
+    private var critterForced = false
+
+    /// Глаза следят за курсором; подведёшь руку совсем близко — щурятся.
+    private func updateCritterGaze() {
+        guard critter.act?.followsCursor == true, let notch = host.geometry?.notchRect else { return }
+        let cursor = NSEvent.mouseLocation
+        let dx = cursor.x - notch.midX
+        // Вверх по экрану — `y` растёт, а в рисунке вниз: знак меняется.
+        let dy = notch.midY - cursor.y
+        // Чувствительность — полэкрана MacBook: мордочка ползёт вслед за курсором
+        // заметно, но у края чёлки упирается, а не прыгает.
+        let reach: CGFloat = 400
+        critter.gaze = CGPoint(x: max(-1, min(1, dx / reach)), y: max(-1, min(1, dy / reach)))
+        critter.squints = critter.act == .eyes && hypot(dx, dy) < 70
+    }
+
+    // MARK: - Погодные сценки
+
+    /// Можно ли сыграть погодную сценку. Те же условия, что у кота, плюс
+    /// сам кот: двум сценкам в одной чёлке тесно.
+    private var weatherSceneGate: CritterGate {
+        CritterGate(
+            enabled: settings.weatherScenesEnabled && settings.weatherEnabled,
+            isIdle: Self.allowsWeatherScene(notchSnapshot) && critter.act == nil,
+            hasNotch: host.metrics?.hasNotch == true,
+            reduceMotion: MotionPreference.shared.reduceMotion,
+            lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            idleSeconds: weatherScenes.pendingIsDebug ? 0 : CritterGate.secondsSinceInput,
+            fullScreen: CritterGate.isFullScreen(on: host.geometry?.screen)
+        )
+    }
+
+    /// Когда последний раз спрашивали, можно ли сыграть отложенную сценку:
+    /// проверка окна на весь экран обходит список окон, и на каждом тике
+    /// её делать незачем.
+    private var weatherSceneCheckedAt = Date.distantPast
+
+    /// На каждом тике: перебить идущую сценку, если вырезу есть что
+    /// показать, или сыграть отложенную, если стало можно.
+    private func updateWeatherScene() {
+        if weatherScenes.scene != nil {
+            let snapshot = notchSnapshot
+            let busy = !settings.weatherScenesEnabled || !Self.allowsWeatherScene(snapshot)
+            if busy {
+                weatherScenes.cancel()
+            } else if let metrics = host.metrics {
+                weatherScenes.noteIsland(snapshot.size(metrics: metrics))
+            }
+            return
+        }
+        guard weatherScenes.pending != nil,
+              Date().timeIntervalSince(weatherSceneCheckedAt) >= 2,
+              let scene = weatherScenes.due() else { return }
+        weatherSceneCheckedAt = Date()
+        // Дёшево отсеять занятый вырез до обхода окон.
+        guard Self.allowsWeatherScene(notchSnapshot), critter.act == nil else { return }
+        let gate = weatherSceneGate
+        guard gate.canPlay else {
+            DebugLog.write("погода: сценка ждёт — \(gate.reason)")
+            return
+        }
+        weatherScenes.play(scene)
+    }
+
+    /// Сценке место — в свободной чёлке или под плашкой о самой погоде:
+    /// при смене погоды вырез раскрывается ею, и сценка идёт вместе с ней,
+    /// капая из-под её края, а не дожидается, пока она уйдёт.
+    static func allowsWeatherScene(_ snapshot: NotchSnapshot) -> Bool {
+        switch snapshot.presentation {
+        case .collapsed: return true
+        case .activity:
+            if case .weather = snapshot.content.activity?.kind { return true }
+            return false
+        default: return false
+        }
+    }
+
+    /// Смена погоды тем же путём, что и настоящая: плашка о погоде и сценка
+    /// из очереди, со всеми условиями показа. В обход шла бы сценка без
+    /// плашки — а у человека их всегда две вместе.
+    func debugWeatherScene(_ scene: WeatherArt.Scene?) {
+        let scene = scene ?? WeatherArt.Scene.allCases.randomElement() ?? .rain
+        DebugLog.write("погода: проверка сценки — \(weatherSceneGate.reason)")
+        critter.cancel()
+        weatherScenes.queue(scene, force: true)
+        weatherSceneCheckedAt = .distantPast
+        let alert = weather.alert(for: scene)
+        activities.present(.weather(text: alert.text, symbol: alert.symbol))
+    }
+
+    func debugCritter(_ act: NotchCritter.Act?) {
+        DebugLog.write("кот: проверка — \(critterGate.reason)")
+        critterForced = true
+        critter.play(act)
+    }
+
+    // MARK: - Срок хранения записей
+
+    private func installAudioRetention() {
+        purgeExpiredAudio()
+        retentionTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
+            self?.purgeExpiredAudio()
+        }
+        // `objectWillChange` приходит до записи значения — поэтому через
+        // очередь главного потока: к этому мигу настройка уже новая.
+        retentionObservation = settings.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self, settings.audioRetentionDays != lastRetentionDays else { return }
+                purgeExpiredAudio()
+            }
+    }
+
+    /// Удаляет записи старше срока хранения. Текст заметок остаётся.
+    ///
+    /// По сроку удаляется **насовсем**, а не в Корзину: срок заводят, чтобы
+    /// освободить место, а Корзина его не освобождает. Руками — в Корзину,
+    /// см. `deleteAudio`.
+    private func purgeExpiredAudio() {
+        let days = settings.audioRetentionDays
+        lastRetentionDays = days
+        guard days > 0 else { return }
+        var removed = 0
+        for note in notes.expiredAudio(days: days) {
+            // Хранилище не подключено — файл может лежать там, куда сейчас
+            // не дотянуться. Путь не трогаем: следующая чистка его найдёт.
+            if !note.audio.hasPrefix("/"), obsidian.vault?.isReachable != true { continue }
+            if player.isPlaying(note.id) { player.stop() }
+            if let url = audioURL(of: note) {
+                do {
+                    try FileManager.default.removeItem(at: url)
+                } catch {
+                    DebugLog.write("запись: файл заметки \(note.id) не удалился — \(error.localizedDescription)")
+                    continue
+                }
+            }
+            notes.clearAudio(note)
+            removed += 1
+        }
+        guard removed > 0 else { return }
+        DebugLog.write("запись: по сроку \(days) дн. удалено записей \(removed)")
+        obsidian.sync(manual: false)
+    }
+
     private func trashAudio(of note: Note) {
         guard let url = audioURL(of: note) else {
             // Файла на месте нет: хранилище отключено или запись убрали
@@ -3194,6 +3510,27 @@ final class NotchController {
         activities.present(.caffeine(change: .off))
     }
 
+    /// Панель блокировки клавиатуры.
+    func openKeyboardLock() {
+        router.set(.keyboardLock)
+    }
+
+    /// Выбран срок блокировки. Панель остаётся открытой: на ней отсчёт
+    /// и кнопка досрочного снятия — клавиатурой их уже не позвать.
+    func lockKeyboard(seconds: Int) {
+        keyboardLock.lock(seconds: seconds)
+        Haptics.tap(.levelChange)
+    }
+
+    private func unlockKeyboard() {
+        keyboardLock.unlock()
+        router.close()
+        Haptics.tap(.levelChange)
+    }
+
+    /// Отладочный вход: ждать конца срока в сессии незачем.
+    func debugExpireKeyboardLock() { keyboardLock.debugExpireNow() }
+
     /// Телесуфлер. Клавишей — переключателем, как и остальные накладки.
     ///
     /// Фокус забирается сразу и явно: в телесуфлер печатают, а вырез по
@@ -3238,7 +3575,7 @@ final class NotchController {
     /// раз в жизни, а два способа пересчитать одно и то же со временем
     /// разошлись бы.
     func relayout() {
-        host.rebuild()
+        placeScreens(force: true)
     }
 
     /// Клавиша раскрывает панель и ею же сворачивает.
@@ -3365,7 +3702,7 @@ final class NotchController {
 
     // MARK: - Вёрстка
 
-    private func makeRootView(metrics: NotchMetrics) -> NotchView {
+    private func makeRootView(metrics: NotchMetrics, displayID: CGDirectDisplayID) -> NotchView {
         NotchView(
             state: state,
             activities: activities,
@@ -3391,17 +3728,21 @@ final class NotchController {
             player: player,
             flash: flash,
             wake: wake,
+            keyboardLock: keyboardLock,
+            critter: critter,
+            weatherScenes: weatherScenes,
             digest: digest,
             sites: siteWatch,
             feedsPanel: feedsPanel,
             settings: settings,
             metrics: metrics,
+            displayID: displayID,
             // Замыканием, а не значением: вид строится один раз, а состояние
             // меняется по десять раз в секунду. Вёрстка перерисовывается
             // от наблюдаемых служб и на каждой перерисовке спрашивает снимок
             // заново — тот же, по которому считается зона нажатий.
             snapshot: { [weak self] in
-                self?.notchSnapshot ?? NotchSnapshot(presentation: .collapsed, content: NotchContent())
+                self?.snapshot(for: displayID) ?? NotchController.handleSnapshot
             },
             onTap: { [weak self] in
                 // Кольцо и раскрытие панели делят одно и то же нажатие:
@@ -3474,6 +3815,7 @@ final class NotchController {
             onSaveEvent: { [weak self] in self?.saveEvent() },
             onDeleteEvent: { [weak self] in self?.deleteEvent() },
             onOpenNote: { [weak self] note in self?.openNote(note) },
+            noteActions: noteActions,
             onDeleteNote: { [weak self] note in self?.deleteNote(note) },
             isNoteInVault: { [weak self] note in self?.obsidian.path(ofNote: note.id) != nil },
             onOpenNoteInObsidian: { [weak self] note in self?.openInObsidian(note) },
@@ -3496,6 +3838,9 @@ final class NotchController {
             onOpenAwake: { [weak self] in self?.openAwake() },
             onChooseAwakeLimit: { [weak self] minutes in self?.chooseAwakeLimit(minutes: minutes) },
             onDisableAwake: { [weak self] in self?.disableAwake() },
+            onOpenKeyboardLock: { [weak self] in self?.openKeyboardLock() },
+            onLockKeyboard: { [weak self] seconds in self?.lockKeyboard(seconds: seconds) },
+            onUnlockKeyboard: { [weak self] in self?.unlockKeyboard() },
             onOpenFeeds: { [weak self] in self?.openFeeds() },
             onOpenFeedsTab: { [weak self] tab in self?.openFeeds(tab: tab) },
             onOpenFeedsSettings: { [weak self] in
@@ -3539,6 +3884,11 @@ final class NotchController {
     /// десять раз в секунду и снял бы наведение на первом же тике — человек
     /// в это время работает мышью, и вернуть курсор на место программно
     /// не выходит.
+    /// Закрыть открытую накладку — чтобы снять то, что под ней.
+    func debugCloseOverlay() {
+        router.close()
+    }
+
     func debugExpand(seconds: TimeInterval = 6) {
         holdOpen(seconds: seconds)
     }
@@ -3796,6 +4146,10 @@ final class NotchController {
     /// из отладочной сессии.
     func snapshot() {
         host.snapshot()
+    }
+
+    func snapshotMirror() {
+        host.snapshotInactive(home: screens.home)
     }
 
     /// Отладочный путь: добавляет к списку напоминание со сроком через

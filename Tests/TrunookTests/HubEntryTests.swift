@@ -27,10 +27,15 @@ struct HubEntryTests {
     @Test("У каждой плитки есть своё сочетание")
     func подсказкиУВсех() {
         let settings = Settings.shared
-        for entry in HubEntry.allCases where entry != .caffeine {
+        // Блокировка клавиатуры — второе такое исключение: клавишей
+        // клавиатуру не глушат, а кнопка у неё тоже есть в левом крыле.
+        let withoutKeys: Set<HubEntry> = [.caffeine, .keyboardLock]
+        for entry in HubEntry.allCases where !withoutKeys.contains(entry) {
             #expect(entry.hint(settings) != nil, "у \(entry.rawValue) нет подсказки клавиш")
         }
-        #expect(HubEntry.caffeine.hint(settings) == nil)
+        for entry in withoutKeys {
+            #expect(entry.hint(settings) == nil)
+        }
     }
 
     /// Телесуфлер ничего не делает, пока окно закрыто: ни опросов, ни клавиш
@@ -49,6 +54,15 @@ struct HubEntryTests {
         let commands = order.firstIndex(of: "assistant")
         let notes = order.firstIndex(of: "notes")
         #expect(notes == commands.map { $0 + 1 })
+    }
+
+    /// Кружок чистки стоит сразу за чашкой — как и значок в крыле.
+    @Test("Чистка клавиатуры идёт следом за бодростью")
+    func чисткаРядомСЧашкой() {
+        let order = HubEntry.allCases
+        let caffeine = order.firstIndex(of: .caffeine)
+        #expect(order.firstIndex(of: .keyboardLock) == caffeine.map { $0 + 1 })
+        #expect(HubEntry.keyboardLock.isEnabled(Settings.shared))
     }
 
     @Test("Настроек, знакомства и главного экрана среди кружков нет")

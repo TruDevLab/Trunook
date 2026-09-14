@@ -23,6 +23,8 @@ final class WeatherService: NSObject, ObservableObject {
     struct Snapshot: Equatable {
         let temperature: Int
         let condition: WeatherCondition
+        /// Ветер у земли, км/ч. Ноль, если сервис его не прислал.
+        var wind: Double = 0
         let updatedAt: Date
         /// Ближайшие осадки, если они ожидаются в окне прогноза.
         let outlook: Outlook?
@@ -34,6 +36,12 @@ final class WeatherService: NSObject, ObservableObject {
 
     /// Текст и значок для плашки в вырезе.
     var onAlert: ((_ text: String, _ symbol: String) -> Void)?
+
+    /// Сменилась погода за окном — сценка под чёлкой. Первый ответ после
+    /// запуска не считается сменой: погода не поменялась, её просто узнали.
+    var onSceneChange: ((WeatherArt.Scene) -> Void)?
+    private var currentScene: WeatherArt.Scene?
+    private var isWindy = false
 
     private let settings: Settings
     private let manager = CLLocationManager()
@@ -203,7 +211,7 @@ final class WeatherService: NSObject, ObservableObject {
         components?.queryItems = [
             URLQueryItem(name: "latitude", value: String(latitude)),
             URLQueryItem(name: "longitude", value: String(longitude)),
-            URLQueryItem(name: "current", value: "temperature_2m,weather_code"),
+            URLQueryItem(name: "current", value: "temperature_2m,weather_code,wind_speed_10m"),
             URLQueryItem(name: "hourly", value: "weather_code,precipitation_probability"),
             URLQueryItem(name: "forecast_hours", value: String(Self.outlookHours)),
             URLQueryItem(name: "timezone", value: "auto"),
@@ -252,6 +260,7 @@ final class WeatherService: NSObject, ObservableObject {
         return Snapshot(
             temperature: Int(temperature.rounded()),
             condition: WeatherCondition(wmo: code),
+            wind: currentBlock["wind_speed_10m"] as? Double ?? 0,
             updatedAt: Date(),
             outlook: outlook
         )
@@ -266,7 +275,9 @@ final class WeatherService: NSObject, ObservableObject {
         // Ждущих будим первыми: помощник держит человека в разговоре,
         // а плашка подождёт своей очереди.
         flushWaiting()
-        DebugLog.write("погода: \(snapshot.condition.rawValue), \(snapshot.temperature)°"
+        let wasWindy = isWindy
+        announceScene(for: snapshot)
+        DebugLog.write("погода: \(snapshot.condition.rawValue), \(snapshot.temperature)°, ветер \(Int(snapshot.wind)) км/ч"
                        + (snapshot.outlook.map { ", через \($0.inHours) ч \($0.condition.rawValue)" } ?? ""))
 
         switch settings.weatherAlertMode {
@@ -294,12 +305,49 @@ final class WeatherService: NSObject, ObservableObject {
             let known = announcedCondition ?? previous?.condition
             guard let known, known != snapshot.condition else {
                 announcedCondition = snapshot.condition
+                // Небо то же, но поднялся ветер: у него своя сценка, и без
+                // плашки она шла бы молча, в отличие от всех остальных.
+                if previous != nil, isWindy, !wasWindy, !snapshot.condition.isPrecipitation {
+                    let alert = alert(for: .wind, snapshot: snapshot)
+                    announce(text: alert.text, symbol: alert.symbol)
+                }
                 return
             }
             announcedCondition = snapshot.condition
             announce(text: "\(snapshot.condition.title), \(formatted(snapshot.temperature))",
                      symbol: snapshot.condition.symbol)
         }
+    }
+
+    /// Текст и значок плашки для сценки — одни и те же у настоящей смены
+    /// погоды и у отладочной.
+    func alert(for scene: WeatherArt.Scene, snapshot: Snapshot? = nil) -> (text: String, symbol: String) {
+        let snapshot = snapshot ?? current
+        let temperature = formatted(snapshot?.temperature ?? 12)
+        let condition: WeatherCondition
+        switch scene {
+        case .wind:
+            // Метры в секунду: так ветер называют в прогнозах, а сервис
+            // отдаёт километры в час.
+            let speed = Int(((snapshot?.wind ?? 36) / 3.6).rounded())
+            return (tf("Ветрено, %d м/с", speed), "wind")
+        case .sun: condition = .clear
+        case .clouds: condition = .cloudy
+        case .fog: condition = .fog
+        case .drizzle: condition = .drizzle
+        case .rain: condition = .rain
+        case .snow: condition = .snow
+        case .thunder: condition = .thunder
+        }
+        return ("\(condition.title), \(temperature)", condition.symbol)
+    }
+
+    private func announceScene(for snapshot: Snapshot) {
+        isWindy = WeatherScenePick.isWindy(wind: snapshot.wind, wasWindy: isWindy)
+        let scene = WeatherScenePick.scene(condition: snapshot.condition, windy: isWindy)
+        defer { currentScene = scene }
+        guard let currentScene, currentScene != scene else { return }
+        onSceneChange?(scene)
     }
 
     private func announce(text: String, symbol: String) {

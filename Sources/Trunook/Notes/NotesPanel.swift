@@ -20,6 +20,8 @@ struct NotesPanel: View {
     /// и знать не должен.
     let isInVault: (Note) -> Bool
     let onOpenInObsidian: (Note) -> Void
+    /// Закрепить или открепить заметку.
+    let onTogglePin: (Note) -> Void
     /// Проигрыватель записей. Ссылкой, а не признаком: строка обязана
     /// перерисоваться, когда запись доиграет сама.
     @ObservedObject var player: RecordingPlayer
@@ -314,6 +316,28 @@ struct NotesPanel: View {
         .fixedSize()
     }
 
+    /// Закрепление. Когда закреплены все три, кнопка у остальных гаснет,
+    /// но подпись остаётся: погасшая молча читалась бы поломкой.
+    private func pinButton(_ note: Note) -> some View {
+        let full = !note.isPinned && notes.pinned.count >= Note.pinLimit
+        return Button(action: { if !full { onTogglePin(note) } }) {
+            Image(systemName: note.isPinned ? "pin.fill" : "pin")
+                .font(.system(size: NotchStyle.font(9), weight: .semibold))
+                .foregroundStyle(
+                    note.isPinned ? Palette.notes : .white.opacity(NotchStyle.secondaryOpacity)
+                )
+                .symbolSwap(note.isPinned)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
+        .opacity(full ? 0.35 : 1)
+        .notchHint(
+            note.isPinned ? t("Открепить")
+                : full ? t("Закрепить можно не больше трёх заметок") : t("Закрепить")
+        )
+    }
+
     private func row(_ note: Note) -> some View {
         HStack(spacing: 10) {
             Image(systemName: note.origin.symbol)
@@ -353,6 +377,8 @@ struct NotesPanel: View {
                 .buttonStyle(PressableStyle())
                 .notchHint(player.isPlaying(note.id) ? t("Остановить") : t("Прослушать запись"))
             }
+
+            pinButton(note)
 
             // Уход в Obsidian стоит у всякой заметки, у которой там есть
             // файл, — и у своих тоже: своя заметка лежит в хранилище ровно

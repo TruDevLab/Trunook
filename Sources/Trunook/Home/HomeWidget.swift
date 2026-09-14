@@ -56,6 +56,8 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
     case clipboard
     case shelf
     case notes
+    /// Закреплённые заметки — до трёх, под рукой.
+    case pinnedNotes
     case voice
     case dictation
     case teleprompter
@@ -80,7 +82,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .voice: return .voice
         case .dictation: return .dictation
         case .teleprompter: return .teleprompter
-        case .music, .tasks, .weather, .battery: return nil
+        case .music, .tasks, .weather, .battery, .pinnedNotes: return nil
         }
     }
 
@@ -94,6 +96,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .ask: return t("Вопрос к ИИ")
         case .weather: return t("Погода")
         case .battery: return t("Батарея")
+        case .pinnedNotes: return t("Закреплённые заметки")
         default: return hubEntry?.title ?? rawValue
         }
     }
@@ -105,6 +108,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .tasks: return "checklist"
         case .weather: return "cloud.sun.fill"
         case .battery: return "battery.75percent"
+        case .pinnedNotes: return "pin.fill"
         default: return hubEntry?.symbol ?? "square"
         }
     }
@@ -115,6 +119,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .tasks: return Palette.calendar
         case .weather: return Palette.weather
         case .battery: return Palette.positive
+        case .pinnedNotes: return Palette.notes
         default: return hubEntry?.tint ?? .white
         }
     }
@@ -138,6 +143,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .clipboard: return [.wide, .threeWide, .full]
         case .shelf: return [.small, .wide, .threeWide]
         case .notes: return [.wide, .threeWide, .large, .full]
+        case .pinnedNotes: return [.large, .wide, .threeWide, .full]
         case .voice, .dictation, .teleprompter: return [.small]
         }
     }
@@ -152,6 +158,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .music, .battery: return true
         case .tasks: return settings.thingsEnabled
         case .weather: return settings.weatherEnabled
+        case .pinnedNotes: return settings.notesEnabled
         default: return hubEntry?.isEnabled(settings) ?? true
         }
     }

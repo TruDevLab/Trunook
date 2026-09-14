@@ -25,6 +25,10 @@ final class NotesService: ObservableObject {
     /// «заметок нет вовсе» от «поиск ничего не нашёл»: это разные слова.
     @Published private(set) var total = 0
 
+    /// Закреплённые заметки — для плитки главного экрана. Отдельно от списка:
+    /// поиск их не прячет.
+    @Published private(set) var pinned: [Note] = []
+
     private let store: NotesStore
     private let titler: NoteTitler
     private let settings: Settings
@@ -57,8 +61,9 @@ final class NotesService: ObservableObject {
         // Пустая строка поиска — только свои заметки. Хранилище Obsidian
         // бывает на тысячи файлов, и своя дюжина утонула бы в нём бесследно;
         // чужие всплывают, когда человек что-то ищет.
-        notes = trimmed.isEmpty ? store.all(source: .own) : store.search(trimmed)
+        notes = trimmed.isEmpty ? store.all(source: .ownOrPinned) : store.search(trimmed)
         total = store.count(source: .own)
+        pinned = store.pinned()
     }
 
     /// Поиск с задержкой и не на главном потоке.
@@ -79,7 +84,7 @@ final class NotesService: ObservableObject {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         searchQueue.async { [weak self] in
             guard let self else { return }
-            let list = trimmed.isEmpty ? store.all(source: .own) : store.search(trimmed)
+            let list = trimmed.isEmpty ? store.all(source: .ownOrPinned) : store.search(trimmed)
             let count = store.count(source: .own)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -191,6 +196,36 @@ final class NotesService: ObservableObject {
         guard let note = store.note(id: id) else { return }
         store.rename(id: id, title: title, plain: note.plain, byModel: byModel)
         reload()
+    }
+
+    // MARK: - Закрепление и запись
+
+    /// Закрепить или открепить. `false` — закреплять больше некуда.
+    @discardableResult
+    func togglePin(_ note: Note, now: Date = Date()) -> Bool {
+        let current = store.note(id: note.id) ?? note
+        if !current.isPinned, store.pinned().count >= Note.pinLimit { return false }
+        store.setPinned(id: note.id, at: current.isPinned ? nil : now)
+        reload()
+        DebugLog.write("заметки: \(current.isPinned ? "откреплена" : "закреплена") \(note.id)")
+        return true
+    }
+
+    func setKeepAudio(_ note: Note, keep: Bool) {
+        store.setKeepAudio(id: note.id, keep: keep)
+        reload()
+    }
+
+    /// Забыть запись заметки. Файл убирает тот, кто знает, где он лежит.
+    func clearAudio(_ note: Note, now: Date = Date()) {
+        store.clearAudio(id: note.id, at: now)
+        reload()
+        DebugLog.write("заметки: запись заметки \(note.id) забыта")
+    }
+
+    /// Заметки, записи которых срок хранения уже унёс.
+    func expiredAudio(days: Int, now: Date = Date()) -> [Note] {
+        AudioRetention.expired(store.expiringAudio(), days: days, now: now)
     }
 
     // MARK: - Удаление

@@ -69,7 +69,10 @@ final class NotesStore {
                 origin TEXT NOT NULL,
                 titleByModel INTEGER NOT NULL,
                 uid TEXT NOT NULL DEFAULT '',
-                audio TEXT NOT NULL DEFAULT ''
+                audio TEXT NOT NULL DEFAULT '',
+                keepAudio INTEGER NOT NULL DEFAULT 0,
+                audioChangedAt REAL NOT NULL DEFAULT 0,
+                pinnedAt REAL NOT NULL DEFAULT 0
             );
             """)
         execute("CREATE INDEX IF NOT EXISTS notes_time ON notes(updatedAt DESC);")
@@ -96,6 +99,15 @@ final class NotesStore {
         if !columns.contains("audio") {
             execute("ALTER TABLE notes ADD COLUMN audio TEXT NOT NULL DEFAULT '';")
             DebugLog.write("заметки: схема дополнена путём к записи")
+        }
+        // Флаги записи и закрепления. Разливать нечего: ноль — «не закреплена,
+        // срок хранения действует», и это честное значение накопленных.
+        for column in ["keepAudio INTEGER", "audioChangedAt REAL", "pinnedAt REAL"] {
+            let name = String(column.prefix { $0 != " " })
+            if !columns.contains(name) {
+                execute("ALTER TABLE notes ADD COLUMN \(column) NOT NULL DEFAULT 0;")
+                DebugLog.write("заметки: схема дополнена колонкой \(name)")
+            }
         }
     }
 
@@ -237,7 +249,8 @@ final class NotesStore {
     // MARK: - Чтение
 
     private static let columns = """
-        id, title, rtf, plain, createdAt, updatedAt, origin, titleByModel, uid, audio
+        id, title, rtf, plain, createdAt, updatedAt, origin, titleByModel, uid, audio,
+        keepAudio, audioChangedAt, pinnedAt
         """
 
     /// Порядок выдачи: свои впереди, заметки хранилища следом, внутри
@@ -246,7 +259,11 @@ final class NotesStore {
     /// Хранилище бывает на тысячи заметок, и вперемешку по одной только дате
     /// своя заметка тонула бы в чужих: правку в Obsidian человек делает
     /// каждый день, а в приложении заметки заводит реже.
-    private static let order = "origin = '\(Note.Origin.obsidian.rawValue)' ASC, updatedAt DESC"
+    ///
+    /// Закреплённые — впереди всех, в порядке закрепления.
+    private static let order = """
+        pinnedAt = 0 ASC, pinnedAt ASC, origin = '\(Note.Origin.obsidian.rawValue)' ASC, updatedAt DESC
+        """
 
     /// Все заметки, свежие первыми.
     func all(source: NoteSource = .all) -> [Note] {
@@ -357,8 +374,68 @@ final class NotesStore {
             updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 5)),
             origin: origin,
             titleByModel: sqlite3_column_int(statement, 7) != 0,
-            audio: sqlite3_column_text(statement, 9).map { String(cString: $0) } ?? ""
+            audio: sqlite3_column_text(statement, 9).map { String(cString: $0) } ?? "",
+            keepAudio: sqlite3_column_int(statement, 10) != 0,
+            audioChangedAt: date(sqlite3_column_double(statement, 11)),
+            pinnedAt: date(sqlite3_column_double(statement, 12))
         )
+    }
+
+    /// Ноль в колонке даты — «не было».
+    private static func date(_ seconds: Double) -> Date? {
+        seconds > 0 ? Date(timeIntervalSince1970: seconds) : nil
+    }
+
+    /// Закреплённые заметки по порядку закрепления.
+    func pinned() -> [Note] {
+        query("SELECT \(Self.columns) FROM notes WHERE pinnedAt > 0 ORDER BY pinnedAt ASC;") { _ in }
+    }
+
+    /// Свои заметки с записью, которую срок хранения может унести.
+    func expiringAudio() -> [Note] {
+        query("SELECT \(Self.columns) FROM notes WHERE audio <> '' AND keepAudio = 0;") { _ in }
+    }
+
+    // MARK: - Флаги
+
+    /// Закрепить или открепить. Время правки не трогается: закрепление —
+    /// не правка текста.
+    func setPinned(id: Int64, at date: Date?) {
+        run("UPDATE notes SET pinnedAt = ? WHERE id = ?;") { statement in
+            sqlite3_bind_double(statement, 1, date?.timeIntervalSince1970 ?? 0)
+            sqlite3_bind_int64(statement, 2, id)
+        }
+    }
+
+    func setKeepAudio(id: Int64, keep: Bool) {
+        run("UPDATE notes SET keepAudio = ? WHERE id = ?;") { statement in
+            sqlite3_bind_int(statement, 1, keep ? 1 : 0)
+            sqlite3_bind_int64(statement, 2, id)
+        }
+    }
+
+    /// Забыть запись: путь стирается, отметка изменения ставится.
+    func clearAudio(id: Int64, at date: Date) {
+        run("UPDATE notes SET audio = '', keepAudio = 0, audioChangedAt = ? WHERE id = ?;") { statement in
+            sqlite3_bind_double(statement, 1, date.timeIntervalSince1970)
+            sqlite3_bind_int64(statement, 2, id)
+        }
+    }
+
+    private func run(_ sql: String, bind: (OpaquePointer?) -> Void) {
+        queue.sync {
+            guard let database else { return }
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+                DebugLog.write("заметки: запрос не подготовился — \(lastError)")
+                return
+            }
+            defer { sqlite3_finalize(statement) }
+            bind(statement)
+            if sqlite3_step(statement) != SQLITE_DONE {
+                DebugLog.write("заметки: запрос не лёг — \(lastError)")
+            }
+        }
     }
 
     // MARK: - Уборка

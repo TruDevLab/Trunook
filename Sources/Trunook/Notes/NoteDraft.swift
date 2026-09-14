@@ -253,6 +253,11 @@ final class NoteDraft: ObservableObject {
         markEdited()
     }
 
+    func toggleChecklist() {
+        editor.toggleChecklist()
+        markEdited()
+    }
+
     func askForLink() {
         linkAddress = ""
         prompt = .link
@@ -294,6 +299,14 @@ final class NoteDraft: ObservableObject {
         refreshEmptiness()
         saveNow()
         DebugLog.write("заметки: правка \(note.id) открыта в панели")
+    }
+
+    /// Отладочный путь: новая заметка с готовым текстом — снять вёрстку
+    /// галочек, не записывая ничего в заметки.
+    func debugCompose(_ text: NSAttributedString) {
+        startNewNote()
+        if editor.view == nil { pendingText = text } else { editor.setAttributed(text) }
+        refreshEmptiness()
     }
 
     /// Новая заметка с чистого листа — кнопкой в списке или клавишей.

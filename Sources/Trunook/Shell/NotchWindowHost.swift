@@ -2,51 +2,80 @@ import TrunookXPC
 import AppKit
 import SwiftUI
 
-/// Окно над вырезом: построение, геометрия и зона нажатий.
+/// Окна над вырезом: построение, геометрия и зона нажатий.
 ///
 /// Вёрстку строит не он. Службы и действия принадлежат контроллеру, хосту —
-/// только окно, его размеры и прямоугольники, по которым считается наведение.
+/// только окна, их размеры и прямоугольники, по которым считается наведение.
+///
+/// Окон столько, сколько экранов показывают остров, и у каждого своя вёрстка,
+/// построенная один раз под свою чёлку. Одно из них **главное**: оно ловит
+/// мышь и показывает то, что заведено рукой. Остальные рисуют полоску или
+/// отсчёт. Смена главного не двигает окон и не пересобирает вёрстку — только
+/// меняет, чей снимок полный. Первый вариант возил одно окно с экрана на экран
+/// и подменял ему вёрстку, а на покинутом экране заводил окно-отражение
+/// с нуля: на миг остров на мониторе вспыхивал чёрным по метрикам MacBook,
+/// а отсчёт на MacBook пропадал, пока новое окно не нарисовало первый кадр.
 final class NotchWindowHost {
-    /// Собирает корневой вид. Метрики приходят снаружи, потому что зависят
-    /// от размеров выреза, а те известны только после разбора геометрии.
-    var makeRoot: ((NotchMetrics) -> NotchView?)?
+    /// Собирает корневой вид окна на экране с этим номером. Метрики приходят
+    /// снаружи, потому что зависят от размеров выреза, а те известны только
+    /// после разбора геометрии.
+    var makeRoot: ((NotchMetrics, CGDirectDisplayID) -> NotchView?)?
 
-    /// Размер видимой формы — тот же расчёт, что и в вёрстке. Зона нажатий
-    /// обязана совпадать с нарисованным: иначе панель видно, а нажать по ней
-    /// нельзя — на этом уже спотыкались.
-    var contentSize: ((NotchMetrics) -> CGSize)?
+    /// Размер видимой формы окна — тот же расчёт, что и в вёрстке. Зона
+    /// нажатий обязана совпадать с нарисованным: иначе панель видно, а нажать
+    /// по ней нельзя — на этом уже спотыкались.
+    var contentSize: ((NotchMetrics, CGDirectDisplayID) -> CGSize)?
 
     /// Нажатие правой кнопкой по вырезу.
     var onRightClick: (() -> Void)?
 
+    /// Главным стало окно на экране с этим номером. Зовётся до перерисовки:
+    /// вёрстка узнаёт о смене из состояния, которое здесь и меняют.
+    var onActivate: ((CGDirectDisplayID) -> Void)?
 
-    /// Геометрия пересобрана: зона приёма файлов считается от неё.
+    /// Геометрия главного окна сменилась: зона приёма файлов считается от неё.
     var onRebuild: ((NotchGeometry, NotchMetrics) -> Void)?
 
-    private(set) var geometry: NotchGeometry?
-    private(set) var metrics: NotchMetrics?
+    private final class Entry {
+        let window: NotchWindow
+        let hosting: NotchHostingView<NotchView>
+        var geometry: NotchGeometry
+        var metrics: NotchMetrics
+
+        init(window: NotchWindow, hosting: NotchHostingView<NotchView>, geometry: NotchGeometry, metrics: NotchMetrics) {
+            self.window = window
+            self.hosting = hosting
+            self.geometry = geometry
+            self.metrics = metrics
+        }
+    }
+
+    private var entries: [CGDirectDisplayID: Entry] = [:]
+    private(set) var activeID: CGDirectDisplayID?
+    private var active: Entry? { activeID.flatMap { entries[$0] } }
+
+    var geometry: NotchGeometry? { active?.geometry }
+    var metrics: NotchMetrics? { active?.metrics }
 
     /// Гистерезис: раскрываем по узкой зоне выреза, а закрываем только когда
     /// курсор ушёл за пределы всей раскрытой панели. Иначе панель дёргается.
-    private(set) var openTriggerRect: CGRect = .zero
-    private(set) var closeTriggerRect: CGRect = .zero
+    var openTriggerRect: CGRect { active?.geometry.openTrigger ?? .zero }
+    var closeTriggerRect: CGRect { active?.window.frame ?? .zero }
 
-    private var window: NotchWindow?
-    private var hostingView: NotchHostingView<NotchView>?
-
-    /// Окно ловит мышь, только когда на экране есть во что попадать.
+    /// Главное окно ловит мышь, только когда на экране есть во что попадать.
+    /// Остальные не ловят никогда: работа с островом идёт в главном.
     var ignoresMouseEvents: Bool {
-        get { window?.ignoresMouseEvents ?? true }
+        get { active?.window.ignoresMouseEvents ?? true }
         // Свойство спрашивают десять раз в секунду. Присваивать окну то же
         // самое каждый раз незачем: сравнение дешевле обращения к AppKit.
         set {
-            guard let window, window.ignoresMouseEvents != newValue else { return }
+            guard let window = active?.window, window.ignoresMouseEvents != newValue else { return }
             window.ignoresMouseEvents = newValue
             DebugLog.write("окно \(newValue ? "прозрачно для мыши" : "ловит мышь")")
         }
     }
 
-    /// Курсор внутри нарисованного прямо сейчас.
+    /// Курсор внутри нарисованного главным окном прямо сейчас.
     ///
     /// По нему решается, ловит ли окно мышь: непрозрачное окно съедает
     /// нажатия во всей рамке, и держать его таким, пока курсор далеко,
@@ -56,42 +85,71 @@ final class NotchWindowHost {
         return topAlignedRect(size: size).contains(NSEvent.mouseLocation)
     }
 
-    /// Нынешний размер видимой формы. Нужен не только зоне нажатий:
-    /// по нему же считается прямоугольник накладки на экране.
+    /// Нынешний размер видимой формы главного окна. Нужен не только зоне
+    /// нажатий: по нему же считается прямоугольник накладки на экране.
     var currentContentSize: CGSize? {
-        guard let metrics else { return nil }
-        return contentSize?(metrics)
+        guard let active, let activeID else { return nil }
+        return contentSize?(active.metrics, activeID)
     }
 
     // MARK: - Построение
 
-    func rebuild() {
-        guard let geometry = NotchGeometry.current() else {
+    /// Построить окна на экранах. `handles` — экраны, где в покое видна
+    /// полоска; `active` — экран главного окна. Окна, которых нет в списке,
+    /// убираются; уже стоящие не пересоздаются.
+    func rebuild(screens: [NSScreen], handles: Set<CGDirectDisplayID>, active: CGDirectDisplayID) {
+        let wanted = Set(screens.map(NotchGeometry.displayID(of:)))
+        for (id, entry) in entries where !wanted.contains(id) {
+            entry.window.orderOut(nil)
+            entries[id] = nil
+        }
+        guard wanted.contains(active) else {
             hide()
             return
         }
-        self.geometry = geometry
+        if activeID != active {
+            activeID = active
+            onActivate?(active)
+        }
 
-        let metrics = NotchMetrics(
-            notchWidth: geometry.notchRect.width,
-            notchHeight: geometry.notchRect.height
-        )
-        self.metrics = metrics
+        for screen in screens {
+            let geometry = NotchGeometry(screen: screen)
+            let id = geometry.displayID
+            let metrics = NotchMetrics(
+                notchWidth: geometry.notchRect.width,
+                notchHeight: geometry.notchRect.height,
+                hasNotch: geometry.isHardware,
+                showsHandle: handles.contains(id)
+            )
+            let frame = geometry.windowFrame(contentSize: metrics.windowSize)
+            if let entry = entries[id] {
+                // Экран поменял чёлку или полоску: вёрстка получает размеры
+                // один раз, при постройке. Службы и состояние при этом
+                // не пересоздаются — меняется только значение, из которого
+                // вид строится.
+                if metrics != entry.metrics, let root = makeRoot?(metrics, id) {
+                    entry.hosting.rootView = root
+                }
+                entry.geometry = geometry
+                entry.metrics = metrics
+                entry.window.setFrame(frame, display: true)
+            } else {
+                guard let entry = makeEntry(id: id, frame: frame, geometry: geometry, metrics: metrics) else {
+                    continue
+                }
+                entries[id] = entry
+            }
+            if id != active { entries[id]?.window.ignoresMouseEvents = true }
+            entries[id]?.window.orderFrontRegardless()
 
-        let frame = geometry.windowFrame(contentSize: metrics.windowSize)
-        openTriggerRect = geometry.notchRect.insetBy(dx: -4, dy: 0)
-        closeTriggerRect = frame
+            DebugLog.write("геометрия: \(geometry.description)\(id == active ? ", главное" : "")")
+            DebugLog.write("окно \(NSStringFromRect(frame)), зона раскрытия \(NSStringFromRect(geometry.openTrigger))")
+        }
 
-        guard let window = self.window ?? makeWindow(frame: frame, metrics: metrics) else { return }
-        window.setFrame(frame, display: true)
-        window.orderFrontRegardless()
-        self.window = window
         updateInteractiveRect()
-        onRebuild?(geometry, metrics)
+        if let entry = self.active { onRebuild?(entry.geometry, entry.metrics) }
 
-        DebugLog.write("геометрия: \(geometry.description)")
-        DebugLog.write("окно \(NSStringFromRect(frame)), зона раскрытия \(NSStringFromRect(openTriggerRect))")
-
+        guard let metrics else { return }
         // Плашка события не должна оказаться уже свёрнутой формы —
         // иначе остров выглядит меньше самого выреза.
         let shortest = ActivityLayout(text: "Низкий заряд", trailing: "20%", minimumWidth: metrics.closed.width)
@@ -103,22 +161,32 @@ final class NotchWindowHost {
         )
     }
 
-    private func makeWindow(frame: CGRect, metrics: NotchMetrics) -> NotchWindow? {
-        guard let root = makeRoot.flatMap({ $0(metrics) }) else { return nil }
+    /// Сделать главным окно на другом экране. Окна не двигаются.
+    func activate(_ id: CGDirectDisplayID) {
+        guard id != activeID, let entry = entries[id] else { return }
+        active?.window.ignoresMouseEvents = true
+        activeID = id
+        onActivate?(id)
+        updateInteractiveRect()
+        onRebuild?(entry.geometry, entry.metrics)
+        DebugLog.write("главное окно: \(entry.geometry.description)")
+    }
+
+    private func makeEntry(id: CGDirectDisplayID, frame: CGRect, geometry: NotchGeometry, metrics: NotchMetrics) -> Entry? {
+        guard let root = makeRoot?(metrics, id) else { return nil }
         let window = NotchWindow(contentRect: frame)
         let hosting = NotchHostingView(rootView: root)
         hosting.onRightClick = { [weak self] in self?.onRightClick?() }
         hosting.frame = CGRect(origin: .zero, size: frame.size)
         hosting.autoresizingMask = [.width, .height]
         window.contentView = hosting
-        hostingView = hosting
-        return window
+        return Entry(window: window, hosting: hosting, geometry: geometry, metrics: metrics)
     }
 
     func hide() {
-        window?.orderOut(nil)
-        window = nil
-        hostingView = nil
+        entries.values.forEach { $0.window.orderOut(nil) }
+        entries.removeAll()
+        activeID = nil
     }
 
     // MARK: - Размеры и координаты
@@ -127,18 +195,22 @@ final class NotchWindowHost {
     /// Сообщаем подложке, где именно принимать нажатия, чтобы прозрачные
     /// углы окна не съедали клики по меню-бару.
     func updateInteractiveRect() {
-        guard let hostingView, let size = currentContentSize else { return }
-        // Метод вызывается десять раз в секунду — выходим молча, если ничего
-        // не поменялось, иначе журнал захлебнётся.
-        guard size != hostingView.visibleSize else { return }
-        hostingView.visibleSize = size
-        DebugLog.write("зона нажатий: \(Int(size.width))×\(Int(size.height))")
+        for (id, entry) in entries {
+            guard let size = contentSize?(entry.metrics, id) else { continue }
+            // Метод вызывается десять раз в секунду — выходим молча, если
+            // ничего не поменялось, иначе журнал захлебнётся.
+            guard size != entry.hosting.visibleSize else { continue }
+            entry.hosting.visibleSize = size
+            if id == activeID {
+                DebugLog.write("зона нажатий: \(Int(size.width))×\(Int(size.height))")
+            }
+        }
     }
 
-    /// Прямоугольник заданного размера, прижатый к верхней кромке окна
-    /// и отцентрованный по вырезу, — в координатах экрана.
+    /// Прямоугольник заданного размера, прижатый к верхней кромке главного
+    /// окна и отцентрованный по вырезу, — в координатах экрана.
     func topAlignedRect(size: CGSize) -> CGRect {
-        guard let frame = window?.frame else { return .zero }
+        guard let frame = active?.window.frame else { return .zero }
         return CGRect(
             x: frame.midX - size.width / 2,
             y: frame.maxY - size.height,
@@ -152,12 +224,20 @@ final class NotchWindowHost {
     /// Панель фокус не забирает по устройству, поэтому на ввод текста
     /// его приходится требовать явно.
     func makeKey() {
-        window?.makeKeyAndOrderFront(nil)
+        active?.window.makeKeyAndOrderFront(nil)
     }
 
-    /// Снимок самого острова — единственный способ увидеть его вёрстку
+    /// Снимок главного окна — единственный способ увидеть вёрстку острова
     /// из отладочной сессии.
-    func snapshot() {
-        WindowSnapshot.write(window, named: "notch")
+    func snapshot(named name: String = "notch") {
+        WindowSnapshot.write(active?.window, named: name)
+    }
+
+    /// Снимки остальных окон: главный экран — `notch-mirror-home`, чужие —
+    /// с номером экрана.
+    func snapshotInactive(home: CGDirectDisplayID?) {
+        for (id, entry) in entries where id != activeID {
+            WindowSnapshot.write(entry.window, named: id == home ? "notch-mirror-home" : "notch-mirror-\(id)")
+        }
     }
 }

@@ -22,13 +22,36 @@ struct NotchMetrics: Equatable {
     /// и за ним ходят в Календарь.
     static let maxVisibleEvents = 3
 
-    init(notchWidth: CGFloat, notchHeight: CGFloat) {
+    /// Настоящий вырез или условный — на экране без чёлки.
+    let hasNotch: Bool
+    /// Отражение на чужом экране: в покое без чёлки видна полоска-ручка.
+    let showsHandle: Bool
+
+    /// Высота полоски на экранах без чёлки: заметна как край, текста
+    /// в неё не положить.
+    static let handleHeight: CGFloat = 5
+
+    init(notchWidth: CGFloat, notchHeight: CGFloat, hasNotch: Bool = true, showsHandle: Bool = false) {
         self.notchWidth = notchWidth
         self.notchHeight = notchHeight
+        self.hasNotch = hasNotch
+        self.showsHandle = showsHandle
     }
 
     var closed: CGSize {
         CGSize(width: notchWidth + 2 * Self.concaveOverhang, height: notchHeight)
+    }
+
+    /// Свёрнутый вырез в покое.
+    ///
+    /// Над настоящим вырезом это его силуэт. На экране без чёлки основное
+    /// окно не рисует ничего: чёрное пятно посреди полосы меню не прячет
+    /// никакого железа, а зона нажатий под ним ела бы щелчки по полосе.
+    /// Отражение рисует тонкую полоску — знак, что остров можно раскрыть.
+    /// Ширина остаётся, чтобы раскрытие росло из середины кромки.
+    var resting: CGSize {
+        guard !hasNotch else { return closed }
+        return CGSize(width: closed.width, height: showsHandle ? Self.handleHeight : 0)
     }
 
     /// Главный экран растёт вниз на столько рядов плиток, сколько занято.
@@ -79,6 +102,7 @@ struct NotchMetrics: Equatable {
         let calendar = CalendarPanel.height(notchHeight: notchHeight)
         let editor = EventEditorPanel.height(notchHeight: notchHeight)
         let caffeine = CaffeinePanel.height(notchHeight: notchHeight)
+        let keyboardLock = KeyboardLockPanel.height(notchHeight: notchHeight)
         let feeds = FeedsPanel.height(notchHeight: notchHeight)
         // Кольцо в окне не панель, но обрезает его так же. Веер расходится
         // с ростом списка, и рано или поздно он перерос бы самую высокую
@@ -100,6 +124,7 @@ struct NotchMetrics: Equatable {
                 ShelfPanel.width,
                 TeleprompterPanel.width(notchWidth: notchWidth),
                 CaffeinePanel.width,
+                KeyboardLockPanel.width,
                 FeedsPanel.width,
                 FeedChipView.width(metrics: self),
                 CalendarPanel.width,
@@ -113,7 +138,7 @@ struct NotchMetrics: Equatable {
             // оформления.
             height: max(
                 panel.height, clipboard, assistant, shelf,
-                teleprompter, caffeine, notes, calendar, editor, feeds,
+                teleprompter, caffeine, keyboardLock, notes, calendar, editor, feeds,
                 notchHeight + ringSize.height
             ) + NotchHintLayout.reserved
         )

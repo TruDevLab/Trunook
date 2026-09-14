@@ -230,6 +230,9 @@ enum ObsidianMarkdown {
     /// файл» ничего не теряет. Преврати мы `- пункт` в красивую точку,
     /// обратная запись вернула бы в файл эту точку вместо разметки списка,
     /// и заметка в Obsidian испортилась бы молча.
+    ///
+    /// Исключение одно — пункты с галочкой: `- [ ]` становится ☐, и обратно
+    /// его переводит `NoteMarkdown` тем же `Checklist`, так что круг цел.
     static func attributed(from markdown: String, style: RichTextEditor.Style = .note) -> NSAttributedString {
         let result = NSMutableAttributedString()
         var insideFence = false
@@ -254,6 +257,20 @@ enum ObsidianMarkdown {
                 result.append(
                     inline(heading, size: style.headingFontSize, bold: true, italic: false, tint: style.tint)
                 )
+                continue
+            }
+            if let item = Checklist.item(inMarkdown: line) {
+                let start = result.length
+                result.append(NSAttributedString(
+                    string: item.indent + Checklist.prefix(checked: item.isChecked),
+                    attributes: plainAttributes(size: style.bodyFontSize)
+                ))
+                result.append(inline(item.rest, size: style.bodyFontSize, bold: false, italic: false, tint: style.tint))
+                let body = NSRange(
+                    location: start + (item.indent as NSString).length,
+                    length: result.length - start - (item.indent as NSString).length
+                )
+                Checklist.style(result, paragraph: body, checked: item.isChecked)
                 continue
             }
             result.append(inline(line, size: style.bodyFontSize, bold: false, italic: false, tint: style.tint))

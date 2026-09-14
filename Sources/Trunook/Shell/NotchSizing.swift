@@ -30,6 +30,8 @@ enum NotchPresentation: Equatable {
     case teleprompter
     /// Выбор срока для чашки кофе.
     case caffeine
+    /// Блокировка клавиатуры для чистки.
+    case keyboardLock
     /// Список заметок.
     case notes
     /// Мини-календарь: месяц и дела выбранного дня.
@@ -80,7 +82,7 @@ enum NotchPresentation: Equatable {
         case .activity, .preview: return true
         case .collapsed, .chip, .swiping, .voice, .quickRing, .expanded,
              .clipboard, .assistant, .shelf, .timer, .monitor,
-             .teleprompter, .caffeine, .notes, .calendar, .eventEditor, .feeds:
+             .teleprompter, .caffeine, .keyboardLock, .notes, .calendar, .eventEditor, .feeds:
             return false
         }
     }
@@ -188,7 +190,7 @@ enum NotchSizing {
     ) -> CGSize {
         switch presentation {
         case .collapsed:
-            return metrics.closed
+            return metrics.resting
         case .chip:
             // Порядок тот же, что в расчёте состояния и в вёрстке. Запись
             // первой: её потеря дороже всех остальных полосок.
@@ -332,6 +334,11 @@ enum NotchSizing {
             return CGSize(
                 width: CaffeinePanel.width,
                 height: CaffeinePanel.height(notchHeight: metrics.notchHeight)
+            )
+        case .keyboardLock:
+            return CGSize(
+                width: KeyboardLockPanel.width,
+                height: KeyboardLockPanel.height(notchHeight: metrics.notchHeight)
             )
         }
     }

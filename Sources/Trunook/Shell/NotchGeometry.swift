@@ -20,6 +20,29 @@ struct NotchGeometry {
         }
     }
 
+    /// Номер экрана в CoreGraphics. Сравнивать экраны надо по нему:
+    /// `NSScreen` система пересоздаёт при каждой перестройке экранов.
+    static func displayID(of screen: NSScreen) -> CGDirectDisplayID {
+        let number = screen.deviceDescription[.init("NSScreenNumber")] as? NSNumber
+        return CGDirectDisplayID(number?.uint32Value ?? 0)
+    }
+
+    /// Экран в простых значениях — для выбора, на каком жить.
+    static func slot(of screen: NSScreen) -> ScreenSlot {
+        let geometry = NotchGeometry(screen: screen)
+        return ScreenSlot(
+            id: geometry.displayID,
+            frame: screen.frame,
+            hasNotch: geometry.isHardware,
+            trigger: geometry.openTrigger
+        )
+    }
+
+    /// Зона раскрытия по наведению: вырез с запасом по бокам.
+    var openTrigger: CGRect { notchRect.insetBy(dx: -4, dy: 0) }
+
+    var displayID: CGDirectDisplayID { Self.displayID(of: screen) }
+
     static func current() -> NotchGeometry? {
         guard let screen = builtInScreen() ?? NSScreen.main else { return nil }
         return NotchGeometry(screen: screen)
@@ -44,10 +67,14 @@ struct NotchGeometry {
             )
             isHardware = true
         } else {
-            // Экран без выреза: рисуем условную полоску по центру верхней кромки,
-            // чтобы приложение оставалось отлаживаемым на внешнем мониторе.
+            // Экран без выреза: условная чёлка по центру верхней кромки.
+            // В покое она не рисуется (`NotchMetrics.resting`), но от неё
+            // отмеряются наведение и полоски. Высота — по полосе меню этого
+            // экрана, чтобы полоски вставали ровно в неё; полосы нет —
+            // скрыта или экран без своей — системная толщина.
             let width: CGFloat = 200
-            let height = NSStatusBar.system.thickness
+            let menuBar = frame.maxY - screen.visibleFrame.maxY
+            let height = menuBar > 0 ? menuBar : NSStatusBar.system.thickness
             notchRect = CGRect(
                 x: frame.midX - width / 2,
                 y: frame.maxY - height,

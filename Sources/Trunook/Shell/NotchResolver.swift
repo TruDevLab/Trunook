@@ -94,6 +94,25 @@ struct NotchInputs: Equatable {
         NotchSnapshot(presentation: presentation, content: content)
     }
 
+    /// То же состояние без того, что заведено рукой: наведения, панелей,
+    /// кольца, голоса.
+    ///
+    /// Для отражения на главном экране, пока основное окно уехало на другой:
+    /// с островом работают там, а отсчёт до встречи и плашки на главном
+    /// пропадать не должны.
+    func passive() -> NotchInputs {
+        var copy = self
+        copy.overlay = nil
+        copy.swipe = nil
+        copy.pendingSwipe = nil
+        copy.swipeProgress = 0
+        copy.isHovered = false
+        copy.isPinnedOpen = false
+        copy.voicePhase = nil
+        copy.isQuickRingOpen = false
+        return copy
+    }
+
     /// Нажатие важнее наведения, наведение важнее всплывшего события,
     /// событие важнее постоянного отсчёта: чем короче живёт состояние,
     /// тем выше его право занять вырез.
@@ -108,6 +127,7 @@ struct NotchInputs: Equatable {
         case .monitor: return .monitor
         case .teleprompter: return .teleprompter
         case .caffeine: return .caffeine
+        case .keyboardLock: return .keyboardLock
         case .notes: return .notes
         case .calendar: return .calendar
         case .eventEditor: return .eventEditor

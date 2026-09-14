@@ -192,3 +192,52 @@ struct NotesWidget: View {
         }
     }
 }
+
+// MARK: - Закреплённые заметки
+
+/// До трёх закреплённых заметок. В плитке 2×2 под именем — начало текста.
+struct PinnedNotesWidget: View {
+    let widget: HomeWidget
+    @ObservedObject var notes: NotesService
+    let actions: HomeActions
+
+    /// В высокой плитке у каждой заметки два яруса: имя и начало текста.
+    private var isTall: Bool { widget.size.rows > 1 }
+
+    var body: some View {
+        let capacity = isTall ? Note.pinLimit : HomeListRow.capacity(widget.size)
+        let shown = Array(notes.pinned.prefix(min(capacity, Note.pinLimit)))
+        HomeTile(widget: widget, onTap: actions.openNotes, hint: t("Открыть заметки")) {
+            VStack(alignment: .leading, spacing: 4) {
+                HomeCaption(kind: widget.kind)
+                if shown.isEmpty {
+                    HomeEmpty(text: t("Закрепите заметку в списке"))
+                } else {
+                    VStack(alignment: .leading, spacing: isTall ? 6 : 1) {
+                        ForEach(shown) { note in
+                            Button { actions.openNote(note) } label: {
+                                if isTall {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(note.title)
+                                            .font(.system(size: NotchStyle.font(11.5), weight: .medium))
+                                            .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
+                                        Text(note.oneLine)
+                                            .font(.system(size: NotchStyle.font(10.5)))
+                                            .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+                                    }
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                } else {
+                                    HomeListRow(text: note.title, detail: shortStamp(note.updatedAt))
+                                        .contentShape(Rectangle())
+                                }
+                            }
+                            .buttonStyle(PressableStyle())
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

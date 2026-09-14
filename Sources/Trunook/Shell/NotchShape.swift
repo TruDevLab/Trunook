@@ -29,7 +29,9 @@ struct NotchShape: Shape {
 
         let width = rect.width
         let height = rect.height
-        let top = min(topRadius, width / 2)
+        // Не выше самой формы: на экране без чёлки свёрнутый вырез нулевой
+        // высоты, и вогнутые уголки иначе торчали бы из пустоты.
+        let top = min(topRadius, width / 2, height)
         let bottom = min(bottomRadius, max(0, (width - 2 * top) / 2), height)
 
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))

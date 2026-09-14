@@ -219,6 +219,75 @@ final class RichTextEditor {
         storage.enumerateAttribute(.link, in: all) { link, range, _ in
             storage.addAttribute(.foregroundColor, value: link == nil ? NSColor.white : tint, range: range)
         }
+        // Пункты разметкой — в галочки, а отмеченным возвращается их
+        // приглушённый цвет: строкой выше он только что стал белым.
+        Checklist.convertMarkdown(in: storage)
+        restyleChecklist(storage)
+    }
+
+    private static func restyleChecklist(_ storage: NSMutableAttributedString) {
+        let string = storage.string as NSString
+        var location = 0
+        while location < string.length {
+            let paragraph = string.paragraphRange(for: NSRange(location: location, length: 0))
+            let line = string.substring(with: paragraph).trimmingCharacters(in: .newlines)
+            if let item = Checklist.item(inDisplay: line) {
+                let start = paragraph.location + (item.indent as NSString).length
+                Checklist.style(
+                    storage,
+                    paragraph: NSRange(location: start, length: paragraph.location + (line as NSString).length - start),
+                    checked: item.isChecked
+                )
+            }
+            location = NSMaxRange(paragraph)
+            if paragraph.length == 0 { break }
+        }
+    }
+
+    /// Список с галочками на абзацах выделения. Все уже пункты — снимает,
+    /// иначе делает пунктами те, что ещё не.
+    func toggleChecklist() {
+        guard let view = textView, let storage = view.textStorage else { return }
+        let string = view.string as NSString
+        let range = string.paragraphRange(for: view.selectedRange())
+        var paragraphs: [NSRange] = []
+        var location = range.location
+        repeat {
+            let paragraph = string.paragraphRange(for: NSRange(location: min(location, string.length), length: 0))
+            paragraphs.append(paragraph)
+            location = NSMaxRange(paragraph)
+        } while location < NSMaxRange(range) && location < string.length
+        let lines = paragraphs.map { string.substring(with: $0).trimmingCharacters(in: .newlines) }
+        let allItems = lines.allSatisfy { Checklist.item(inDisplay: $0) != nil }
+
+        view.shouldChangeText(in: range, replacementString: nil)
+        storage.beginEditing()
+        for (paragraph, line) in zip(paragraphs, lines).reversed() {
+            let indent = (String(line.prefix { $0 == " " || $0 == "\t" }) as NSString).length
+            if allItems {
+                let body = NSRange(location: paragraph.location + indent, length: (line as NSString).length - indent)
+                Checklist.style(storage, paragraph: body, checked: false)
+                storage.replaceCharacters(
+                    in: NSRange(location: paragraph.location + indent, length: min(2, body.length)), with: ""
+                )
+            } else if Checklist.item(inDisplay: line) == nil {
+                let attributes = storage.length > 0
+                    ? storage.attributes(at: min(paragraph.location, storage.length - 1), effectiveRange: nil)
+                    : [.font: NSFont.systemFont(ofSize: style.bodyFontSize), .foregroundColor: NSColor.white]
+                storage.insert(
+                    NSAttributedString(string: Checklist.prefix(checked: false), attributes: attributes),
+                    at: paragraph.location + indent
+                )
+                Checklist.styleMark(storage, at: paragraph.location + indent, bodySize: style.bodyFontSize)
+            }
+        }
+        storage.endEditing()
+        view.didChangeText()
+        if !allItems, lines.count == 1, string.length == 0 || (lines.first ?? "").isEmpty {
+            view.setSelectedRange(NSRange(location: range.location + 2, length: 0))
+        }
+        focus()
+        onEdit?()
     }
 
     // MARK: - Очистка

@@ -1,5 +1,5 @@
 APP      := Trunook
-VERSION := 0.20.0
+VERSION := 0.21.0
 # Номер сборки растёт со временем: так две сборки одной версии различимы.
 BUILDNO  := $(shell date +%y%m%d%H%M)
 # Провал сборки в конвейере с grep иначе теряется: make видит код последней
@@ -175,6 +175,22 @@ chime:
 ## Пересобрать щелчок деления шкалы таймера
 tick:
 	@swift scripts/make-tick.swift
+
+## Листы кадров погодных сценок — ~/Library/Logs/Trunook-weather-<сценка>.png
+weather:
+	@mkdir -p "$(HOME)/Library/Caches/TrunookBuild/weather"
+	@swiftc -O -o "$(HOME)/Library/Caches/TrunookBuild/weather/render" \
+		Sources/Trunook/Shell/WeatherArt.swift scripts/weather-sheet/main.swift
+	@"$(HOME)/Library/Caches/TrunookBuild/weather/render" "$(HOME)/Library/Logs/Trunook-weather"
+	@echo "кадры: ~/Library/Logs/Trunook-weather-*.png"
+
+## Лист кадров кота в чёлке — ~/Library/Logs/Trunook-critter-N.png
+critter:
+	@mkdir -p "$(HOME)/Library/Caches/TrunookBuild/critter"
+	@swiftc -O -o "$(HOME)/Library/Caches/TrunookBuild/critter/render" \
+		Sources/Trunook/Shell/CritterArt.swift scripts/critter-sheet/main.swift
+	@"$(HOME)/Library/Caches/TrunookBuild/critter/render" "$(HOME)/Library/Logs/Trunook-critter"
+	@echo "кадры: ~/Library/Logs/Trunook-critter-0…5.png"
 
 ## Собрать docs/demo.gif из снятых кадров.
 ## Кадры снимает само приложение — см. заголовок скрипта.

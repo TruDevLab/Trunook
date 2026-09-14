@@ -19,8 +19,13 @@ struct PageSnapshot: Equatable {
 /// «нет соединения» браузеру через VPN.
 ///
 /// Вид живёт в невидимом окне за краем экрана: без окна часть страниц
-/// не доигрывает скрипты. Хранилище данных постоянное — пройденная
-/// руками проверка оставляет куки, и следующие загрузки идут с ними.
+/// не доигрывает скрипты. Окно в одну точку, прозрачное и стоит в списке
+/// окон только на время загрузки: при перестройке экранов macOS переносит
+/// окна, не попавшие ни на один экран, на основной, и пустой WebKit висел
+/// белым листом 1280×900 поверх рабочего стола.
+///
+/// Хранилище данных постоянное — пройденная руками проверка оставляет куки,
+/// и следующие загрузки идут с ними.
 final class PageLoader: NSObject, WKNavigationDelegate {
     nonisolated static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
         + "(KHTML, like Gecko) Version/18.0 Safari/605.1.15"
@@ -60,6 +65,9 @@ final class PageLoader: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<PageSnapshot?, Never>?
     private var deadline: DispatchWorkItem?
     private var settling: DispatchWorkItem?
+    private var screensObserver: NSObjectProtocol?
+
+    private static let offscreen = NSPoint(x: -10_000, y: -10_000)
 
     @MainActor
     func load(_ url: URL) async -> PageSnapshot? {
@@ -67,6 +75,8 @@ final class PageLoader: NSObject, WKNavigationDelegate {
         // поверх первой перебила бы ей навигацию.
         guard continuation == nil else { return nil }
         let webView = prepare()
+        window?.setFrameOrigin(Self.offscreen)
+        window?.orderBack(nil)
         return await withCheckedContinuation { continuation in
             self.continuation = continuation
             let deadline = DispatchWorkItem { [weak self] in
@@ -89,13 +99,23 @@ final class PageLoader: NSObject, WKNavigationDelegate {
         webView.navigationDelegate = self
 
         let window = NSWindow(
-            contentRect: NSRect(x: -10_000, y: -10_000, width: frame.width, height: frame.height),
+            contentRect: NSRect(origin: Self.offscreen, size: NSSize(width: 1, height: 1)),
             styleMask: [.borderless], backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false
         window.ignoresMouseEvents = true
-        window.contentView = webView
-        window.orderBack(nil)
+        window.alphaValue = 0
+        // Окно в точку, а вид страницы — во весь размер: по ширине вида
+        // магазин выбирает вёрстку, и узкий получил бы мобильную.
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        container.addSubview(webView)
+        window.contentView = container
+        // Экраны перестроились посреди загрузки — вернуть окно за край.
+        screensObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak window] _ in
+            window?.setFrameOrigin(Self.offscreen)
+        }
         self.window = window
         self.webView = webView
         return webView
@@ -157,6 +177,7 @@ final class PageLoader: NSObject, WKNavigationDelegate {
         // Пустая страница вместо ушедшей: иначе скрипты магазина крутились бы
         // в невидимом окне до следующей проверки.
         webView?.loadHTMLString("", baseURL: nil)
+        window?.orderOut(nil)
         continuation.resume(returning: snapshot)
     }
 }

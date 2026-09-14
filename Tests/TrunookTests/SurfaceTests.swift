@@ -214,6 +214,6 @@ private extension NotchPresentation {
     static var все: [NotchPresentation] {
         [.collapsed, .chip, .activity, .preview, .swiping, .voice,
          .expanded, .clipboard, .assistant, .shelf, .timer,
-         .monitor, .teleprompter, .caffeine, .notes]
+         .monitor, .teleprompter, .caffeine, .keyboardLock, .notes]
     }
 }

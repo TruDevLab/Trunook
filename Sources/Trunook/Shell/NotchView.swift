@@ -19,6 +19,9 @@ final class NotchState: ObservableObject {
     /// Что вызвано поверх выреза клавишей. Одновременно — только одно:
     /// разговор с моделью и история буфера занимают одно и то же место.
     @Published var overlay: Overlay?
+    /// Экран главного окна острова. Окна на остальных экранах рисуют полоску
+    /// или отсчёт и о смене узнают отсюда.
+    @Published var activeDisplay: CGDirectDisplayID?
 
     enum Overlay: Equatable, CaseIterable {
         case clipboard
@@ -28,6 +31,7 @@ final class NotchState: ObservableObject {
         case monitor
         case teleprompter
         case caffeine
+        case keyboardLock
         case notes
         case calendar
         case eventEditor
@@ -49,8 +53,10 @@ final class NotchState: ObservableObject {
             // уходит за края.
             // Сводку читают и листают, по новостям уходят в браузер — курсор
             // уходит за края, а панель должна дождаться возвращения.
+            // Блокировка — по той же причине: пока клавиатура мертва,
+            // панель с отсчётом и кнопкой снятия должна дождаться курсора.
             case .shelf, .assistant, .teleprompter, .notes,
-                 .calendar, .eventEditor, .feeds: return false
+                 .calendar, .eventEditor, .feeds, .keyboardLock: return false
             }
         }
 
@@ -154,6 +160,12 @@ struct NotchView: View {
     /// Держим ли экран от гашения. Наблюдается: подложка под чашкой —
     /// единственное, чем это состояние показано.
     @ObservedObject var wake: WakeGuard
+    /// Блокировка клавиатуры для чистки: подложка под значком и отсчёт.
+    @ObservedObject var keyboardLock: KeyboardLock
+    /// Кот, изредка оживляющий свёрнутый вырез.
+    let critter: NotchCritter
+    /// Погодная сценка при смене погоды.
+    let weatherScenes: WeatherScenePlayer
     /// Сводки новостей и слежка за сайтами: панель и метка в чёлке.
     @ObservedObject var digest: DigestService
     @ObservedObject var sites: SiteWatchService
@@ -164,6 +176,12 @@ struct NotchView: View {
     @ObservedObject var settings: Settings
 
     let metrics: NotchMetrics
+    /// Экран, на котором стоит это окно.
+    let displayID: CGDirectDisplayID
+    /// Окно не главное: показывает то же, что вырез сам, и не откликается
+    /// на руку. Кольцо, свечение голоса, дрожь и подписи кнопок берутся
+    /// вёрсткой прямо у служб, мимо снимка, — у неглавного их нет.
+    private var isMirror: Bool { state.activeDisplay != displayID }
     /// Что вырез показывает прямо сейчас — готовым, из одних рук.
     ///
     /// Вёрстка не собирает состояние сама и про `NotchInputs` не знает вовсе.
@@ -268,6 +286,8 @@ struct NotchView: View {
     let onSaveEvent: () -> Void
     let onDeleteEvent: () -> Void
     let onOpenNote: (Note) -> Void
+    /// Закрепление, запись, Obsidian — всё, что делают с одной заметкой.
+    let noteActions: NoteActions
     let onDeleteNote: (Note) -> Void
     let isNoteInVault: (Note) -> Bool
     let onOpenNoteInObsidian: (Note) -> Void
@@ -300,6 +320,10 @@ struct NotchView: View {
     /// Выбран срок в панели бодрости. Ноль — без ограничения.
     let onChooseAwakeLimit: (Int) -> Void
     let onDisableAwake: () -> Void
+    let onOpenKeyboardLock: () -> Void
+    /// Выбран срок блокировки в секундах.
+    let onLockKeyboard: (Int) -> Void
+    let onUnlockKeyboard: () -> Void
     let onOpenFeeds: () -> Void
     let onOpenFeedsTab: (FeedsPanelState.Mode) -> Void
     let onOpenFeedsSettings: () -> Void
@@ -344,7 +368,7 @@ struct NotchView: View {
         QuickRingView(
             items: ringItems,
             highlighted: ring.highlighted,
-            progress: ring.isOpen ? 1 : 0,
+            progress: ring.isOpen && !isMirror ? 1 : 0,
             notchHeight: metrics.notchHeight
         )
         .allowsHitTesting(false)
@@ -373,7 +397,7 @@ struct NotchView: View {
             bottomRadius: {
                 switch presentation {
                 case .expanded, .clipboard, .assistant, .shelf, .timer,
-                     .monitor, .teleprompter, .caffeine, .notes,
+                     .monitor, .teleprompter, .caffeine, .keyboardLock, .notes,
                      .calendar, .eventEditor, .feeds:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
@@ -405,7 +429,11 @@ struct NotchView: View {
     /// Пятое условие своё: стекла не получает только свёрнутый вырез —
     /// он и есть силуэт аппаратной вырезки. Почему остальные получают,
     /// включая полоски, — у `NotchPresentation.usesGlass`.
-    private var glassInNotch: Bool { Surface.inNotch && presentation.usesGlass }
+    ///
+    /// На экране без чёлки стекло достаётся и свёрнутому: там это полоска
+    /// на чужом мониторе, и без стекла, при погашенной черноте, её не было бы
+    /// видно вовсе.
+    private var glassInNotch: Bool { Surface.inNotch && wantsGlass }
 
     /// Растворять ли черноту железа в панели.
     ///
@@ -413,7 +441,20 @@ struct NotchView: View {
     /// плоской съёмки его не касается. Иначе на снимке вырез сплошь чёрный,
     /// и длину перехода приходится подбирать вслепую.
     private var translucentNotch: Bool {
-        Surface.notchIsTranslucent && presentation.usesGlass
+        Surface.notchIsTranslucent && wantsGlass
+    }
+
+    private var wantsGlass: Bool { presentation.usesGlass || !metrics.hasNotch }
+
+    /// Сила черноты железа.
+    ///
+    /// Чернота нужна, чтобы остров было не отличить от аппаратной вырезки.
+    /// На экране без чёлки прятать нечего, и тёмная планка над панелью
+    /// читалась бы пятном — там остров стеклянный целиком. Множитель,
+    /// а не ветка: слои те же, меняется одно число. При сплошном вырезе
+    /// в настройках чернота остаётся везде — это выбор человека.
+    private var ironStrength: Double {
+        translucentNotch && !metrics.hasNotch ? 0 : 1
     }
 
     /// Подложка острова: стекло на всю форму, поверх него — чернота железа.
@@ -579,7 +620,7 @@ struct NotchView: View {
         let last = max(1, curve.count - 1)
         return curve.enumerated().map { index, opacity in
             Gradient.Stop(
-                color: .black.opacity(opacity),
+                color: .black.opacity(opacity * ironStrength),
                 location: solid + span * CGFloat(index) / CGFloat(last)
             )
         }
@@ -641,7 +682,7 @@ struct NotchView: View {
         // до обрезки плашку срезало бы формой панели, а до жеста она отняла
         // бы у панели нажатия. Попаданий она не принимает и сама.
         .overlay(alignment: .bottom) {
-            NotchHintBubble(text: hint.text)
+            NotchHintBubble(text: isMirror ? nil : hint.text)
                 .offset(y: NotchHintLayout.reserved)
                 .allowsHitTesting(false)
         }
@@ -658,13 +699,24 @@ struct NotchView: View {
         // не принимает: рука в это время держит кнопку, и куда она
         // показывает, приложение узнаёт опросом положения курсора.
         .overlay(alignment: .top) { quickRing }
+        // Кот — тоже поверх обрезки: хвост свешивается ниже формы, котик
+        // ходит по полосе меню сбоку от неё.
+        .overlay(alignment: .top) {
+            CritterView(critter: critter, metrics: metrics, isHidden: isMirror || !metrics.hasNotch)
+        }
+        // Погода — там же и так же: капли падают ниже формы.
+        .overlay(alignment: .top) {
+            WeatherSceneView(player: weatherScenes, metrics: metrics, isHidden: isMirror || !metrics.hasNotch)
+        }
         // Панель сменилась или закрылась — подпись уходит с ней. Кнопка
         // исчезает вместе с панелью и об уходе курсора уже не сообщает,
         // так что сама плашка о своём устаревании не узнает.
-        .onChange(of: presentation) { _, _ in hint.clear() }
+        .onChange(of: presentation) { _, _ in
+            if !isMirror { hint.clear() }
+        }
         // Дрожь поверх обрезки: трясётся весь остров целиком, а не его
         // содержимое внутри неподвижной формы.
-        .offset(x: state.tremble.width, y: state.tremble.height)
+        .offset(x: isMirror ? 0 : state.tremble.width, y: isMirror ? 0 : state.tremble.height)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(shapeAnimation, value: presentation)
         // Размер меняется не только при смене состояния: панель модели
@@ -723,7 +775,7 @@ struct NotchView: View {
         // вида, и SwiftUI пересобирал бы поддерево вместо перехода.
         TimelineView(.animation(
             minimumInterval: 1 / 30,
-            paused: motion.reduceMotion || voice.phase == nil
+            paused: motion.reduceMotion || voice.phase == nil || isMirror
         )) { context in
             let strength = voiceGlowStrength(at: context.date)
             // Тени, наложенные одна на другую: каждая угасает наружу сама,
@@ -767,7 +819,7 @@ struct NotchView: View {
     /// Когда захода нет — ноль, и слой становится невидимым, не исчезая
     /// из дерева видов.
     private func voiceGlowStrength(at date: Date) -> Double {
-        guard let phase = voice.phase else { return 0 }
+        guard let phase = voice.phase, !isMirror else { return 0 }
         let base = VoiceGlow.strength(for: phase, level: voice.listener.level)
         guard !motion.reduceMotion else { return base }
         // Дыхание неглубокое: свечение должно жить, а не мигать. Мигающее
@@ -841,6 +893,11 @@ struct NotchView: View {
                 onSelectMode: onSelectMode,
                 onClose: onCloseAssistant,
                 onStopVoice: onStopVoice,
+                openNote: openNote,
+                noteActions: noteActions,
+                player: player,
+                audioRetentionDays: settings.audioRetentionDays,
+                pinsFull: notes.pinned.count >= Note.pinLimit,
                 voicePhase: voice.phase
             )
         case .notes:
@@ -851,6 +908,7 @@ struct NotchView: View {
                 onDelete: onDeleteNote,
                 isInVault: isNoteInVault,
                 onOpenInObsidian: onOpenNoteInObsidian,
+                onTogglePin: noteActions.togglePin,
                 player: player,
                 onPlayRecording: onPlayRecording,
                 onExportAll: onExportNotes,
@@ -913,6 +971,14 @@ struct NotchView: View {
                 metrics: metrics,
                 onChoose: onChooseAwakeLimit,
                 onDisable: onDisableAwake,
+                onClose: onCloseOverlay
+            )
+        case .keyboardLock:
+            KeyboardLockPanel(
+                lock: keyboardLock,
+                metrics: metrics,
+                onChoose: onLockKeyboard,
+                onUnlock: onUnlockKeyboard,
                 onClose: onCloseOverlay
             )
         case .teleprompter:
@@ -1029,6 +1095,7 @@ struct NotchView: View {
                 settings: settings,
                 weather: weather,
                 wake: wake,
+                keyboardLock: keyboardLock,
                 services: homeServices,
                 events: events,
                 metrics: metrics,
@@ -1057,6 +1124,12 @@ struct NotchView: View {
         )
     }
 
+    /// Открытая на правку заметка — свежей, из базы: флаги записи
+    /// и закрепления меняются, пока она открыта.
+    private var openNote: Note? {
+        draft.editingID.flatMap { id in notes.notes.first { $0.id == id } ?? notes.note(id: id) }
+    }
+
     private var homeActions: HomeActions {
         HomeActions(
             openSettings: onOpenSettings,
@@ -1076,6 +1149,7 @@ struct NotchView: View {
             openAwake: onOpenAwake,
             chooseAwakeLimit: onChooseAwakeLimit,
             disableAwake: onDisableAwake,
+            openKeyboardLock: onOpenKeyboardLock,
             openFeeds: onOpenFeedsTab,
             openClipboard: onOpenClipboard,
             openShelf: onOpenShelf,

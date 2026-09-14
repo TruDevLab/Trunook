@@ -15,12 +15,14 @@ final class ConfettiWindowController {
     ///
     /// Молчит при включённом «уменьшить движение»: летящие через весь экран
     /// бумажки — ровно то, ради чего эту настройку и включают.
-    func fire() {
+    func fire(on screen: NSScreen? = nil) {
         guard !MotionPreference.shared.reduceMotion else {
             DebugLog.write("конфетти: движение уменьшено, залпа нет")
             return
         }
-        guard let geometry = NotchGeometry.current() else { return }
+        // Из-под того выреза, где остров стоит сейчас: он мог переехать
+        // на внешний экран.
+        guard let geometry = screen.map(NotchGeometry.init(screen:)) ?? NotchGeometry.current() else { return }
         close()
 
         let screen = geometry.screen

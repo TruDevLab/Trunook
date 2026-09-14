@@ -23,6 +23,7 @@ struct HomeActions {
     let openAwake: () -> Void
     let chooseAwakeLimit: (Int) -> Void
     let disableAwake: () -> Void
+    let openKeyboardLock: () -> Void
     let openFeeds: (FeedsPanelState.Mode) -> Void
     let openClipboard: () -> Void
     let openShelf: () -> Void
@@ -60,6 +61,7 @@ struct HomePanel: View {
     @ObservedObject var settings: Settings
     @ObservedObject var weather: WeatherService
     @ObservedObject var wake: WakeGuard
+    @ObservedObject var keyboardLock: KeyboardLock
     let services: HomeServices
     /// Встречи из снимка состояния, а не из календаря напрямую: вырез
     /// показывает тот же список, по которому решал, что показывать.
@@ -87,6 +89,14 @@ struct HomePanel: View {
                 if settings.caffeineEnabled, !placed.contains(.caffeine) {
                     CaffeineButton(isOn: wake.isOn, action: actions.openAwake)
                 }
+                // Рядом с чашкой: обе про состояние машины на время дела,
+                // а не про открытие чего-то.
+                KeyboardLockButton(isOn: keyboardLock.isOn, action: actions.openKeyboardLock)
+                // «Команды» — слева, рядом с остальным, что включают
+                // на ходу: справа остались кольцо и настройки.
+                if let ask = actions.ask, !placed.contains(.ask) {
+                    NotchPanelButton(symbol: "sparkles", hint: t("Команды"), action: ask)
+                }
             }
             .frame(height: metrics.notchHeight)
         } trailing: {
@@ -95,9 +105,6 @@ struct HomePanel: View {
                 // плиткой, которой на экране может и не быть. Открывает она
                 // кольцо кружков — единственное меню всех функций.
                 NotchPanelButton(symbol: "circle.grid.cross.fill", hint: t("Всё сразу"), action: actions.openHub)
-                if let ask = actions.ask, !placed.contains(.ask) {
-                    NotchPanelButton(symbol: "sparkles", hint: t("Команды"), action: ask)
-                }
                 NotchPanelButton(symbol: "gearshape", hint: t("Настройки"), action: actions.openSettings)
             }
         } content: {
@@ -348,6 +355,8 @@ struct HomeWidgetView: View {
             ShelfWidget(widget: widget, shelf: services.shelf, actions: actions)
         case .notes:
             NotesWidget(widget: widget, notes: services.notes, actions: actions)
+        case .pinnedNotes:
+            PinnedNotesWidget(widget: widget, notes: services.notes, actions: actions)
         case .voice:
             LauncherWidget(widget: widget, action: actions.startVoice)
         case .dictation:

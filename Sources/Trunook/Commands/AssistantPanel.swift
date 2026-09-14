@@ -91,6 +91,17 @@ struct AssistantPanel: View {
     /// занимает его место — открыв разговор глазами, оборвать его стало бы
     /// нечем.
     let onStopVoice: () -> Void
+    /// Открытая на правку заметка — такой, какой она лежит в базе сейчас.
+    /// `nil` — пишут новую.
+    let openNote: Note?
+    let noteActions: NoteActions
+    /// Проигрыватель записей: кнопка должна перерисоваться, когда запись
+    /// доиграет сама.
+    @ObservedObject var player: RecordingPlayer
+    /// Сколько дней хранятся записи; ноль — бессрочно.
+    let audioRetentionDays: Int
+    /// Закреплено уже столько, что закреплять эту некуда.
+    let pinsFull: Bool
     /// Чем занят голосовой заход прямо сейчас. `nil` — заход не идёт.
     let voicePhase: VoiceSession.Phase?
 
@@ -497,6 +508,9 @@ struct AssistantPanel: View {
             VStack(alignment: .leading, spacing: NotchStyle.gridSpacing) {
                 if isNote {
                     noteField
+                    if let openNote {
+                        noteTools(openNote)
+                    }
                 } else {
                     if !session.captured.isEmpty {
                         CapturedTextPill(
@@ -1029,7 +1043,9 @@ struct AssistantPanel: View {
             onPaste: draft.didPaste,
             onAttach: draft.attach
         )
-        .frame(height: Self.noteFieldHeight)
+        // Строка действий с открытой заметкой занимает место поля, а не экрана:
+        // высота панели от того, новая заметка или открытая, не зависит.
+        .frame(height: openNote == nil ? Self.noteFieldHeight : Self.noteFieldHeight - Self.noteToolsBand)
         // Через общий слой, как и поле вопроса: они лежат на одном экране,
         // и разные подложки у двух полей ввода читались бы небрежностью.
         .surface(.card,
@@ -1063,6 +1079,62 @@ struct AssistantPanel: View {
         PanelFlashPill(flash: flash)
     }
 
+    // MARK: - Действия с открытой заметкой
+
+    static var noteToolsHeight: CGFloat { actionSize }
+    static var noteToolsBand: CGFloat { noteToolsHeight + NotchStyle.gridSpacing }
+
+    /// Запись слева — прослушать, не удалять, удалить; закрепление и Obsidian
+    /// справа.
+    private func noteTools(_ note: Note) -> some View {
+        HStack(spacing: Self.actionSpacing) {
+            if note.hasAudio {
+                icon(
+                    player.isPlaying(note.id) ? "stop.fill" : "play.fill",
+                    player.isPlaying(note.id) ? t("Остановить") : t("Прослушать запись"),
+                    action: { noteActions.play(note) }
+                )
+                Text(audioCaption(note))
+                    .font(.system(size: NotchStyle.captionFontSize))
+                    .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+                    .lineLimit(1)
+                    .padding(.horizontal, 4)
+                icon(
+                    note.keepAudio ? "lock.fill" : "lock.open",
+                    note.keepAudio ? t("Разрешить удаление по сроку") : t("Не удалять запись"),
+                    action: { noteActions.toggleKeepAudio(note) }
+                )
+                icon("trash", t("Удалить запись"), action: { noteActions.deleteAudio(note) })
+            }
+            Spacer(minLength: 0)
+            let full = pinsFull && !note.isPinned
+            icon(
+                note.isPinned ? "pin.fill" : "pin",
+                note.isPinned ? t("Открепить")
+                    : full ? t("Закрепить можно не больше трёх заметок") : t("Закрепить"),
+                tint: note.isPinned ? Palette.notes : .white,
+                action: { if !full { noteActions.togglePin(note) } }
+            )
+            .opacity(full ? 0.35 : 1)
+            if noteActions.isInVault(note) {
+                icon("arrow.up.forward.app", t("Открыть в Obsidian"), action: { noteActions.openInObsidian(note) })
+            }
+        }
+        .frame(height: Self.noteToolsHeight)
+    }
+
+    /// «Запись · удалится 12 окт.» — или «хранится всегда».
+    private func audioCaption(_ note: Note) -> String {
+        if note.keepAudio { return t("Запись хранится всегда") }
+        guard let expiry = AudioRetention.expiry(of: note, days: audioRetentionDays) else {
+            return t("Запись")
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Localization.shared.resolved.locale
+        formatter.setLocalizedDateFormatFromTemplate("d MMM")
+        return tf("Запись удалится %@", formatter.string(from: expiry))
+    }
+
     // MARK: - Полоса действий
 
     /// Зазор внутри полосы действий. Наружу — по нему считается остаток
@@ -1076,7 +1148,7 @@ struct AssistantPanel: View {
     /// этим двум нельзя — тогда подпись «Сохранить» полезет за край.
     /// На пятой кнопке это уже случилось: запись стояла здесь и съедала
     /// у главной кнопки ровно столько, чтобы подпись перестала помещаться.
-    static let noteIconCount = 4
+    static let noteIconCount = 5
 
     /// Сколько останется главной кнопке при самой тесной раскладке —
     /// в режиме заметки, где рядом ещё кнопки оформления и записи.
@@ -1157,6 +1229,9 @@ struct AssistantPanel: View {
                     }
                     .disabled(draft.isNoteEmpty)
                     .opacity(draft.isNoteEmpty ? 0.4 : 1)
+                    // Список начинают и с пустого листа — эта кнопка
+                    // не гаснет вместе с оформлением.
+                    icon("checklist", t("Список с галочками"), action: draft.toggleChecklist)
                 }
                 primaryAction
             }
@@ -1199,9 +1274,13 @@ struct AssistantPanel: View {
                 // сохраняется. Иначе выйти из правки можно было только двумя
                 // путями, и оба плохи: перезаписать запись тем же текстом
                 // либо очистить поле, то есть потерять её.
+                // Без значка: рядом пять кнопок оформления, и со значком
+                // подпись «Сохранить» не помещалась. Что кнопка сделает,
+                // говорит сама подпись.
                 wideAction(
                     symbol: primarySymbol,
                     title: primaryTitle,
+                    showsSymbol: false,
                     isEnabled: !draft.isNoteEmpty,
                     action: onSaveNote
                 )
@@ -1230,6 +1309,7 @@ struct AssistantPanel: View {
     private func wideAction(
         symbol: String,
         title: String,
+        showsSymbol: Bool = true,
         isEnabled: Bool,
         action: @escaping () -> Void
     ) -> some View {
@@ -1238,11 +1318,15 @@ struct AssistantPanel: View {
                 Image(systemName: symbol)
                     .font(.system(size: NotchStyle.font(12), weight: .semibold))
                     .symbolSwap(symbol)
+                    .frame(width: showsSymbol ? nil : 0)
+                    .opacity(showsSymbol ? 1 : 0)
                 Text(title)
                     .font(.system(size: NotchStyle.font(12), weight: .semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
+            // Подпись не упирается в край капсулы.
+            .padding(.horizontal, 6)
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .frame(height: Self.rowHeight)
