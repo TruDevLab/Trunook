@@ -21,7 +21,9 @@ struct WeatherScenesTests {
         #expect(WeatherScenePick.scene(condition: .clear, windy: true) == .wind)
         #expect(WeatherScenePick.scene(condition: .cloudy, windy: true) == .wind)
         #expect(WeatherScenePick.scene(condition: .rain, windy: true) == .rain)
-        #expect(WeatherScenePick.scene(condition: .snow, windy: true) == .snow)
+        #expect(WeatherScenePick.scene(condition: .snow, windy: true) == .blizzard)
+        #expect(WeatherScenePick.scene(condition: .snow, windy: false, heavy: true) == .heavySnow)
+        #expect(WeatherScenePick.scene(condition: .snow, windy: true, heavy: true) == .blizzard)
     }
 
     /// Ветер около порога не должен включать и выключать «ветрено»

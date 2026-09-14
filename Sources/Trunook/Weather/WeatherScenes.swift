@@ -18,11 +18,12 @@ enum WeatherScenePick {
     }
 
     /// Осадки важнее ветра: под дождём ветер не главное, что видно в окно.
-    static func scene(condition: WeatherCondition, windy: Bool) -> WeatherArt.Scene {
+    /// Снег с ветром — вьюга, сильный снег — снегопад.
+    static func scene(condition: WeatherCondition, windy: Bool, heavy: Bool = false) -> WeatherArt.Scene {
         switch condition {
         case .drizzle: return .drizzle
         case .rain: return .rain
-        case .snow: return .snow
+        case .snow: return windy ? .blizzard : (heavy ? .heavySnow : .snow)
         case .thunder: return .thunder
         case .clear, .cloudy, .fog:
             if windy { return .wind }
@@ -38,7 +39,7 @@ enum WeatherScenePick {
     /// и заводились. Остальное — не чаще `quietGap`.
     static func shouldPlay(_ scene: WeatherArt.Scene, lastPlayedAt: Date?, now: Date) -> Bool {
         switch scene {
-        case .drizzle, .rain, .snow, .thunder: return true
+        case .drizzle, .rain, .snow, .heavySnow, .blizzard, .thunder: return true
         case .sun, .clouds, .fog, .wind:
             guard let lastPlayedAt else { return true }
             return now.timeIntervalSince(lastPlayedAt) >= quietGap
@@ -53,6 +54,8 @@ final class WeatherScenePlayer: ObservableObject {
     private(set) var startedAt = Date()
     /// Ветер дует справа налево.
     private(set) var mirrored = false
+    /// Случайное число показа — например, сколько выплывет облаков.
+    private(set) var variant = 0
 
     /// Сменилась погода, а вырез был занят: сценка ждёт, но не вечно —
     /// дождь, показанный через час после начала, уже не новость.
@@ -98,6 +101,7 @@ final class WeatherScenePlayer: ObservableObject {
         lastPlayedAt = Date()
         startedAt = Date()
         mirrored = Bool.random()
+        variant = Int.random(in: 0..<1000)
         islands = []
         self.scene = scene
         DebugLog.write("погода: сценка \(scene.rawValue)")

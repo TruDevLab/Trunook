@@ -176,14 +176,16 @@ changed in settings or right in the welcome window.
   formatting bar starts a checkbox item; a click checks and strikes it through,
   Enter continues the list. In Obsidian and exports they are plain `- [ ]`.
 - **Weather under the notch.** When the weather changes, rain drips from the
-  notch, snow falls, lightning flashes, the sun pops up, clouds drift out —
+  notch, snow falls, a blizzard swirls, lightning flashes, the sun pops up, clouds drift out —
   and on windy days they rush past. A few seconds of pixel art; turned off
   with "Animate weather changes".
-- **A cat in the notch.** Now and then, every 20–40 minutes, a pixel cat
-  peeks out from under an idle notch: follows the cursor, swishes its tail,
-  runs by, sleeps, yawns, chases a ball of yarn. It stays away while a window
-  is full screen, with Reduce Motion or in Low Power Mode. Turned off with
-  "Liven up the notch".
+- **A cat in the notch.** When the notch has nothing to show, a pixel loaf cat
+  runs out: follows the cursor, swishes its tail, sleeps, runs upside down along
+  the edge, chases a ball of yarn, swears and shakes its fist, smokes, blows
+  a kiss, spins after its tail, hunts the cursor and puts on shades. How often
+  it comes out is up to you: every 2–4, 5–10 or 20–40 minutes. It stays away
+  while a window is full screen, with Reduce Motion or in Low Power Mode; turn it
+  off with "Liven up the notch".
 
 - **Updates itself.** Once a day the app asks GitHub whether a newer version
   exists and downloads it in the background. When it is ready, a pill appears

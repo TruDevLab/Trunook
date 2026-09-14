@@ -67,6 +67,12 @@ final class Settings: ObservableObject {
         set { store(newValue, "critterEnabled") }
     }
 
+    /// Как часто кот выходит. По умолчанию — раз в 5–10 минут.
+    var critterFrequency: CritterFrequency {
+        get { CritterFrequency(rawValue: defaults.string(forKey: "critterFrequency") ?? "") ?? .normal }
+        set { store(newValue.rawValue, "critterFrequency") }
+    }
+
     /// Раскрывать вырез по наведению курсора.
     var expandOnHover: Bool {
         get { flag("expandOnHover", default: true) }

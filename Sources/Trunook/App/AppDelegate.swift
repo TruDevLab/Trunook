@@ -138,11 +138,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.critterEars", #selector(playCritterEars)),
             ("com.trunook.debug.critterPaw", #selector(playCritterPaw)),
             ("com.trunook.debug.critterSleep", #selector(playCritterSleep)),
-            ("com.trunook.debug.critterYawn", #selector(playCritterYawn)),
+            ("com.trunook.debug.critterUpside", #selector(playCritterUpside)),
             ("com.trunook.debug.critterYarn", #selector(playCritterYarn)),
             ("com.trunook.debug.critterAngry", #selector(playCritterAngry)),
+            ("com.trunook.debug.critterFist", #selector(playCritterFist)),
+            ("com.trunook.debug.critterKiss", #selector(playCritterKiss)),
+            ("com.trunook.debug.critterChase", #selector(playCritterChase)),
+            ("com.trunook.debug.critterHunt", #selector(playCritterHunt)),
+            ("com.trunook.debug.critterCool", #selector(playCritterCool)),
+            ("com.trunook.debug.critterSmoke", #selector(playCritterSmoke)),
+            ("com.trunook.debug.critterWinter", #selector(playCritterWinter)),
+            ("com.trunook.debug.critterKittens", #selector(playCritterKittens)),
+            ("com.trunook.debug.critterFlowers", #selector(playCritterFlowers)),
+            ("com.trunook.debug.critterTank", #selector(playCritterTank)),
+            ("com.trunook.debug.critterEaster", #selector(playCritterEaster)),
+            ("com.trunook.debug.critterPumpkin", #selector(playCritterPumpkin)),
+            ("com.trunook.debug.critterValentine", #selector(playCritterValentine)),
+            ("com.trunook.debug.critterRibbon", #selector(playCritterRibbon)),
+            ("com.trunook.debug.critterDragon", #selector(playCritterDragon)),
+            ("com.trunook.debug.critterRocket", #selector(playCritterRocket)),
             ("com.trunook.debug.weatherScene", #selector(playWeatherScene)),
             ("com.trunook.debug.weatherChange", #selector(playWeatherChange)),
+            ("com.trunook.debug.weatherHeavySnow", #selector(playWeatherHeavySnow)),
+            ("com.trunook.debug.weatherBlizzard", #selector(playWeatherBlizzard)),
             ("com.trunook.debug.weatherSun", #selector(playWeatherSun)),
             ("com.trunook.debug.weatherClouds", #selector(playWeatherClouds)),
             ("com.trunook.debug.weatherFog", #selector(playWeatherFog)),
@@ -258,10 +276,105 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add(to: submenu, title: "Окно знакомства", action: #selector(openWelcome), key: "")
         add(to: submenu, title: "Описание выпусков", action: #selector(openReleaseNotes), key: "")
         add(to: submenu, title: "Конфетти из чёлки", action: #selector(testConfetti), key: "")
+        submenu.addItem(.separator())
+        submenu.addItem(scenesMenu(
+            title: "Кот",
+            random: ("Случайная сценка", #selector(playCritter)),
+            items: CritterSchedule.everyday.map { (Self.debugTitle($0), $0.rawValue) },
+            action: #selector(playCritterFromMenu(_:))
+        ))
+        submenu.addItem(scenesMenu(
+            title: "Кот: праздники",
+            random: nil,
+            items: CritterHoliday.allCases.map { (Self.debugTitle($0.act), $0.act.rawValue) },
+            action: #selector(playCritterFromMenu(_:))
+        ))
+        submenu.addItem(scenesMenu(
+            title: "Погода",
+            random: ("Случайная сценка", #selector(playWeatherScene)),
+            items: WeatherArt.Scene.allCases.map { (Self.debugTitle($0), $0.rawValue) },
+            action: #selector(playWeatherFromMenu(_:))
+        ))
 
         let item = NSMenuItem(title: "Отладка", action: nil, keyEquivalent: "")
         item.submenu = submenu
         return item
+    }
+
+    /// Подменю сценок: каждая — пунктом, её имя лежит в `representedObject`.
+    private func scenesMenu(title: String, random: (String, Selector)?, items: [(String, String)],
+                            action: Selector) -> NSMenuItem {
+        let menu = NSMenu()
+        if let random {
+            add(to: menu, title: random.0, action: random.1, key: "")
+            menu.addItem(.separator())
+        }
+        for (name, raw) in items {
+            let item = NSMenuItem(title: name, action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = raw
+            menu.addItem(item)
+        }
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.submenu = menu
+        return item
+    }
+
+    @objc private func playCritterFromMenu(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let act = NotchCritter.Act(rawValue: raw) else { return }
+        controller.debugCritter(act)
+    }
+
+    @objc private func playWeatherFromMenu(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let scene = WeatherArt.Scene(rawValue: raw) else { return }
+        controller.debugWeatherScene(scene)
+    }
+
+    /// Имена сценок в меню отладки. Перечислением, а не словарём: новая
+    /// сценка без имени не соберётся.
+    static func debugTitle(_ act: NotchCritter.Act) -> String {
+        switch act {
+        case .eyes: return "Мордочка"
+        case .tail: return "Хвост"
+        case .run: return "Пробежка"
+        case .ears: return "Уши"
+        case .paw: return "Лапа"
+        case .sleep: return "Сон"
+        case .upside: return "Вверх ногами"
+        case .yarn: return "Клубок"
+        case .angry: return "Злой котик"
+        case .fist: return "Кулак"
+        case .kiss: return "Поцелуйчик"
+        case .chase: return "За хвостом"
+        case .hunt: return "Охота на курсор"
+        case .cool: return "Очки"
+        case .smoke: return "Сигарета"
+        case .winter: return "Новый год"
+        case .kittens: return "1 июня — котята"
+        case .flowers: return "8 Марта — букет"
+        case .tank: return "23 Февраля — танк"
+        case .easter: return "Пасха"
+        case .pumpkin: return "Хэллоуин"
+        case .valentine: return "14 Февраля"
+        case .ribbon: return "9 Мая — ленточка"
+        case .dragon: return "Китайский Новый год"
+        case .rocket: return "День космонавтики"
+        }
+    }
+
+    static func debugTitle(_ scene: WeatherArt.Scene) -> String {
+        switch scene {
+        case .sun: return "Солнце"
+        case .clouds: return "Облачно"
+        case .fog: return "Туман"
+        case .drizzle: return "Морось"
+        case .rain: return "Дождь"
+        case .snow: return "Снег"
+        case .heavySnow: return "Снегопад"
+        case .blizzard: return "Вьюга"
+        case .thunder: return "Гроза"
+        case .wind: return "Ветер"
+        }
     }
 
     @objc private func testPowerConnected() {
@@ -362,11 +475,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func playCritterEars() { controller.debugCritter(.ears) }
     @objc private func playCritterPaw() { controller.debugCritter(.paw) }
     @objc private func playCritterSleep() { controller.debugCritter(.sleep) }
-    @objc private func playCritterYawn() { controller.debugCritter(.yawn) }
+    @objc private func playCritterUpside() { controller.debugCritter(.upside) }
     @objc private func playCritterYarn() { controller.debugCritter(.yarn) }
     @objc private func playCritterAngry() { controller.debugCritter(.angry) }
+    @objc private func playCritterFist() { controller.debugCritter(.fist) }
+    @objc private func playCritterKiss() { controller.debugCritter(.kiss) }
+    @objc private func playCritterChase() { controller.debugCritter(.chase) }
+    @objc private func playCritterHunt() { controller.debugCritter(.hunt) }
+    @objc private func playCritterCool() { controller.debugCritter(.cool) }
+    @objc private func playCritterSmoke() { controller.debugCritter(.smoke) }
+    @objc private func playCritterWinter() { controller.debugCritter(.winter) }
+    @objc private func playCritterKittens() { controller.debugCritter(.kittens) }
+    @objc private func playCritterFlowers() { controller.debugCritter(.flowers) }
+    @objc private func playCritterTank() { controller.debugCritter(.tank) }
+    @objc private func playCritterEaster() { controller.debugCritter(.easter) }
+    @objc private func playCritterPumpkin() { controller.debugCritter(.pumpkin) }
+    @objc private func playCritterValentine() { controller.debugCritter(.valentine) }
+    @objc private func playCritterRibbon() { controller.debugCritter(.ribbon) }
+    @objc private func playCritterDragon() { controller.debugCritter(.dragon) }
+    @objc private func playCritterRocket() { controller.debugCritter(.rocket) }
     @objc private func playWeatherScene() { controller.debugWeatherScene(nil) }
     @objc private func playWeatherChange() { controller.debugWeatherScene(.rain) }
+    @objc private func playWeatherHeavySnow() { controller.debugWeatherScene(.heavySnow) }
+    @objc private func playWeatherBlizzard() { controller.debugWeatherScene(.blizzard) }
     @objc private func playWeatherSun() { controller.debugWeatherScene(.sun) }
     @objc private func playWeatherClouds() { controller.debugWeatherScene(.clouds) }
     @objc private func playWeatherFog() { controller.debugWeatherScene(.fog) }

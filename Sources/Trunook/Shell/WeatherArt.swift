@@ -20,6 +20,10 @@ enum WeatherArt {
         case drizzle
         case rain
         case snow
+        /// Снегопад — снег втрое гуще обычного и быстрее.
+        case heavySnow
+        /// Вьюга — снег и ветер: снег сдувает вбок с завихрениями.
+        case blizzard
         case thunder
         case wind
 
@@ -31,6 +35,8 @@ enum WeatherArt {
             case .drizzle: return 6
             case .rain: return 6.5
             case .snow: return 7.5
+            case .heavySnow: return 7.5
+            case .blizzard: return 6.5
             case .thunder: return 6.5
             case .wind: return 4.5
             }
@@ -50,16 +56,19 @@ enum WeatherArt {
     /// погоды вырез раскрыт плашкой, и капли, сорвавшиеся с её нижнего края,
     /// не должны подпрыгнуть, когда плашка свернётся. `mirrored` — ветер дует
     /// справа налево.
+    /// `variant` — случайное число показа: сколько облаков, например.
     static func draw(_ scene: Scene, in ctx: GraphicsContext, notch: CGRect, size: CGSize, t: TimeInterval,
-                     mirrored: Bool = false, island: ((TimeInterval) -> CGRect)? = nil) {
+                     mirrored: Bool = false, variant: Int = 0, island: ((TimeInterval) -> CGRect)? = nil) {
         let island = island ?? { _ in notch }
         switch scene {
         case .sun: drawSun(ctx, notch: notch, t: t)
-        case .clouds: drawClouds(ctx, notch: notch, t: t)
-        case .fog: drawFog(ctx, notch: notch, t: t)
+        case .clouds: drawClouds(ctx, notch: notch, size: size, t: t, count: 3 + abs(variant) % 3)
+        case .fog: drawFog(ctx, notch: notch, size: size, t: t)
         case .drizzle: drawDrops(ctx, island: island, t: t, style: .drizzle)
         case .rain: drawDrops(ctx, island: island, t: t, style: .rain)
-        case .snow: drawSnow(ctx, island: island, t: t)
+        case .snow: drawSnow(ctx, island: island, t: t, density: 1)
+        case .heavySnow: drawSnow(ctx, island: island, t: t, density: 3)
+        case .blizzard: drawBlizzard(ctx, notch: notch, size: size, t: t, mirrored: mirrored)
         case .thunder:
             drawDrops(ctx, island: island, t: t, style: .storm)
             drawLightning(ctx, notch: notch, t: t)
@@ -113,21 +122,32 @@ enum WeatherArt {
 
     // MARK: - Облака
 
-    /// Облачно: из-за краёв выреза выплывают два облака и возвращаются.
-    private static func drawClouds(_ ctx: GraphicsContext, notch: CGRect, t: TimeInterval) {
+    /// Облачно: из-под середины выреза выплывают облака — от трёх до пяти —
+    /// и расходятся в стороны, но не дальше, чем помещается в окно: иначе
+    /// край окна их срезал. В конце уплывают обратно под чёлку.
+    private static func drawClouds(_ ctx: GraphicsContext, notch: CGRect, size: CGSize, t: TimeInterval, count: Int) {
         let duration = Scene.clouds.duration
-        let big = min(ease(t / 1.6), ease((duration - t) / 1.4))
-        let small = min(ease((t - 0.5) / 1.6), ease((duration - 0.3 - t) / 1.4))
-        let drift = CGFloat(sin(t * 1.2)) * 2
-        // Выезжают из-под выреза в стороны: большое влево, малое вправо.
-        draw(cloud, in: ctx, anchor: CGPoint(
-            x: notch.minX + 40 - CGFloat(big) * 86 + drift,
-            y: notch.maxY + 20
-        ))
-        draw(smallCloud, in: ctx, anchor: CGPoint(
-            x: notch.maxX - 30 + CGFloat(small) * 72 - drift,
-            y: notch.maxY + 10
-        ))
+        // Куда уплывает каждое: сторона, доля свободного места, высота.
+        let layout: [(side: CGFloat, share: CGFloat, drop: CGFloat, big: Bool, delay: Double)] = [
+            (-1, 0.55, 20, true, 0.0),
+            (1, 0.45, 14, false, 0.25),
+            (1, 0.95, 38, true, 0.5),
+            (-1, 0.95, 46, false, 0.75),
+            (1, 0.15, 58, false, 1.0),
+        ]
+        for plan in layout.prefix(count) {
+            let out = min(ease((t - plan.delay) / 1.8), ease((duration - 0.2 - plan.delay * 0.4 - t) / 1.6))
+            guard out > 0.01 else { continue }
+            let sprite = plan.big ? cloud : smallCloud
+            let half = CGFloat(sprite.width) * pixel / 2
+            // Свободное место до края холста — с запасом на полоблака.
+            let room = max(0, size.width / 2 - half - 12)
+            let drift = CGFloat(sin(t * 1.1 + plan.delay * 3)) * 2
+            let x = notch.midX + plan.side * CGFloat(out) * room * plan.share + drift * CGFloat(out)
+            // Выплывает из-под кромки: начинает внутри выреза.
+            let y = notch.maxY - 6 + CGFloat(out) * (plan.drop + 6 + CGFloat(sprite.height) * pixel)
+            draw(sprite, in: ctx, anchor: CGPoint(x: x, y: y))
+        }
     }
 
     static let cloud = Sprite([
@@ -195,32 +215,41 @@ enum WeatherArt {
 
     // MARK: - Туман
 
-    private static func drawFog(_ ctx: GraphicsContext, notch: CGRect, t: TimeInterval) {
+    /// Туман — белая дымка, как нарисованная аэрографом: размытые
+    /// полупрозрачные пятна медленно наплывают из-под выреза и расходятся.
+    /// Не пикселями: пиксельные полосы туманом не читались.
+    private static func drawFog(_ ctx: GraphicsContext, notch: CGRect, size: CGSize, t: TimeInterval) {
         let duration = Scene.fog.duration
-        let fade = min(ease(t / 1.2), ease((duration - t) / 1.2))
+        let fade = min(ease(t / 1.4), ease((duration - t) / 1.4))
         guard fade > 0.01 else { return }
-        var band = Path(), shade = Path()
-        for row in 0..<4 {
-            let y = snap(notch.maxY + 4 + CGFloat(row) * 9)
-            let direction: CGFloat = row % 2 == 0 ? 1 : -1
-            let shift = CGFloat(t * 10) * direction
-            // Полосы короче к низу: туман стелется из-под выреза.
-            let reach = notch.width * (0.7 - CGFloat(row) * 0.1)
-            var cursor = -reach
-            var piece = 0
-            while cursor < reach {
-                let length = CGFloat(Int(6 + noise(row * 31 + piece, 5) * 10)) * pixel
-                let gap = CGFloat(Int(2 + noise(row * 31 + piece, 6) * 4)) * pixel
-                let rect = CGRect(x: snap(notch.midX + cursor + shift), y: y, width: length, height: pixel * 2)
-                band.addRect(rect)
-                shade.addRect(rect.offsetBy(dx: 0, dy: pixel))
-                cursor += length + gap
-                piece += 1
-            }
+        ctx.drawLayer { layer in
+            var haze = layer
+            // Одно большое мягкое пятно под чёлкой — не облачка по отдельности.
+            // Дышит: чуть растёт и опадает, медленно смещается.
+            haze.addFilter(.blur(radius: 26))
+            let breath = CGFloat(sin(t * 0.9)) * 0.06
+            let width = notch.width * (2.0 + breath)
+            let height: CGFloat = 70 * (1 + breath)
+            // Ниже кромки на полторы высоты пятна: выше дымка липла к чёлке.
+            let center = CGPoint(x: notch.midX + CGFloat(sin(t * 0.5)) * 10, y: notch.maxY + 58)
+            let rect = CGRect(x: center.x - width / 2, y: center.y - height / 2, width: width, height: height)
+            haze.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.55 * fade)))
+            // Ядро плотнее — чтобы пятно читалось и на светлых обоях.
+            let core = rect.insetBy(dx: width * 0.25, dy: height * 0.2)
+            haze.fill(Path(ellipseIn: core), with: .color(.white.opacity(0.35 * fade)))
+            // К бокам холста дымка растворяется: иначе край окна срезал её
+            // прямой линией.
+            layer.blendMode = .destinationIn
+            layer.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
+                Gradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .white, location: 0.3),
+                    .init(color: .white, location: 0.7),
+                    .init(color: .clear, location: 1),
+                ]),
+                startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: size.width, y: 0)
+            ))
         }
-        // Белое с тенью снизу: серое на светлых обоях пропадало вовсе.
-        ctx.fill(shade, with: .color(.black.opacity(0.22 * fade)))
-        ctx.fill(band, with: .color(.white.opacity(0.85 * fade)))
     }
 
     // MARK: - Дождь и морось
@@ -304,15 +333,19 @@ enum WeatherArt {
 
     // MARK: - Снег
 
-    private static func drawSnow(_ ctx: GraphicsContext, island: (TimeInterval) -> CGRect, t: TimeInterval) {
+    /// Снег. `density` — во сколько раз гуще: у снегопада втрое.
+    private static func drawSnow(_ ctx: GraphicsContext, island: (TimeInterval) -> CGRect, t: TimeInterval,
+                                 density: Int) {
         let duration = Scene.snow.duration
         let inset: CGFloat = 10
-        for i in 0..<46 {
+        for i in 0..<(46 * density) {
             let born = noise(i, 11) * (duration - 3)
             let age = t - born
             guard age >= 0 else { continue }
             let notch = island(born)
-            let fall = CGFloat(age) * (22 + CGFloat(noise(i, 12)) * 14)
+            // Снегопад идёт заметно быстрее: хлопья валят, а не кружат.
+            let speed = 22 + CGFloat(noise(i, 12)) * 14 + CGFloat(density - 1) * 22
+            let fall = CGFloat(age) * speed
             let depth: CGFloat = 90 + CGFloat(noise(i, 13)) * 60
             guard fall < depth else { continue }
             let sway = CGFloat(sin(age * 2 + noise(i, 14) * 6)) * 6
@@ -321,6 +354,45 @@ enum WeatherArt {
             let sprite = noise(i, 16) > 0.45 ? flake : speck
             draw(sprite, in: ctx, anchor: CGPoint(x: x, y: y + CGFloat(sprite.height) * pixel), shadow: true)
         }
+    }
+
+    /// Вьюга: снег срывается из-под выреза и тут же уносится ветром вбок,
+    /// закручиваясь вихрями; поверх — порывы.
+    private static func drawBlizzard(_ ctx: GraphicsContext, notch: CGRect, size: CGSize, t: TimeInterval, mirrored: Bool) {
+        let duration = Scene.blizzard.duration
+        let wind: CGFloat = mirrored ? -1 : 1
+        for i in 0..<110 {
+            let born = noise(i, 61) * (duration - 2)
+            let age = t - born
+            guard age >= 0, age < 2.6 else { continue }
+            let origin = CGPoint(x: notch.minX + 8 + CGFloat(noise(i, 62)) * (notch.width - 16), y: notch.maxY)
+            // Разгоняется ветром, падает медленно.
+            let gust = 90 + CGFloat(noise(i, 63)) * 110
+            let run = CGFloat(age) * gust + CGFloat(age * age) * 30
+            let fall = CGFloat(age) * (16 + CGFloat(noise(i, 64)) * 20)
+            // Вихрь: круги поверх полёта, у каждой снежинки свой.
+            let radius = 6 + CGFloat(noise(i, 65)) * 12
+            let spin = age * (5 + noise(i, 66) * 4) + noise(i, 67) * 6
+            let x = origin.x + wind * run + radius * CGFloat(cos(spin))
+            let y = origin.y + fall + radius * 0.6 * CGFloat(sin(spin))
+            guard x > -10, x < size.width + 10 else { continue }
+            let sprite = noise(i, 68) > 0.5 ? flake : speck
+            draw(sprite, in: ctx, anchor: CGPoint(x: x, y: y + CGFloat(sprite.height) * pixel), shadow: true)
+        }
+        var streaks = Path(), shade = Path()
+        for i in 0..<12 {
+            let start = noise(i, 71) * (duration - 1)
+            let travelled = CGFloat(t - start) * (340 + CGFloat(noise(i, 72)) * 140)
+            guard travelled > 0, travelled < size.width + 80 else { continue }
+            let head = mirrored ? size.width + 40 - travelled : travelled - 40
+            let y = snap(notch.maxY - 6 + CGFloat(noise(i, 73)) * 80)
+            let length = CGFloat(Int(5 + noise(i, 74) * 7)) * pixel
+            let left = snap(mirrored ? head : head - length)
+            streaks.addRect(CGRect(x: left, y: y, width: length, height: pixel))
+            shade.addRect(CGRect(x: left + pixel, y: y + pixel, width: length, height: pixel))
+        }
+        ctx.fill(shade, with: .color(color("k")))
+        ctx.fill(streaks, with: .color(.white.opacity(0.9)))
     }
 
     static let flake = Sprite([
@@ -364,6 +436,17 @@ enum WeatherArt {
         case "b": return Color(red: 0.45, green: 0.78, blue: 1.0)
         case "B": return Color(red: 0.2, green: 0.5, blue: 0.95)
         case "l": return Color(red: 1.0, green: 0.93, blue: 0.4)
+        // Праздничные сценки кота.
+        case "K": return Color(white: 0.04)
+        case "r": return Color(red: 0.9, green: 0.14, blue: 0.2)
+        case "R": return Color(red: 0.58, green: 0.07, blue: 0.1)
+        case "G": return Color(red: 0.22, green: 0.66, blue: 0.26)
+        case "e": return Color(red: 0.42, green: 0.5, blue: 0.22)
+        case "n": return Color(red: 0.24, green: 0.31, blue: 0.13)
+        case "d": return Color(red: 1.0, green: 0.8, blue: 0.24)
+        case "D": return Color(red: 0.78, green: 0.5, blue: 0.08)
+        case "p": return Color(red: 1.0, green: 0.52, blue: 0.76)
+        case "v": return Color(red: 0.62, green: 0.36, blue: 0.92)
         default: return .clear
         }
     }
@@ -388,6 +471,41 @@ enum WeatherArt {
         }
         if shadow { ctx.fill(shade, with: .color(.black.opacity(0.35))) }
         // Обводка первой: цветное ложится поверх.
+        if let outline = paths.removeValue(forKey: "k") {
+            ctx.fill(outline, with: .color(color("k")))
+        }
+        for (key, path) in paths {
+            ctx.fill(path, with: .color(color(key)))
+        }
+    }
+
+    /// Спрайт, повёрнутый на угол `angle` (радианы, по часовой на экране)
+    /// вокруг своей середины `center`. Пиксели остаются на сетке: для каждой
+    /// клетки экрана берётся клетка спрайта, из которой она пришла, —
+    /// так в повёрнутом рисунке не появляется дыр.
+    static func drawRotated(_ sprite: Sprite, in ctx: GraphicsContext, center: CGPoint, angle: Double, flipped: Bool = false) {
+        let cosA = cos(angle), sinA = sin(angle)
+        let halfW = Double(sprite.width) / 2, halfH = Double(sprite.height) / 2
+        let reach = Int((hypot(halfW, halfH)).rounded(.up)) + 1
+        let originX = snap(center.x), originY = snap(center.y)
+        var paths: [Character: Path] = [:]
+        for dy in -reach...reach {
+            for dx in -reach...reach {
+                let x = Double(dx) + 0.5, y = Double(dy) + 0.5
+                // Обратный поворот: откуда в спрайте пришла эта клетка.
+                let sx = x * cosA + y * sinA + halfW
+                let sy = -x * sinA + y * cosA + halfH
+                guard sx >= 0, sy >= 0 else { continue }
+                var column = Int(sx)
+                let row = Int(sy)
+                guard column < sprite.width, row < sprite.height else { continue }
+                if flipped { column = sprite.width - 1 - column }
+                guard let key = sprite.cells[row][column] else { continue }
+                let rect = CGRect(x: originX + CGFloat(dx) * pixel, y: originY + CGFloat(dy) * pixel,
+                                  width: pixel, height: pixel)
+                paths[key, default: Path()].addRect(rect)
+            }
+        }
         if let outline = paths.removeValue(forKey: "k") {
             ctx.fill(outline, with: .color(color("k")))
         }

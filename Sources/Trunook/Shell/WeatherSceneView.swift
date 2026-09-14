@@ -31,7 +31,7 @@ struct WeatherSceneView: View {
                 clipped.clip(to: region, style: FillStyle(eoFill: true))
                 WeatherArt.draw(
                     scene, in: clipped, notch: island(0), size: size, t: t,
-                    mirrored: player.mirrored, island: island
+                    mirrored: player.mirrored, variant: player.variant, island: island
                 )
             }
         }

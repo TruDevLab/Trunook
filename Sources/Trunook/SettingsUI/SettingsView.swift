@@ -441,6 +441,20 @@ struct SettingsView: View {
                         Toggle(t("Оживлять вырез"), isOn: settings.binding(\.critterEnabled))
                         hint(t("Изредка в чёлке появляется кот, пока ей нечего показывать."))
                     }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker(t("Как часто"), selection: Binding(
+                            get: { settings.critterFrequency },
+                            set: { settings.critterFrequency = $0 }
+                        )) {
+                            ForEach(CritterFrequency.allCases) { frequency in
+                                Text(frequency.title).tag(frequency)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: SettingsStyle.pickerWidth, alignment: .leading)
+                        .disabled(!settings.critterEnabled)
+                        hint(settings.critterFrequency.hint)
+                    }
 
                     VStack(alignment: .leading, spacing: 4) {
                         Picker(t("Размер текста"), selection: Binding(

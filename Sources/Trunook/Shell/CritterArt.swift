@@ -74,17 +74,25 @@ enum CritterArt {
     /// Нарисовать спрайт. `anchor` — точка на экране под серединой нижнего
     /// ряда; `flipped` — смотрит влево. Координаты прилипают к сетке пикселей:
     /// дробный сдвиг размазал бы пиксели в муть.
-    static func draw(_ sprite: Sprite, in ctx: GraphicsContext, anchor: CGPoint, flipped: Bool = false, outlined: Bool = false) {
+    /// `ink` — цвет «чёрных» клеток: у кота он чёрный, у сердечка красный.
+    /// `upsideDown` — вверх ногами: ряды идут снизу вверх, прямоугольник
+    /// спрайта тот же.
+    /// `paper` — цвет «белых» клеток, `outline` — обводки: белый котик
+    /// рисуется белым телом, чёрными глазами и чёрной обводкой.
+    static func draw(_ sprite: Sprite, in ctx: GraphicsContext, anchor: CGPoint, flipped: Bool = false,
+                     upsideDown: Bool = false, outlined: Bool = false, ink: Color = .black,
+                     paper: Color = .white, outline: Color = .white) {
         let p = pixel
         let originX = (anchor.x / p).rounded() * p - CGFloat(sprite.width / 2) * p
         let originY = (anchor.y / p).rounded() * p - CGFloat(sprite.height) * p
         func rect(_ x: Int, _ y: Int) -> CGRect {
             let column = flipped ? sprite.width - 1 - x : x
-            return CGRect(x: originX + CGFloat(column) * p, y: originY + CGFloat(y) * p, width: p, height: p)
+            let row = upsideDown ? sprite.height - 1 - y : y
+            return CGRect(x: originX + CGFloat(column) * p, y: originY + CGFloat(row) * p, width: p, height: p)
         }
-        var white = Path(), black = Path()
+        var white = Path(), black = Path(), rim = Path()
         if outlined {
-            for (x, y) in sprite.outline { white.addRect(rect(x, y)) }
+            for (x, y) in sprite.outline { rim.addRect(rect(x, y)) }
         }
         for y in 0..<sprite.height {
             for x in 0..<sprite.width {
@@ -95,8 +103,9 @@ enum CritterArt {
                 }
             }
         }
-        ctx.fill(black, with: .color(.black))
-        ctx.fill(white, with: .color(.white))
+        ctx.fill(rim, with: .color(outline))
+        ctx.fill(black, with: .color(ink))
+        ctx.fill(white, with: .color(paper))
     }
 
     // MARK: - Мордочка из-под чёлки
@@ -330,49 +339,6 @@ enum CritterArt {
         Sprite(["#####", "...#.", "..#..", ".#...", "#####"]),
     ]
 
-    // MARK: - Зевок
-
-    /// Мордочка из-под чёлки, зевающая. `stage` — 0 рот закрыт, 1 приоткрыт,
-    /// 2 зевает во весь рот.
-    ///
-    /// Во весь рот — не белый кружок: одинокий кружок на чёрной морде
-    /// не читался ртом. Глаза зажмурены галочками, рот широкий, с чёрным
-    /// язычком внизу, челюсть опущена на три ряда.
-    static func yawn(stage: Int, look: Int) -> Sprite {
-        let base = peek(open: stage == 0 ? 2 : stage == 1 ? 1 : 0, look: look)
-        var cells = base.cells
-        let width = base.width
-        switch stage {
-        case 2:
-            // Челюсть опускается: подбородок на три ряда ниже.
-            for range in [8...17, 9...16, 11...14] {
-                var chin = Array(repeating: Bool?.none, count: width)
-                for x in range { chin[x] = true }
-                cells.append(chin)
-            }
-            // Зажмуренные глаза — галочки вершиной вверх.
-            for (row, column) in [(8, 8), (7, 9), (8, 10), (8, 15), (7, 16), (8, 17)] {
-                cells[row][column] = false
-            }
-            // Рот: широкий, скруглённый, с язычком.
-            let mouth: [(Int, ClosedRange<Int>)] = [
-                (10, 12...13), (11, 11...14), (12, 11...14), (13, 12...13),
-            ]
-            for (row, range) in mouth {
-                for x in range { cells[row][x] = false }
-            }
-            for x in 12...13 { cells[13][x] = true }
-        case 1:
-            // Приоткрытый рот — маленький овал.
-            for (row, range) in [(9, 12...13), (10, 11...14), (11, 12...13)] {
-                for x in range { cells[row][x] = false }
-            }
-        default:
-            break
-        }
-        return Sprite(width: width, height: cells.count, cells: cells)
-    }
-
     // MARK: - Клубок
 
     /// Клубок с нитками. Два кадра — клубок катится.
@@ -395,59 +361,157 @@ enum CritterArt {
 
     // MARK: - Злой котик
 
-    /// Сидит лицом к зрителю, брови домиком, грозит поднятым кулаком.
-    /// Два кадра: кулак вверху и кулак ниже — трясёт.
-    static let angry: [Sprite] = [
-        Sprite(angryRows(fistHigh: true)),
-        Sprite(angryRows(fistHigh: false)),
+    /// Ругательства — значки, которыми в комиксах заменяют брань.
+    /// Рисуются красным (`heartColor`), по одному вылетают от головы.
+    static let grawlix: [Sprite] = [
+        Sprite([".#.#.", "#####", ".#.#.", "#####", ".#.#."]),
+        Sprite([".###.", "#.#.#", "#.###", "#....", ".###."]),
+        Sprite(["..#..", "..#..", "..#..", ".....", "..#.."]),
+        Sprite(["##..#", "##.#.", "..#..", ".#.##", "#..##"]),
+        Sprite([".####", "#.#..", ".###.", "..#.#", "####."]),
+        Sprite(["..#..", "#.#.#", ".###.", "#.#.#", "..#.."]),
     ]
 
-    private static func angryRows(fistHigh: Bool) -> [String] {
-        let head = [
-            "..#.....#.......",
-            "..##...##.......",
-            "..#######.......",
-            ".#########......",
-            ".#W#####W#......",
-            ".##W###W##......",
-            ".#########......",
-            "..#######.......",
-        ]
-        let body = [
-            ".###########....",
-            "############....",
-            "###########.....",
-            "###########.....",
-            ".#########......",
-            "..##....##......",
-        ]
-        // Рука с кулаком — справа от головы, поверх пустых столбцов.
-        // Рука с кулаком — справа от головы: толстая, кулак круглый.
-        let arm: [(Int, String)] = fistHigh
-            ? [(0, ".##."), (1, "####"), (2, "####"), (3, ".##."), (4, "..#."), (5, ".##."), (6, "##.."), (7, "#...")]
-            : [(2, ".##."), (3, "####"), (4, "####"), (5, ".##."), (6, "##.."), (7, "#...")]
-        var rows = [String](repeating: "................", count: 1) + head + body
-        for (row, piece) in arm {
-            var chars = Array(rows[row + 1])
-            for (i, c) in piece.enumerated() where c == "#" {
-                chars[10 + i] = "#"
+    // MARK: - Кулак
+
+    /// Буханка, которая сердится. `frown` — брови галочкой над глазами
+    /// (внешние концы выше внутренних), глаза прищурены до одного ряда.
+    /// `fist` — кулак у мордочки поднят высоко (`true`), чуть ниже (`false`)
+    /// или спрятан (`nil`); высоко и ниже чередуются — трясёт.
+    ///
+    /// Кулак спереди, а не над головой: котик лежит в полосе меню, и над
+    /// ним край экрана. Спрайт шире буханки на шесть столбцов под кулак —
+    /// рисовать его надо со сдвигом `fistShift`, чтобы тело не съехало.
+    static func fistLoaf(frown: Bool, fist: Bool?) -> Sprite {
+        var rows = loafRows(eyes: frown ? [8] : [7, 8]).map { Array($0 + "......") }
+        if frown {
+            // Брови в три пикселя: короче они сливались с глазами в точки.
+            for (row, column) in [(4, 11), (5, 12), (6, 13), (4, 19), (5, 18), (6, 17)] {
+                rows[row][column] = "W"
             }
-            rows[row + 1] = String(chars)
         }
-        // Плечо: рука сходится с телом.
-        var shoulder = Array(rows[8])
-        shoulder[10] = "#"
-        rows[8] = String(shoulder)
-        return rows
+        if let high = fist {
+            // Кулак отставлен от мордочки на два столбца: вплотную чёрный
+            // кулак сливался с чёрной головой в бугор.
+            let top = high ? 1 : 4
+            let knuckles = [".##.", "####", "####", ".##."]
+            for (i, line) in knuckles.enumerated() {
+                for (j, c) in line.enumerated() where c == "#" { rows[top + i][24 + j] = "#" }
+            }
+            // Рука от груди к кулаку.
+            let arm: [(Int, [Int])] = high
+                ? [(5, [24, 25]), (6, [23, 24]), (7, [22, 23]), (8, [21, 22])]
+                : [(8, [23, 24]), (9, [21, 22])]
+            for (row, columns) in arm { for column in columns { rows[row][column] = "#" } }
+        }
+        return Sprite(rows.map { String($0) })
     }
 
-    /// Знак злости — вздувшаяся жилка, как в комиксах.
-    static let anger = Sprite([
-        ".#.#.",
-        "##.##",
-        ".....",
-        "##.##",
-        ".#.#.",
+    /// На сколько сдвинуть точку привязки `fistLoaf` вперёд, чтобы тело
+    /// встало там же, где стоит обычная буханка.
+    static var fistShift: CGFloat { 3 * pixel }
+
+    // MARK: - Сигарета
+
+    /// Сигарета во рту буханки — клетками на сетке буханки: фильтр лежит
+    /// на мордочке (столбцы 19–20), бумага торчит наружу (21–23), уголёк —
+    /// столбец 24; всё на ряду рта, десятом.
+    static let cigaretteRow = 10
+    static let filterColumns = 19...20
+    static let paperColumns = 21...23
+    static let emberColumn = 24
+
+    static let filterColor = Color(red: 0.86, green: 0.58, blue: 0.3)
+    static let paperColor = Color(white: 0.94)
+    static let emberDim = Color(red: 0.8, green: 0.26, blue: 0.05)
+    static let emberBright = Color(red: 1.0, green: 0.6, blue: 0.12)
+    static let flameColor = Color(red: 1.0, green: 0.85, blue: 0.3)
+    static let smokeColor = Color(white: 0.72)
+
+    /// Клетка сетки буханки или бегущего котика на экране. Та же привязка,
+    /// что у `draw`: `anchor` — под серединой нижнего ряда, координаты
+    /// прилипают к сетке. Столбцы могут выходить за спрайт — для того,
+    /// что котик держит перед собой.
+    static func cell(_ column: Int, _ row: Int, of sprite: Sprite, anchor: CGPoint, flipped: Bool) -> CGRect {
+        let p = pixel
+        let originX = (anchor.x / p).rounded() * p - CGFloat(sprite.width / 2) * p
+        let originY = (anchor.y / p).rounded() * p - CGFloat(sprite.height) * p
+        let mirrored = flipped ? sprite.width - 1 - column : column
+        return CGRect(x: originX + CGFloat(mirrored) * p, y: originY + CGFloat(row) * p, width: p, height: p)
+    }
+
+    /// Искры злости: золотые и оранжевые, как у бенгальского огня.
+    static let sparkColors = [sparkleColor, Color(red: 1.0, green: 0.45, blue: 0.1)]
+
+    // MARK: - Поцелуйчик
+
+    /// Сердечко поцелуйчика: маленькое, когда только появилось у мордочки,
+    /// и большое на лету. Рисуется красным (`heartColor`), блик белый —
+    /// единственный цвет у кота, чтобы сердечко читалось сразу.
+    static let hearts: [Sprite] = [
+        Sprite([
+            ".#.#.",
+            "#####",
+            ".###.",
+            "..#..",
+        ]),
+        Sprite([
+            ".##.##.",
+            "#W#####",
+            "#######",
+            ".#####.",
+            "..###..",
+            "...#...",
+        ]),
+    ]
+
+    static let heartColor = Color(red: 0.93, green: 0.16, blue: 0.24)
+
+    // MARK: - Очки
+
+    /// Длинные узкие очки. Оправа белая, линзы чёрные: чёрные очки на чёрной
+    /// мордочке не видны вовсе, а белая оправа читается сразу. Правая дужка
+    /// тянется назад, к уху. Лежат на рядах 6–8 буханки, первый столбец —
+    /// восьмой столбец буханки; линзы закрывают глаза.
+    static let glasses = Sprite([
+        "WWWWWWWWWWWWWW",
+        "...W####W####W",
+        "....WWWW.WWWW.",
+    ])
+
+    /// Блик с линзы: вспыхивает точкой, раскрывается звёздочкой и мерцает,
+    /// поворачиваясь то крестом, то косым крестом.
+    static let sparkle: [Sprite] = [
+        Sprite([
+            ".#.",
+            "###",
+            ".#.",
+        ]),
+        Sprite([
+            "..#..",
+            "..#..",
+            "##W##",
+            "..#..",
+            "..#..",
+        ]),
+        Sprite([
+            "#...#",
+            ".#.#.",
+            "..W..",
+            ".#.#.",
+            "#...#",
+        ]),
+    ]
+
+    static let sparkleColor = Color(red: 1.0, green: 0.82, blue: 0.2)
+
+    /// Кружится: над головой котика, догнавшего собственный хвост, — спиралька.
+    static let dizzy = Sprite([
+        ".###.",
+        "#...#",
+        "#.#.#",
+        "#..#.",
+        ".##..",
     ])
 
     static func smooth(_ x: CGFloat, from a: CGFloat, to b: CGFloat) -> CGFloat {

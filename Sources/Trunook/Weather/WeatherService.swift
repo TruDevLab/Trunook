@@ -25,6 +25,8 @@ final class WeatherService: NSObject, ObservableObject {
         let condition: WeatherCondition
         /// Ветер у земли, км/ч. Ноль, если сервис его не прислал.
         var wind: Double = 0
+        /// Осадки сильные — для снега это снегопад (коды WMO 75 и 86).
+        var heavy = false
         let updatedAt: Date
         /// Ближайшие осадки, если они ожидаются в окне прогноза.
         let outlook: Outlook?
@@ -261,6 +263,7 @@ final class WeatherService: NSObject, ObservableObject {
             temperature: Int(temperature.rounded()),
             condition: WeatherCondition(wmo: code),
             wind: currentBlock["wind_speed_10m"] as? Double ?? 0,
+            heavy: [65, 67, 75, 82, 86].contains(code),
             updatedAt: Date(),
             outlook: outlook
         )
@@ -307,15 +310,22 @@ final class WeatherService: NSObject, ObservableObject {
                 announcedCondition = snapshot.condition
                 // Небо то же, но поднялся ветер: у него своя сценка, и без
                 // плашки она шла бы молча, в отличие от всех остальных.
-                if previous != nil, isWindy, !wasWindy, !snapshot.condition.isPrecipitation {
-                    let alert = alert(for: .wind, snapshot: snapshot)
-                    announce(text: alert.text, symbol: alert.symbol)
+                if previous != nil, isWindy, !wasWindy {
+                    // Под снегом поднявшийся ветер — это уже вьюга.
+                    if snapshot.condition == .snow {
+                        let alert = alert(for: .blizzard, snapshot: snapshot)
+                        announce(text: alert.text, symbol: alert.symbol)
+                    } else if !snapshot.condition.isPrecipitation {
+                        let alert = alert(for: .wind, snapshot: snapshot)
+                        announce(text: alert.text, symbol: alert.symbol)
+                    }
                 }
                 return
             }
             announcedCondition = snapshot.condition
-            announce(text: "\(snapshot.condition.title), \(formatted(snapshot.temperature))",
-                     symbol: snapshot.condition.symbol)
+            let scene = WeatherScenePick.scene(condition: snapshot.condition, windy: isWindy, heavy: snapshot.heavy)
+            let alert = alert(for: scene, snapshot: snapshot)
+            announce(text: alert.text, symbol: alert.symbol)
         }
     }
 
@@ -337,6 +347,8 @@ final class WeatherService: NSObject, ObservableObject {
         case .drizzle: condition = .drizzle
         case .rain: condition = .rain
         case .snow: condition = .snow
+        case .heavySnow: return (tf("%@, %@", t("Снегопад"), temperature), "cloud.snow.fill")
+        case .blizzard: return (tf("%@, %@", t("Вьюга"), temperature), "wind.snow")
         case .thunder: condition = .thunder
         }
         return ("\(condition.title), \(temperature)", condition.symbol)
@@ -344,7 +356,7 @@ final class WeatherService: NSObject, ObservableObject {
 
     private func announceScene(for snapshot: Snapshot) {
         isWindy = WeatherScenePick.isWindy(wind: snapshot.wind, wasWindy: isWindy)
-        let scene = WeatherScenePick.scene(condition: snapshot.condition, windy: isWindy)
+        let scene = WeatherScenePick.scene(condition: snapshot.condition, windy: isWindy, heavy: snapshot.heavy)
         defer { currentScene = scene }
         guard let currentScene, currentScene != scene else { return }
         onSceneChange?(scene)

@@ -489,6 +489,7 @@ final class NotchController {
         notes.onSaved = { [weak self] id in self?.linker.enqueue(id: id) }
         installAudioRetention()
         critter.onDue = { [weak self] in self?.critterDue() }
+        critter.frequency = { [weak self] in self?.settings.critterFrequency ?? .normal }
         critter.start()
 
         // Заметка из записи готова — показать её так же, как показывают
@@ -2954,6 +2955,7 @@ final class NotchController {
             return
         }
         critter.play()
+        updateCritterGaze()
     }
 
     /// Сценку перебивает всё, что вырезу есть показать, и выключенная
@@ -2985,6 +2987,11 @@ final class NotchController {
         // заметно, но у края чёлки упирается, а не прыгает.
         let reach: CGFloat = 400
         critter.gaze = CGPoint(x: max(-1, min(1, dx / reach)), y: max(-1, min(1, dy / reach)))
+        // Для охоты — сам курсор в точках от верха выреза: `notch.maxY` —
+        // верхняя кромка экрана.
+        if critter.act == .hunt {
+            critter.pointer = CGPoint(x: dx, y: notch.maxY - cursor.y)
+        }
         critter.squints = critter.act == .eyes && hypot(dx, dy) < 70
     }
 
@@ -3065,7 +3072,8 @@ final class NotchController {
     func debugCritter(_ act: NotchCritter.Act?) {
         DebugLog.write("кот: проверка — \(critterGate.reason)")
         critterForced = true
-        critter.play(act)
+        critter.play(act, debug: true)
+        updateCritterGaze()
     }
 
     // MARK: - Срок хранения записей
