@@ -923,7 +923,7 @@ struct WelcomeView: View {
                       subtitle: t("Без доступа приложение работает, но соответствующая часть молчит."))
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 8) {
-                    ForEach(WelcomeModel.Permission.allCases) { permission in
+                    ForEach(WelcomeModel.Permission.onboarding) { permission in
                         permissionRow(permission)
                     }
                     weatherRow

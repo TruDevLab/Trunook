@@ -447,6 +447,8 @@ enum WeatherArt {
         case "D": return Color(red: 0.78, green: 0.5, blue: 0.08)
         case "p": return Color(red: 1.0, green: 0.52, blue: 0.76)
         case "v": return Color(red: 0.62, green: 0.36, blue: 0.92)
+        // Сценки-напоминания кота: чай в кружке.
+        case "t": return Color(red: 0.62, green: 0.36, blue: 0.14)
         default: return .clear
         }
     }

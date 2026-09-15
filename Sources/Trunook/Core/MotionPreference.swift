@@ -31,10 +31,15 @@ final class MotionPreference: ObservableObject {
     /// подписываться на него дважды.
     @Published private(set) var reduceTransparency: Bool
 
+    /// Там же: «Увеличить контраст». Окна с цветным фоном переходят
+    /// на сплошной: текст поверх пятен читается хуже.
+    @Published private(set) var increaseContrast: Bool
+
     private init() {
         let workspace = NSWorkspace.shared
         reduceMotion = workspace.accessibilityDisplayShouldReduceMotion
         reduceTransparency = workspace.accessibilityDisplayShouldReduceTransparency
+        increaseContrast = workspace.accessibilityDisplayShouldIncreaseContrast
 
         workspace.notificationCenter.addObserver(
             self,
@@ -48,9 +53,11 @@ final class MotionPreference: ObservableObject {
         let workspace = NSWorkspace.shared
         let motion = workspace.accessibilityDisplayShouldReduceMotion
         let transparency = workspace.accessibilityDisplayShouldReduceTransparency
-        guard motion != reduceMotion || transparency != reduceTransparency else { return }
+        let contrast = workspace.accessibilityDisplayShouldIncreaseContrast
+        guard motion != reduceMotion || transparency != reduceTransparency || contrast != increaseContrast else { return }
         reduceMotion = motion
         reduceTransparency = transparency
+        increaseContrast = contrast
         DebugLog.write("доступность: движение \(motion ? "уменьшено" : "обычное"), "
                        + "прозрачность \(transparency ? "уменьшена" : "обычная")")
     }

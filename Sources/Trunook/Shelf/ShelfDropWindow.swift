@@ -26,12 +26,16 @@ import TrunookXPC
 /// - **Схлопывается с задержкой.** Мгновенный возврат к полоске вытаскивает
 ///   окно из-под курсора, тот попадает в него снова, и получается мигание.
 final class ShelfDropWindow {
-    /// Курсор с файлами зашёл в зону приёма.
-    var onEnter: (() -> Void)?
+    /// Курсор с файлами зашёл в зону приёма. Сами файлы — чтобы раздел
+    /// «Сжать» знал заранее, не распаковать ли он их.
+    var onEnter: (([URL]) -> Void)?
+    /// Курсор с файлами сдвинулся. Точка — в координатах экрана: по ней
+    /// выбирается раздел полки.
+    var onMove: ((CGPoint) -> Void)?
     /// Курсор с файлами ушёл, ничего не уронив.
     var onExit: (() -> Void)?
-    /// Файлы уронили. Возврат — принято ли хоть что-то.
-    var onDrop: (([URL]) -> Bool)?
+    /// Файлы уронили в точке экрана. Возврат — принято ли хоть что-то.
+    var onDrop: (([URL], CGPoint) -> Bool)?
 
     private var panel: DropPanel?
     private var view: DropView?
@@ -140,19 +144,20 @@ final class ShelfDropWindow {
         panel.animationBehavior = .none
 
         let view = DropView(frame: CGRect(origin: .zero, size: collapsedFrame.size))
-        view.onEnter = { [weak self] in
+        view.onEnter = { [weak self] urls in
             guard let self else { return }
             self.grow()
-            self.onEnter?()
+            self.onEnter?(urls)
         }
+        view.onMove = { [weak self] point in self?.onMove?(point) }
         view.onExit = { [weak self] in
             guard let self else { return }
             self.scheduleCollapse()
             self.onExit?()
         }
-        view.onDrop = { [weak self] urls in
+        view.onDrop = { [weak self] urls, point in
             guard let self else { return false }
-            let accepted = self.onDrop?(urls) ?? false
+            let accepted = self.onDrop?(urls, point) ?? false
             self.scheduleCollapse()
             return accepted
         }
@@ -200,9 +205,10 @@ private final class DropView: NSView {
         bounds.fill()
     }
 
-    var onEnter: (() -> Void)?
+    var onEnter: (([URL]) -> Void)?
+    var onMove: ((CGPoint) -> Void)?
     var onExit: (() -> Void)?
-    var onDrop: (([URL]) -> Bool)?
+    var onDrop: (([URL], CGPoint) -> Bool)?
 
     var isHighlighted = false
 
@@ -242,12 +248,20 @@ private final class DropView: NSView {
         }
         isHighlighted = true
         DebugLog.write("полка: перетаскивание вошло, файлов \(files.count)")
-        onEnter?()
+        onEnter?(files)
         return .copy
     }
 
+    /// Точка перетаскивания на экране. Окно растёт посреди перетаскивания,
+    /// и координаты окна между двумя событиями значат разное, — экранные нет.
+    private func screenPoint(_ sender: NSDraggingInfo) -> CGPoint {
+        window?.convertPoint(toScreen: sender.draggingLocation) ?? sender.draggingLocation
+    }
+
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        urls(from: sender).isEmpty ? [] : .copy
+        guard !urls(from: sender).isEmpty else { return [] }
+        onMove?(screenPoint(sender))
+        return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -265,6 +279,6 @@ private final class DropView: NSView {
         let files = urls(from: sender)
         DebugLog.write("полка: уронили \(files.count)")
         guard !files.isEmpty else { return false }
-        return onDrop?(files) ?? false
+        return onDrop?(files, screenPoint(sender)) ?? false
     }
 }

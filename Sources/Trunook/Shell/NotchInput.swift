@@ -24,6 +24,23 @@ final class NotchInput {
     private let host: NotchWindowHost
     private let petting = PettingDetector()
     private let drag = DragDetector()
+    /// Что-то тащат — файл, текст или окно.
+    var isDragging: Bool { drag.isDragging }
+
+    /// Счёт буфера перетаскивания, пока ничего не тащат.
+    private var dragPasteboardBaseline = NSPasteboard(name: .drag).changeCount
+
+    /// Тащат **данные** — файл или текст, а не окно и не выделение.
+    ///
+    /// Перетаскивание с зажатой кнопкой — это и выделение текста, и ползунок
+    /// прокрутки, и перенос окна за заголовок. Данные среди них несёт только
+    /// настоящий сеанс перетаскивания, и он всегда пишет в буфер `.drag`.
+    /// Зона приёма полки оживала на любое перетаскивание и на это время
+    /// съедала мышь в полосе под чёлкой — с раскладкой окон, которую тащат
+    /// именно туда, это стало заметно.
+    var isDraggingData: Bool {
+        drag.isDragging && NSPasteboard(name: .drag).changeCount != dragPasteboardBaseline
+    }
 
     /// Курсор вошёл в зону выреза или покинул её.
     var onHoverChanged: ((Bool) -> Void)?
@@ -153,6 +170,11 @@ final class NotchInput {
                 isPressed: pressed,
                 at: NSEvent.mouseLocation
             )
+            // Точка отсчёта — пока ничего не тащат. Не «пока кнопка отпущена»:
+            // перетаскивание тремя пальцами идёт без нажатой кнопки.
+            if !pressed, !self.drag.isDragging {
+                self.dragPasteboardBaseline = NSPasteboard(name: .drag).changeCount
+            }
             self.expirePendingSwipe()
             self.onTick?()
         }
@@ -239,9 +261,13 @@ final class NotchInput {
             petting.reset()
             return
         }
+        // Пока что-то тащат, мини-вид не раскрывается: окно за заголовок
+        // ведут к чёлке ради раскладок, файл — ради полки, и мини-вид
+        // только встал бы поперёк.
+        let dragging = drag.isDragging && NSEvent.pressedMouseButtons & 1 != 0
         let inside = state.isHovered
             ? host.closeTriggerRect.contains(location)
-            : host.openTriggerRect.contains(location)
+            : host.openTriggerRect.contains(location) && !dragging
         if inside != state.isHovered { setHovered(inside) }
         // Поглаживание проверяется на каждом движении, а не только на смене
         // состояния: пока курсор ходит внутри выреза, наведение не меняется.

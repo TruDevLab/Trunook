@@ -36,6 +36,17 @@ struct AuroraBackground: View {
     @ObservedObject private var motion = MotionPreference.shared
 
     var body: some View {
+        // «Увеличить контраст» — сплошной фон без пятен: строка поверх
+        // бирюзового пятна читается хуже, чем поверх чёрного, а человек
+        // с этой настройкой просил ровно о чтении.
+        if motion.increaseContrast {
+            Palette.windowBase
+        } else {
+            aurora
+        }
+    }
+
+    private var aurora: some View {
         // Самая большая анимация в приложении — три пятна во весь экран,
         // тридцать кадров в секунду, всё время, пока открыто окно. Крутить
         // её при «уменьшить движение» нельзя вдвойне: настройка ровно про это,

@@ -74,6 +74,14 @@ final class NotchCritter: ObservableObject {
         /// День космонавтики: котик вылетает на ракете, делает петлю и улетает в чёлку.
         case rocket
 
+        // Напоминания — только вместе со своей плашкой, см. `BreakKind`.
+        /// Перерыв: котик лежит у кружки чая с закрытыми глазами, от кружки пар.
+        case rest
+        /// Вода: котик пьёт из стакана через трубочку, вода убывает.
+        case drink
+        /// Разминка: котик в повязке прыгает со счётом и потягивается.
+        case stretch
+
         var duration: TimeInterval {
             switch self {
             case .eyes: return 5
@@ -101,11 +109,18 @@ final class NotchCritter: ObservableObject {
             case .ribbon: return 6.2
             case .dragon: return 7.0
             case .rocket: return 4.4
+            case .rest: return 8.4
+            case .drink: return 8.6
+            case .stretch: return 8.4
             }
         }
 
         /// Сценки, где котик смотрит на курсор.
         var followsCursor: Bool { self == .eyes || self == .paw || self == .hunt }
+
+        /// Сценка напоминания: играет вместе со своей плашкой, а не сама
+        /// по себе в свободной чёлке.
+        var isReminder: Bool { self == .rest || self == .drink || self == .stretch }
     }
 
     /// Идущая сценка. `nil` — кот спит.
@@ -123,6 +138,9 @@ final class NotchCritter: ObservableObject {
     /// Погоня идёт шагами от кадра к кадру: где котик сейчас, зависит
     /// от того, куда водили курсор, а не только от времени.
     private var hunt = HuntState()
+    /// Ширина острова, пока идёт сценка напоминания: котик выходит из-за
+    /// края плашки, а она шире чёлки.
+    @Published var islandWidth: CGFloat = 0
     /// У какого края чёлки сценка: −1 левый, 1 правый. Выбирается заново
     /// на каждую сценку — котик живёт по обе стороны выреза.
     private(set) var side: CGFloat = 1
@@ -383,7 +401,7 @@ enum CritterSchedule {
 
     /// Обычные сценки — без праздничных: те выходят только в свой день.
     static var everyday: [NotchCritter.Act] {
-        NotchCritter.Act.allCases.filter { CritterHoliday.act(for: $0) == nil }
+        NotchCritter.Act.allCases.filter { CritterHoliday.act(for: $0) == nil && !$0.isReminder }
     }
 
     /// Какую сценку сыграть. В праздник — через раз праздничную, иначе

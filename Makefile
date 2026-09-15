@@ -1,5 +1,5 @@
 APP      := Trunook
-VERSION := 0.21.1
+VERSION := 0.22.0
 # Номер сборки растёт со временем: так две сборки одной версии различимы.
 BUILDNO  := $(shell date +%y%m%d%H%M)
 # Провал сборки в конвейере с grep иначе теряется: make видит код последней
@@ -23,7 +23,11 @@ BUILDDIR := $(HOME)/Library/Caches/TrunookBuild
 BUNDLE   := $(BUILDDIR)/$(APP).app
 DMG      := $(CURDIR)/$(APP)-$(VERSION).dmg
 HELPER   := $(BUNDLE)/Contents/XPCServices/TrunookHelper.xpc
-BIN       = $(shell swift build -c $(CONF) --show-bin-path 2>/dev/null)
+# Промежуточные файлы SwiftPM — тоже вне проекта. Рабочий стол синхронизируется
+# с iCloud, и `.build` в папке проекта (1,3 ГБ, переписывается каждой сборкой)
+# забивал очередь iCloud Drive: чужие файлы часами ждали загрузки за ним.
+SPMDIR   := $(HOME)/Library/Caches/TrunookSPM
+BIN       = $(shell swift build -c $(CONF) --scratch-path $(SPMDIR) --show-bin-path 2>/dev/null)
 
 # Штамп SDK в бинарнике: минимум остаётся 14.0, версия SDK ставится 26.0.
 #
@@ -55,7 +59,7 @@ all: bundle
 ## с этим и настоящий провал сборки. Скобки гасят только код grep,
 ## а `pipefail` доносит до make код самого swift.
 build:
-	set -o pipefail; swift build -c $(CONF) $(SDKSTAMP) 2>&1 | { grep -v "ld: warning: search path" || true; }
+	set -o pipefail; swift build -c $(CONF) --scratch-path $(SPMDIR) $(SDKSTAMP) 2>&1 | { grep -v "ld: warning: search path" || true; }
 
 ## Раскладка и подпись .app
 bundle: build
@@ -206,7 +210,7 @@ identity:
 	@security find-identity -v -p codesigning
 
 clean:
-	@rm -rf $(BUILDDIR) .build
+	@rm -rf $(BUILDDIR) $(SPMDIR) .build
 
 # Тесты собираются вне папки проекта по той же причине, что и бандл:
 # на файлах внутри ~/Desktop заводятся расширенные атрибуты, и codesign

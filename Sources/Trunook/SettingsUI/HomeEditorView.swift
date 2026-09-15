@@ -162,11 +162,28 @@ struct HomeLayoutPreview: View {
                 }
                 Divider()
             }
+            Divider()
+            Button(t("Раньше")) { shift(widget, by: -1) }
+            Button(t("Позже")) { shift(widget, by: 1) }
+            Divider()
             Button(t("Убрать"), role: .destructive) { remove(widget) }
         }
         .animation(.easeOut(duration: 0.12), value: isTarget)
         .help(t("Перетащите, чтобы поменять порядок"))
         .accessibilityLabel(widget.kind.title + ", " + widget.size.title)
+        // Порядок без мыши: перетаскивание VoiceOver и клавиатуре недоступно,
+        // а те же «раньше» и «позже» лежат и в меню по правой кнопке.
+        .accessibilityAction(named: t("Раньше")) { shift(widget, by: -1) }
+        .accessibilityAction(named: t("Позже")) { shift(widget, by: 1) }
+        .accessibilityAction(named: t("Убрать")) { remove(widget) }
+    }
+
+    /// Сдвинуть плитку на место соседней в списке.
+    private func shift(_ widget: HomeWidget, by step: Int) {
+        let all = settings.homeWidgets
+        guard let index = all.firstIndex(where: { $0.id == widget.id }),
+              all.indices.contains(index + step) else { return }
+        settings.moveHomeWidget(id: widget.id, onto: all[index + step].id)
     }
 
     private func remove(_ widget: HomeWidget) {
@@ -182,7 +199,7 @@ struct HomeWidgetInspector: View {
     let widget: HomeWidget
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: SettingsStyle.gap) {
             Image(systemName: widget.kind.symbol)
                 .foregroundStyle(widget.kind.tint)
                 .frame(width: 18)
@@ -226,7 +243,7 @@ struct HomeWidgetPalette: View {
     var body: some View {
         let placed = Set(settings.homeWidgets.map(\.kind))
         ForEach(HomeWidgetKind.allCases) { kind in
-            HStack(spacing: 8) {
+            HStack(spacing: SettingsStyle.gap) {
                 Image(systemName: kind.symbol)
                     .foregroundStyle(kind.tint)
                     .frame(width: 18)

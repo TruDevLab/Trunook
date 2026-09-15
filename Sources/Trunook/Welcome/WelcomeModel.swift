@@ -1,5 +1,6 @@
 import TrunookXPC
 import AppKit
+import Combine
 import EventKit
 
 /// Состояние окна знакомства: текущий шаг и живое состояние доступов.
@@ -68,7 +69,7 @@ final class WelcomeModel: ObservableObject {
         case home
         case music, calendar, meetings, capture, assistant, agent, voice
         case news, sites
-        case notes, record, clipboard, shelf, timer, monitor
+        case notes, record, clipboard, shelf, windows, timer, breaks, countdown, monitor
         case teleprompter, weather, battery, caffeine
 
         var id: String { rawValue }
@@ -93,7 +94,10 @@ final class WelcomeModel: ObservableObject {
             case .record: return t("Запись разговора")
             case .clipboard: return t("Буфер обмена")
             case .shelf: return t("Полка")
+            case .windows: return t("Окна")
             case .timer: return t("Таймер")
+            case .breaks: return t("Перерывы")
+            case .countdown: return t("Обратный отсчёт")
             case .monitor: return t("Нагрузка")
             case .teleprompter: return t("Телесуфлер")
             case .weather: return t("Погода")
@@ -118,7 +122,10 @@ final class WelcomeModel: ObservableObject {
             case .record: return "waveform.circle.fill"
             case .clipboard: return "doc.on.clipboard.fill"
             case .shelf: return "tray.full.fill"
+            case .windows: return "rectangle.split.2x1.fill"
             case .timer: return "timer"
+            case .breaks: return "figure.cooldown"
+            case .countdown: return "hourglass"
             case .monitor: return "gauge.with.dots.needle.67percent"
             case .teleprompter: return "text.alignleft"
             case .weather: return "cloud.sun.fill"
@@ -143,8 +150,11 @@ final class WelcomeModel: ObservableObject {
             case .notes: return t("Записи с именем от модели и поиском по смыслу")
             case .record: return t("Разговор становится заметкой с задачами")
             case .clipboard: return t("История копирований под рукой")
-            case .shelf: return t("Файлы на чёлке между окнами")
+            case .shelf: return t("Файлы на чёлке: отложить, сжать, поделиться")
+            case .windows: return t("Окно к чёлке — и оно разложено")
             case .timer: return t("Отсчёт виден, не занимая экрана")
+            case .breaks: return t("Перерыв, вода и разминка — вовремя")
+            case .countdown: return t("Сколько осталось до вашего события")
             case .monitor: return t("Процессор, память и диск одним взглядом")
             case .teleprompter: return t("Текст у самой камеры")
             case .weather: return t("Предупреждает о дожде заранее")
@@ -158,7 +168,7 @@ final class WelcomeModel: ObservableObject {
         var detail: String {
             switch self {
             case .home:
-                return t("Раскрытый вырез — это сетка плиток: музыка, ближайшие встречи, месяц, таймер, погода, нагрузка, новости, строка вопроса к ИИ, чашка кофе и другие. Плитка показывает главное и умеет главное — поставить на паузу, пустить таймер, зажечь чашку, — а нажатие по ней открывает полную панель. Состав, порядок и размер плиток — в настройках, в разделе «Главный экран»: плитки перетаскивают мышью, размер выбирают нажатием.")
+                return t("Раскрытый вырез — это сетка плиток: музыка, ближайшие встречи, месяц, таймер, обратный отсчёт, погода, нагрузка, новости, строка вопроса к ИИ, чашка кофе и другие. Плитка показывает главное и умеет главное — поставить на паузу, пустить таймер, зажечь чашку, — а нажатие по ней открывает полную панель. Состав, порядок и размер плиток — в настройках, в разделе «Главный экран»: плитки перетаскивают мышью, размер выбирают нажатием.")
             case .music:
                 return t("Свёрнутый вырез показывает обложку и название трека. Свайп двумя пальцами поперёк острова переключает трек, не убирая курсор. Работает с Музыкой, Spotify и всем, что отдаёт сведения системе.")
             case .calendar:
@@ -184,7 +194,13 @@ final class WelcomeModel: ObservableObject {
             case .clipboard:
                 return t("Приложение помнит скопированное — текст, ссылки и картинки. ⌃⌥V открывает историю, цифры вставляют нужную запись. Пароли из менеджеров и служебные копирования не сохраняются.")
             case .shelf:
-                return t("Ведите файлы на чёлку — вырез раскроется полкой и примет их. Оттуда их вытаскивают в любое окно. Удобно, когда файл нужно перенести между приложениями, а окна закрывают друг друга.")
+                return t("Ведите файлы на чёлку — вырез раскроется разделами. «На полку» откладывает файлы, чтобы вытащить их в другом окне. «Сжать в ZIP» собирает архив рядом, а над архивами раздел распаковывает. «Ссылка iCloud» кладёт копию в iCloud Drive и копирует ссылку на неё. «В Корзину» — без открытия Finder.")
+            case .windows:
+                return t("Потащите окно за заголовок к чёлке — она покажет раскладки. Посередине весь экран и окно по центру на 85%, по бокам зеркально половина, две трети, треть и четверти. Отпустите окно на нужной — оно встанет по месту. Работает с окнами любых приложений; нужен Универсальный доступ.")
+            case .breaks:
+                return t("Задайте, как часто напоминать сделать перерыв, попить воды и размяться. Считается только время за компьютером: ушли на обед — счёт не идёт. Вместе с напоминанием из чёлки выходит котик и показывает, что делать; напоминание ждёт, пока вы не нажмёте «Готово» или «Пропустить». Промежутки — в настройках, в разделе «Инструменты».")
+            case .countdown:
+                return t("Плитка главного экрана с названием вашего события и тем, сколько до него осталось: дни и часы, а в последние сутки — с секундами. Когда событие наступит, вырез покажет плашку и выпустит конфетти. Событие задают в настройках, в разделе «Главный экран».")
             case .timer:
                 return t("⌃⌥T открывает таймер и секундомер. Пока идёт отсчёт, чёлка раздвигается счётом — нажатие по нему возвращает панель. По окончании звучит сигнал и предлагается перерыв.")
             case .monitor:
@@ -192,7 +208,7 @@ final class WelcomeModel: ObservableObject {
             case .teleprompter:
                 return t("⌃⌥P разворачивает текст под чёлкой — там, где стоит камера. С оформлением и автопрокруткой: читая с середины экрана, смотришь мимо объектива, и это видно собеседнику.")
             case .weather:
-                return t("Вырез предупреждает о дожде и снеге заранее. Место берётся по геопозиции или называется вручную; наружу уходят только округлённые координаты.")
+                return t("Вырез предупреждает о дожде и снеге заранее, а при смене погоды из чёлки капает дождь, сыплется снег или всплывает солнце. Температура — плиткой на главном экране или значком в его углу. Место берётся по геопозиции или называется вручную; наружу уходят только округлённые координаты.")
             case .battery:
                 return t("Подключение и отключение питания видно плашкой, низкий заряд — предупреждением. Порог настраивается.")
             case .caffeine:
@@ -234,7 +250,13 @@ final class WelcomeModel: ObservableObject {
             case .clipboard:
                 return t("Скопировали код из письма, потом ссылку, потом адрес — и всё это нужно вставить: ⌃⌥V показывает последние копирования, ⌃⌥1 вставляет предпоследнее.")
             case .shelf:
-                return t("Собираете вложения из трёх писем в одно: перетащили на чёлку, открыли нужное окно, вытащили все разом.")
+                return t("Нужно отправить папку с макетами: перетащили на чёлку в «Ссылку iCloud» — ссылка уже в буфере, остаётся вставить её в письмо.")
+            case .windows:
+                return t("Сравниваете два документа: первый к чёлке на левую половину, второй — на правую, и оба перед глазами без возни с краями окон.")
+            case .breaks:
+                return t("Засиделись над задачей три часа подряд: вырез напомнит размяться, котик покажет зарядку, а отложить можно одной кнопкой.")
+            case .countdown:
+                return t("Ждёте отпуска: плитка «Отпуск — 12 дн 4 ч» на главном экране, а в день вылета — конфетти из чёлки.")
             case .timer:
                 return t("Поставили чайник и вернулись к работе: счёт видно прямо в чёлке, а сигнал прозвучит, даже если окно таймера давно закрыто.")
             case .monitor:
@@ -254,23 +276,20 @@ final class WelcomeModel: ObservableObject {
     @Published var mode: Mode = .tour
     @Published var step: Step = .intro
     @Published var feature: Feature = .home
-    @Published private(set) var accessibilityTrusted = AccessibilityAccess.isTrusted
-    /// Проверяется опросом по той же причине: TCC своё решение не отдаёт,
-    /// а в теле вида ходить на диск нельзя — вид перерисовывается постоянно.
-    @Published private(set) var filesGranted = FilesAccess.isGranted
-    /// Микрофон и распознавание речи. Опросом по той же причине, что
-    /// и остальные: решение принимается в системном диалоге, а уведомления
-    /// о нём приложению не приходит.
-    @Published private(set) var microphoneAccess = VoiceAccess.microphone
-    @Published private(set) var speechAccess = VoiceAccess.recognition
+    /// Доступы — общим узлом с настройками: см. `PermissionCenter`.
+    let permissions: PermissionCenter
+    typealias Permission = PermissionCenter.Permission
+    typealias PermissionState = PermissionCenter.State
+    private var permissionsForwarding: AnyCancellable?
 
     private let calendar: CalendarService
     private let settings: Settings
-    private var pollTimer: Timer?
 
     init(calendar: CalendarService, settings: Settings = .shared) {
         self.calendar = calendar
         self.settings = settings
+        permissions = PermissionCenter(calendar: calendar, settings: settings)
+        permissionsForwarding = permissions.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     // MARK: - Жизненный цикл
@@ -293,52 +312,13 @@ final class WelcomeModel: ObservableObject {
            let forced = Feature(rawValue: name) {
             feature = forced
         }
-        refresh()
-        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-            self?.refresh()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        pollTimer = timer
+        permissions.start()
     }
 
     func stop() {
-        pollTimer?.invalidate()
-        pollTimer = nil
+        permissions.stop()
     }
 
-    private func refresh() {
-        let trusted = AccessibilityAccess.isTrusted
-        if trusted != accessibilityTrusted {
-            accessibilityTrusted = trusted
-            DebugLog.write("универсальный доступ: \(trusted ? "выдан" : "снят")")
-        }
-        let files = FilesAccess.isGranted
-        if files != filesGranted {
-            filesGranted = files
-            DebugLog.write("доступ к файлам: \(files ? "выдан" : "закрыт")")
-        }
-        refreshVoiceAccess()
-        calendar.refreshAuthorization()
-    }
-
-    /// Перечитать доступы голоса.
-    ///
-    /// Отдельно от общего опроса ещё и потому, что их запрашивают кнопкой:
-    /// ответ на системный диалог приходит замыканием, и ждать до секунды,
-    /// пока строка обновится сама, значило бы показывать «не запрошен» уже
-    /// после того, как доступ выдан.
-    private func refreshVoiceAccess() {
-        let microphone = VoiceAccess.microphone
-        if microphone != microphoneAccess {
-            microphoneAccess = microphone
-            DebugLog.write("микрофон: \(microphone)")
-        }
-        let speech = VoiceAccess.recognition
-        if speech != speechAccess {
-            speechAccess = speech
-            DebugLog.write("распознавание речи: \(speech)")
-        }
-    }
 
     // MARK: - Шаги
 
@@ -373,171 +353,9 @@ final class WelcomeModel: ObservableObject {
 
     // MARK: - Доступы
 
-    /// Доступы, о которых стоит рассказать. Автоматизация для Things 3
-    /// и музыкальных приложений сюда не входит: система спрашивает о ней
-    /// в момент первого обращения и объясняет всё сама.
-    enum Permission: String, CaseIterable, Identifiable {
-        case calendar, reminders, accessibility, microphone, speech, files
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .calendar: return t("Календарь")
-            case .reminders: return t("Напоминания")
-            case .accessibility: return t("Универсальный доступ")
-            case .microphone: return t("Микрофон")
-            case .speech: return t("Распознавание речи")
-            case .files: return t("Файлы и папки")
-            }
-        }
-
-        var icon: String {
-            switch self {
-            case .calendar: return "calendar"
-            case .reminders: return "checklist"
-            case .accessibility: return "hand.raised"
-            case .microphone: return "mic"
-            case .speech: return "waveform"
-            case .files: return "folder"
-            }
-        }
-
-        var explanation: String {
-            switch self {
-            case .calendar:
-                return t("Встречи, обратный отсчёт и кнопка «Присоединиться».")
-            case .reminders:
-                return t("Напоминания со сроком — вырез предупредит заранее.")
-            case .accessibility:
-                return t("Выделенный текст для запросов к модели, кнопки онлайн-встречи и вызов голосового ассистента двойным нажатием.")
-            case .microphone:
-                return t("Голосовому ассистенту — чтобы услышать вопрос.")
-            case .speech:
-                return t("Перевод речи в текст. Идёт на самом компьютере: записи никуда не отправляются.")
-            case .files:
-                return t("Полке — чтобы показать миниатюру и размер файла с рабочего стола или из документов.")
-            }
-        }
-    }
-
-    enum PermissionState {
-        case granted
-        case notAsked
-        case denied
-
-        var label: String {
-            switch self {
-            case .granted: return t("выдан")
-            case .notAsked: return t("не запрошен")
-            case .denied: return t("закрыт")
-            }
-        }
-    }
-
-    func state(of permission: Permission) -> PermissionState {
-        switch permission {
-        case .calendar: return Self.map(calendar.eventsAccess)
-        case .reminders: return Self.map(calendar.remindersAccess)
-        case .accessibility: return accessibilityTrusted ? .granted : .notAsked
-        case .microphone: return Self.map(microphoneAccess)
-        case .speech: return Self.map(speechAccess)
-        case .files: return filesGranted ? .granted : .notAsked
-        }
-    }
-
-    /// Состояние доступа голоса — в общий вид строки.
-    ///
-    /// Своё перечисление у `VoiceAccess` потому, что TCC у микрофона
-    /// и у календаря разный: `EKAuthorizationStatus` знает про «полный»
-    /// и «только запись», а у микрофона таких оттенков нет.
-    private static func map(_ state: VoiceAccess.State) -> PermissionState {
-        switch state {
-        case .granted: return .granted
-        case .notAsked: return .notAsked
-        case .denied: return .denied
-        }
-    }
-
-    private static func map(_ status: EKAuthorizationStatus) -> PermissionState {
-        switch status {
-        case .fullAccess: return .granted
-        case .notDetermined: return .notAsked
-        default: return .denied
-        }
-    }
-
-    /// Подпись кнопки в строке доступа. Универсальный доступ выдаётся руками
-    /// в Системных настройках, поэтому «Запросить» там — это про диалог
-    /// со ссылкой туда, а не про саму выдачу.
-    func actionTitle(for permission: Permission) -> String {
-        switch state(of: permission) {
-        case .granted: return t("Выдан")
-        case .notAsked:
-            switch permission {
-            case .accessibility, .files: return t("Открыть настройки")
-            case .calendar, .reminders, .microphone, .speech: return t("Разрешить")
-            }
-        case .denied: return t("Открыть настройки")
-        }
-    }
-
-    func act(on permission: Permission) {
-        guard state(of: permission) != .granted else { return }
-        let asked = state(of: permission) == .notAsked
-
-        switch permission {
-        case .calendar:
-            if asked { calendar.requestEventsAccess() } else { CalendarService.openPrivacySettings(.calendars) }
-        case .reminders:
-            if asked { calendar.requestRemindersAccess() } else { CalendarService.openPrivacySettings(.reminders) }
-        case .accessibility:
-            // Диалог показывается один раз за запуск процесса, поэтому сразу
-            // за ним открываем раздел настроек: на второе нажатие иначе
-            // не произошло бы вообще ничего.
-            AccessibilityAccess.request()
-            AccessibilityAccess.openSettings()
-        case .microphone:
-            if asked {
-                VoiceAccess.requestMicrophone { [weak self] _ in self?.refreshVoiceAccess() }
-            } else {
-                VoiceAccess.openMicrophoneSettings()
-            }
-        case .speech:
-            if asked {
-                VoiceAccess.requestRecognition { [weak self] _ in self?.refreshVoiceAccess() }
-            } else {
-                VoiceAccess.openRecognitionSettings()
-            }
-        case .files:
-            // Первое же обращение к защищённой папке само вызывает системный
-            // диалог. Если решение уже принято, диалога не будет — тогда
-            // помогут только настройки, поэтому открываем их следом.
-            _ = FilesAccess.isGranted
-            FilesAccess.openSettings()
-        }
-        Haptics.tap()
-    }
-
-    /// Нужен ли доступ, чтобы включённые функции работали. По нему решаем,
-    /// подсвечивать ли строку как незакрытую.
-    func isRequired(_ permission: Permission) -> Bool {
-        switch permission {
-        case .calendar: return settings.calendarEnabled
-        case .reminders: return settings.remindersEnabled
-        // Голос сюда добавился не для полноты: вызов идёт глобальным
-        // монитором событий, а тот без Универсального доступа нажатий
-        // не получает вовсе.
-        case .accessibility:
-            return settings.quickCommandsEnabled
-                || settings.meetingControlsEnabled
-                || settings.voiceEnabled
-        case .microphone, .speech: return settings.voiceEnabled
-        case .files: return settings.shelfEnabled
-        }
-    }
-
-    var pendingCount: Int {
-        Permission.allCases.filter { isRequired($0) && state(of: $0) != .granted }.count
-    }
+    func state(of permission: Permission) -> PermissionState { permissions.state(of: permission) }
+    func actionTitle(for permission: Permission) -> String { permissions.actionTitle(for: permission) }
+    func act(on permission: Permission) { permissions.act(on: permission) }
+    func isRequired(_ permission: Permission) -> Bool { permissions.isRequired(permission) }
+    var pendingCount: Int { permissions.pendingCount }
 }

@@ -629,6 +629,57 @@ final class Settings: ObservableObject {
         homeWidgets = all
     }
 
+    /// Название события для плитки обратного отсчёта.
+    var countdownEventTitle: String {
+        get { defaults.string(forKey: "countdownEventTitle") ?? "" }
+        set { store(newValue, "countdownEventTitle") }
+    }
+
+    /// К какому мигу считает плитка. `nil` — ещё не задан.
+    var countdownEventDate: Date? {
+        get { defaults.object(forKey: "countdownEventDate") as? Date }
+        set {
+            objectWillChange.send()
+            if let newValue { defaults.set(newValue, forKey: "countdownEventDate") }
+            else { defaults.removeObject(forKey: "countdownEventDate") }
+        }
+    }
+
+    /// Какое событие отсчёта уже отпраздновали: плашка и залп — один раз
+    /// на дату, а не на каждый запуск после неё.
+    var countdownCelebratedDate: Date? {
+        get { defaults.object(forKey: "countdownCelebratedDate") as? Date }
+        set { defaults.set(newValue, forKey: "countdownCelebratedDate") }
+    }
+
+    // MARK: - Перерывы
+
+    /// Как часто напоминать о перерыве, в минутах. Ноль — не напоминать.
+    var breakReminderMinutes: Int {
+        get { defaults.object(forKey: "breakReminderMinutes") as? Int ?? 0 }
+        set { store(newValue, "breakReminderMinutes") }
+    }
+
+    /// Как часто напоминать попить воды, в минутах. Ноль — не напоминать.
+    var waterReminderMinutes: Int {
+        get { defaults.object(forKey: "waterReminderMinutes") as? Int ?? 0 }
+        set { store(newValue, "waterReminderMinutes") }
+    }
+
+    /// Как часто напоминать размяться, в минутах. Ноль — не напоминать.
+    var stretchReminderMinutes: Int {
+        get { defaults.object(forKey: "stretchReminderMinutes") as? Int ?? 0 }
+        set { store(newValue, "stretchReminderMinutes") }
+    }
+
+    // MARK: - Раскладка окон
+
+    /// Окно, донесённое до чёлки, раскладывается по выбранному месту.
+    var windowSnapEnabled: Bool {
+        get { flag("windowSnapEnabled", default: true) }
+        set { store(newValue, "windowSnapEnabled") }
+    }
+
     func resetHomeWidgets() {
         objectWillChange.send()
         defaults.removeObject(forKey: HomeWidgets.key)

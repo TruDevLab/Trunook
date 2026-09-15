@@ -30,6 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.openSettings()
         }
         controller.onOpenReleaseNotes = { [weak self] in self?.openReleaseNotes() }
+        controller.onCelebrate = { [weak self] in
+            guard let self else { return }
+            self.confetti.fire(on: self.controller.notchScreen)
+        }
         controller.start()
         installStatusItem()
         installDebugTrigger()
@@ -79,6 +83,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.clipboard", #selector(toggleClipboardPanel)),
             ("com.trunook.debug.clipboardUse", #selector(useClipboardSlot3)),
             ("com.trunook.debug.shelf", #selector(showShelf)),
+            ("com.trunook.debug.shelfZones", #selector(stepShelfZones)),
+            ("com.trunook.debug.windowSlots", #selector(stepWindowSlots)),
+            ("com.trunook.debug.windowLeft", #selector(windowLeft)),
+            ("com.trunook.debug.windowFill", #selector(windowFill)),
+            ("com.trunook.debug.windowCycle", #selector(windowCycle)),
+            ("com.trunook.debug.countdownNow", #selector(countdownNow)),
+            ("com.trunook.debug.breakRest", #selector(breakRest)),
+            ("com.trunook.debug.breakWater", #selector(breakWater)),
+            ("com.trunook.debug.breakStretch", #selector(breakStretch)),
+            ("com.trunook.debug.shelfZip", #selector(shelfZip)),
+            ("com.trunook.debug.shelfUnzip", #selector(shelfUnzip)),
+            ("com.trunook.debug.shelfShare", #selector(shelfShare)),
+            ("com.trunook.debug.shelfTrash", #selector(shelfTrash)),
             ("com.trunook.debug.timer", #selector(showTimer)),
             ("com.trunook.debug.monitor", #selector(showMonitor)),
             ("com.trunook.debug.feeds", #selector(showFeeds)),
@@ -290,6 +307,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(playCritterFromMenu(_:))
         ))
         submenu.addItem(scenesMenu(
+            title: "Перерывы",
+            random: nil,
+            items: BreakKind.allCases.map { ($0.message, $0.rawValue) },
+            action: #selector(playBreakFromMenu(_:))
+        ))
+        submenu.addItem(scenesMenu(
             title: "Погода",
             random: ("Случайная сценка", #selector(playWeatherScene)),
             items: WeatherArt.Scene.allCases.map { (Self.debugTitle($0), $0.rawValue) },
@@ -325,6 +348,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.debugCritter(act)
     }
 
+    @objc private func playBreakFromMenu(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let kind = BreakKind(rawValue: raw) else { return }
+        controller.debugBreak(kind)
+    }
+
+    /// Раскладки окна: перетаскивание окна из сессии не повторить.
+    @objc private func stepWindowSlots() { controller.debugStepWindowSlots() }
+    @objc private func windowLeft() { controller.debugApplyWindowSlot(.leftHalf) }
+    @objc private func windowFill() { controller.debugApplyWindowSlot(.fill) }
+    @objc private func windowCycle() { controller.debugCycleWindowSlots() }
+    /// Наступление события отсчёта: плашка и залп, не дожидаясь даты.
+    @objc private func countdownNow() { controller.debugCountdownReached() }
+    @objc private func breakRest() { controller.debugBreak(.rest) }
+    @objc private func breakWater() { controller.debugBreak(.water) }
+    @objc private func breakStretch() { controller.debugBreak(.stretch) }
+
     @objc private func playWeatherFromMenu(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let scene = WeatherArt.Scene(rawValue: raw) else { return }
         controller.debugWeatherScene(scene)
@@ -359,6 +398,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .ribbon: return "9 Мая — ленточка"
         case .dragon: return "Китайский Новый год"
         case .rocket: return "День космонавтики"
+        case .rest: return "Перерыв — чай"
+        case .drink: return "Вода — стакан"
+        case .stretch: return "Разминка"
         }
     }
 
@@ -412,6 +454,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showShelf() {
         controller.debugFillShelf()
     }
+
+    /// Разделы полки по одному: перетаскивание из сессии не повторить.
+    @objc private func stepShelfZones() { controller.debugStepShelfZones() }
+    /// Действия разделов на пробных файлах в кэше — не на файлах человека.
+    @objc private func shelfZip() { controller.debugShelfAction(.archive, unpack: false) }
+    @objc private func shelfUnzip() { controller.debugShelfAction(.archive, unpack: true) }
+    @objc private func shelfShare() { controller.debugShelfAction(.share, unpack: false) }
+    @objc private func shelfTrash() { controller.debugShelfAction(.trash, unpack: false) }
 
     /// Меню всех функций: правую кнопку из отладочной сессии не нажать.
     @objc private func showRingMenu() {
@@ -1149,7 +1199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Проверка рукой идёт всегда, даже при выключенной автопроверке:
     /// иначе у пункта нет смысла.
     @objc private func checkForUpdates() {
-        controller.updates.check(manual: true)
+        controller.checkForUpdatesManually()
     }
 
     /// Установить скачанное. Нажать кнопку из отладочной сессии нечем:

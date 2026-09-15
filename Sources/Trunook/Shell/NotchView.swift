@@ -36,6 +36,8 @@ final class NotchState: ObservableObject {
         case calendar
         case eventEditor
         case feeds
+        /// Раскладки окна, которое донесли до чёлки.
+        case windowSnap
 
         /// Закрывается ли накладка тем, что курсор ушёл за её границы.
         ///
@@ -47,7 +49,9 @@ final class NotchState: ObservableObject {
         /// в тот момент, ради которого она открыта.
         var closesOnCursorExit: Bool {
             switch self {
-            case .clipboard, .timer, .monitor, .caffeine: return true
+            // Раскладки окна — по уходу: окно унесли от чёлки, значит
+            // раскладывать его передумали.
+            case .clipboard, .timer, .monitor, .caffeine, .windowSnap: return true
             // Календарь и правка события — руками: по месяцу водят, в поля
             // печатают, время щёлкают стрелками. Курсор при этом заведомо
             // уходит за края.
@@ -85,6 +89,12 @@ final class NotchState: ObservableObject {
     /// от `overlay`: полка бывает открыта и без перетаскивания, а подсветка
     /// нужна только пока над ней что-то держат.
     @Published var isShelfDropTarget = false
+    /// Раздел полки под перетаскиваемыми файлами.
+    @Published var shelfDropZone: ShelfDropZone = .shelf
+    /// Тащат одни архивы — раздел сжатия распаковывает.
+    @Published var shelfDropUnpacks = false
+    /// Раскладка под курсором, пока окно держат над чёлкой.
+    @Published var windowSlot: WindowSlot?
 
     /// С полки тащат файл наружу. Пока это так, накладку закрывать нельзя:
     /// вытащить файл — это и значит увести курсор за её границы.
@@ -303,10 +313,14 @@ struct NotchView: View {
     let onOpenMonitor: () -> Void
     let onOpenActivityMonitor: () -> Void
     let onDismissActivity: () -> Void
+    /// Ответ на напоминание о перерыве: «готово» или «пропустить».
+    let onBreakAnswer: (BreakKind, Bool) -> Void
     let onOpenHub: () -> Void
     /// Телесуфлер живёт в своём окне, а не накладкой в вырезе: в него печатают
     /// и смотрят подолгу, а вырез фокуса не отбирает и прибит к кромке.
     let onOpenTeleprompter: () -> Void
+    /// Плитка обратного отсчёта: событие правят в настройках главного экрана.
+    let onEditCountdown: () -> Void
     /// Раскрыть главную панель. Плитки в меню у этого больше нет — возврат
     /// туда и так делается крестиком, — но нажатие по полоске отсчёта ведёт
     /// именно сюда.
@@ -398,7 +412,7 @@ struct NotchView: View {
                 switch presentation {
                 case .expanded, .clipboard, .assistant, .shelf, .timer,
                      .monitor, .teleprompter, .caffeine, .keyboardLock, .notes,
-                     .calendar, .eventEditor, .feeds:
+                     .calendar, .eventEditor, .feeds, .windowSnap:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
                 case .swiping: return 14
@@ -843,6 +857,8 @@ struct NotchView: View {
         // Тело плашки и капсула ведут в одно место: смотреть на изменение
         // можно только на самом сайте.
         case let .siteChanged(_, _, url): onJoin(url)
+        // Тело плашки ничего не открывает: ответ — кнопками рядом.
+        case .breakReminder, .countdownReached: break
         default: onOpenClipboard()
         }
     }
@@ -1008,12 +1024,16 @@ struct NotchView: View {
                 onOpenActivityMonitor: onOpenActivityMonitor,
                 onClose: onCloseOverlay
             )
+        case .windowSnap:
+            WindowSnapPanel(metrics: metrics, selected: state.windowSlot)
         case .shelf:
             ShelfPanel(
                 items: shelf.items,
                 thumbnail: { shelf.thumbnails[$0.url] ?? shelf.icon(for: $0) },
                 metrics: metrics,
                 isDropTarget: state.isShelfDropTarget,
+                dropZone: state.shelfDropZone,
+                dropUnpacks: state.shelfDropUnpacks,
                 onRemove: onRemoveFromShelf,
                 onOpen: onOpenShelfItem,
                 onRevealInFinder: onRevealShelfItem,
@@ -1055,6 +1075,7 @@ struct NotchView: View {
                     onJoin: onJoin,
                     onInstallUpdate: onInstallUpdate,
                     onDismiss: onDismissActivity,
+                    onBreakAnswer: onBreakAnswer,
                     onOpen: { openInteractive(activity) },
                     onSaveToNotes: onSaveClipboardToNotes,
                     notesEnabled: settings.notesEnabled
@@ -1158,7 +1179,8 @@ struct NotchView: View {
             newNote: { onNewNote("") },
             startVoice: onStartVoice,
             dictateNote: onDictateNote,
-            openTeleprompter: onOpenTeleprompter
+            openTeleprompter: onOpenTeleprompter,
+            editCountdown: onEditCountdown
         )
     }
 }

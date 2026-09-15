@@ -60,7 +60,26 @@ final class NotchWindowHost {
     /// Гистерезис: раскрываем по узкой зоне выреза, а закрываем только когда
     /// курсор ушёл за пределы всей раскрытой панели. Иначе панель дёргается.
     var openTriggerRect: CGRect { active?.geometry.openTrigger ?? .zero }
-    var closeTriggerRect: CGRect { active?.window.frame ?? .zero }
+    /// Где курсор ещё держит раскрытое: нарисованная форма с запасом.
+    ///
+    /// Раньше это была рамка всего окна, а окно всегда размером с самую
+    /// большую панель — 620 точек в ширину и сотни в высоту. Мини-вид
+    /// в 233 точки держался, пока курсор бродил где угодно в этом
+    /// прямоугольнике под чёлкой, — по заголовкам окон, вкладкам, полям,
+    /// — и выглядело это как залипание. Окно росло с каждой новой панелью,
+    /// а с ним и зона залипания.
+    var closeTriggerRect: CGRect {
+        guard let size = currentContentSize, size != .zero else { return active?.window.frame ?? .zero }
+        return Self.closeRect(visible: topAlignedRect(size: size), open: openTriggerRect)
+    }
+
+    /// Запас вокруг формы: без него панель дёргалась бы, стоит курсору
+    /// задеть край.
+    static let hoverSlack: CGFloat = 16
+
+    static func closeRect(visible: CGRect, open: CGRect) -> CGRect {
+        visible.insetBy(dx: -hoverSlack, dy: -hoverSlack).union(open)
+    }
 
     /// Главное окно ловит мышь, только когда на экране есть во что попадать.
     /// Остальные не ловят никогда: работа с островом идёт в главном.

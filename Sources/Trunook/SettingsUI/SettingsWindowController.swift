@@ -23,6 +23,18 @@ final class SettingsWindowController {
         selection.tab = tab
     }
 
+    /// Доступы в настройках. Свой узел, а не общий со знакомством: окна
+    /// открыты порознь, а состояние каждый узел берёт у системы, так что
+    /// разойтись им не в чем.
+    private var permissionCenter: PermissionCenter?
+
+    private func permissions(calendar: CalendarService, weather: WeatherService) -> PermissionCenter {
+        if let permissionCenter { return permissionCenter }
+        let center = PermissionCenter(calendar: calendar, weather: weather)
+        permissionCenter = center
+        return center
+    }
+
     func show(
         settings: Settings,
         launchAtLogin: LaunchAtLogin,
@@ -82,6 +94,7 @@ final class SettingsWindowController {
             updates: updates,
             digest: digest,
             siteWatch: siteWatch,
+            permissions: permissions(calendar: calendar, weather: weather),
             placeSearch: placeSearch,
             onHotKeysChanged: onHotKeysChanged,
             onLayoutChanged: onLayoutChanged,

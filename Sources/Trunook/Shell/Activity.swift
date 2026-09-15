@@ -46,6 +46,12 @@ struct Activity: Identifiable, Equatable {
         case digestReady(entries: Int)
         /// На сайте изменилось то, за чем следили. Кнопка открывает сайт.
         case siteChanged(name: String, text: String, url: URL)
+        /// Пора сделать перерыв, попить воды или размяться. Вместе с плашкой
+        /// выходит котик и показывает, что делать.
+        case breakReminder(BreakKind)
+        /// Наступило событие обратного отсчёта. Вместе с плашкой — залп
+        /// конфетти из чёлки.
+        case countdownReached(title: String)
     }
 
     /// Чем важнее событие, тем выше приоритет. Событие с приоритетом ниже
@@ -83,6 +89,10 @@ struct Activity: Identifiable, Equatable {
         // Цена изменилась сейчас, и через час может вернуться: выше сводки.
         case .siteChanged: return 3
         case .powerConnected, .powerDisconnected: return 2
+        // Вровень с погодой: напоминание подождёт, пока вырез освободится.
+        case .breakReminder: return 2
+        // Вровень со встречей: событие ждали днями, и наступает оно один раз.
+        case .countdownReached: return 4
         case .trackChanged: return 1
         }
     }
@@ -121,6 +131,15 @@ struct Activity: Identifiable, Equatable {
         // как курсор ушёл, — ей нужно время пережить этот уход.
         case .caffeine: return 4
         case .powerConnected, .powerDisconnected: return 2.5
+        // Столько же, сколько идёт сценка кота, и чуть дольше: котик
+        // выходит из-за края плашки, и уйди она раньше — прятаться ему
+        // было бы не за что.
+        // Без срока: висит, пока человек не ответит «готово» или «пропустить»,
+        // — и следующий отсчёт начинается только с ответа.
+        case .breakReminder: return .infinity
+        // Долго: наступившее событие не пропускают, отвернувшись на минуту.
+        // Убирает крестик.
+        case .countdownReached: return 60
         // Дольше остальных: длинному названию нужно время проехать.
         case .trackChanged: return 4
         }
@@ -134,7 +153,9 @@ struct Activity: Identifiable, Equatable {
         // Обновление здесь по той же причине, что буфер и полка: в плашке
         // кнопка, и убирайся плашка от первого же движения курсора — до кнопки
         // было бы не дотянуться.
-        case .clipboard, .shelf, .update, .digestReady, .siteChanged: return true
+        // Напоминание и наступившее событие — из-за кнопок: не держись они
+        // при наведении, до «готово» и крестика было бы не дотянуться.
+        case .clipboard, .shelf, .update, .digestReady, .siteChanged, .breakReminder, .countdownReached: return true
         default: return false
         }
     }
@@ -181,6 +202,8 @@ extension Activity.Kind {
         case .update: return "обновление"
         case .digestReady: return "сводка"
         case .siteChanged: return "сайт изменился"
+        case .breakReminder: return "перерыв"
+        case .countdownReached: return "событие наступило"
         }
     }
 }

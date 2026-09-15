@@ -83,6 +83,8 @@ struct ActivityView: View {
     let onInstallUpdate: () -> Void
     /// Убрать плашку крестиком. Есть только у тех, что не уходят сами.
     let onDismiss: () -> Void
+    /// Ответ на напоминание о перерыве: `true` — «готово», `false` — «пропустить».
+    let onBreakAnswer: (BreakKind, Bool) -> Void
     /// Нажатие по самой плашке. У неинтерактивных не вызывается.
     let onOpen: () -> Void
     /// Отложить скопированное в заметки, не открывая ничего.
@@ -103,6 +105,7 @@ struct ActivityView: View {
             minimumWidth: metrics.closed.width,
             trailingIsButton: button(for: kind) != nil,
             trailingExtra: sideButtonCount(kind, notesEnabled: notesEnabled) * sideButtonWidth
+                + (isBreakReminder(kind) ? answerButtonsRoom : 0)
         )
     }
 
@@ -137,8 +140,10 @@ struct ActivityView: View {
 
     /// У каких плашек есть крестик. Он нужен там, где плашка не уходит сама.
     static func isDismissable(_ kind: Activity.Kind) -> Bool {
-        if case .shelf = kind { return true }
-        return false
+        switch kind {
+        case .shelf, .countdownReached: return true
+        default: return false
+        }
     }
 
     /// Что делает кнопка-капсула, если она в плашке есть.
@@ -199,6 +204,12 @@ struct ActivityView: View {
                 ) { onSaveToNotes(entry) }
             }
 
+            // Напоминание не уходит само: ответ — круглыми кнопками, подпись
+            // всплывает под чёлкой при наведении.
+            if case let .breakReminder(kind) = activity.kind {
+                answerButtons(kind)
+            }
+
             if Self.isDismissable(activity.kind) {
                 sideButton(
                     symbol: "xmark",
@@ -209,11 +220,59 @@ struct ActivityView: View {
             }
         }
         .padding(.leading, ActivityLayout.leadingPadding)
-        .padding(.trailing, ActivityLayout.trailingPadding)
+        // У напоминания справа кнопки ростом со значок слева — и поле такое же,
+        // как слева: иначе плашка читалась кривой.
+        .padding(.trailing, Self.isBreakReminder(activity.kind)
+                 ? ActivityLayout.leadingPadding : ActivityLayout.trailingPadding)
         // Содержимое начинается ровно под аппаратным вырезом.
         .padding(.top, metrics.notchHeight + 6)
         .padding(.bottom, 12)
         .foregroundStyle(.white)
+    }
+
+    static func isBreakReminder(_ kind: Activity.Kind) -> Bool {
+        if case .breakReminder = kind { return true }
+        return false
+    }
+
+    /// Поперечник кнопок ответа — ровно значок слева: плашка симметрична.
+    static var answerDiameter: CGFloat { ActivityLayout.iconSize + 2 }
+    static let answerSpacing: CGFloat = 8
+
+    /// Сколько кнопки ответа прибавляют к ширине: промежуток от текста,
+    /// две кнопки с промежутком и разница полей справа и слева.
+    static var answerButtonsRoom: CGFloat {
+        ActivityLayout.spacing + 2 * answerDiameter + answerSpacing
+            + (ActivityLayout.leadingPadding - ActivityLayout.trailingPadding)
+    }
+
+    /// «Готово» и «Пропустить» — круглыми кнопками с подложкой, как везде
+    /// в вырезе: голые значки кнопками не читались.
+    private func answerButtons(_ kind: BreakKind) -> some View {
+        HStack(spacing: Self.answerSpacing) {
+            Button { onBreakAnswer(kind, true) } label: {
+                Image(systemName: "checkmark")
+                    .font(.system(size: NotchStyle.font(11), weight: .bold))
+                    .foregroundStyle(Palette.positive)
+                    .frame(width: Self.answerDiameter, height: Self.answerDiameter)
+                    .background(Circle().fill(Palette.positive.opacity(0.18)))
+            }
+            .buttonStyle(NotchButtonStyle(diameter: Self.answerDiameter))
+            .notchHint(t("Готово"))
+
+            Button { onBreakAnswer(kind, false) } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: NotchStyle.font(10), weight: .bold))
+                    .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
+                    .frame(width: Self.answerDiameter, height: Self.answerDiameter)
+                    // Своя подложка поверх общей: на чёрном теле плашки
+                    // общая почти не видна, и крестик снова читался значком.
+                    .background(Circle().fill(.white.opacity(0.14)))
+            }
+            .buttonStyle(NotchButtonStyle(diameter: Self.answerDiameter))
+            .notchHint(t("Пропустить"))
+        }
+        .fixedSize()
     }
 
     /// Кнопка сбоку от плашки — за пределами её нажимаемой части.
@@ -332,6 +391,10 @@ struct ActivityView: View {
             iconTile("newspaper.fill")
         case .siteChanged:
             iconTile("binoculars.fill")
+        case let .breakReminder(kind):
+            iconTile(kind.symbol)
+        case .countdownReached:
+            iconTile("party.popper.fill")
         }
     }
 
@@ -375,6 +438,10 @@ struct ActivityView: View {
             return entries > 0 ? tf("Сводка готова: новостей %d", entries) : t("Сводка готова")
         case let .siteChanged(name, text, _):
             return "\(name): \(text)"
+        case let .breakReminder(kind):
+            return kind.message
+        case let .countdownReached(title):
+            return title.isEmpty ? t("Событие наступило") : tf("Наступило: %@", title)
         }
     }
 
@@ -408,6 +475,8 @@ struct ActivityView: View {
             return nil
         case .siteChanged:
             return t("Открыть")
+        case .breakReminder, .countdownReached:
+            return nil
         }
     }
 
@@ -444,6 +513,13 @@ struct ActivityView: View {
         // не так», а готовое обновление — хорошая новость.
         case .update: return Palette.positive
         case .digestReady, .siteChanged: return Palette.feeds
+        case .countdownReached: return Palette.magenta
+        case let .breakReminder(kind):
+            switch kind {
+            case .rest: return Palette.amber
+            case .water: return Palette.blue
+            case .stretch: return Palette.positive
+            }
         case .powerDisconnected, .trackChanged: return Palette.panel
         }
     }

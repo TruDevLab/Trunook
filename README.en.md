@@ -42,7 +42,7 @@ changed in settings or right in the welcome window.
 - **A home screen of tiles.** The expanded notch is built like a phone's home
   screen: music, upcoming meetings, the month, tasks, timer, weather, system
   load, battery, news, site tracking, an AI question field, the coffee cup,
-  clipboard, shelf, notes. Tiles come in 1×1, 2×1, 3×1, 2×2, 4×1 and 4×2 on a
+  clipboard, shelf, notes, a countdown. Tiles come in 1×1, 2×1, 3×1, 2×2, 4×1 and 4×2 on a
   four-column grid. Each shows the essentials and does the essentials —
   pause, start the timer, join the meeting — and clicking it opens the full
   panel. Pick tiles, order and size in Settings, under Home screen: drag
@@ -63,7 +63,12 @@ changed in settings or right in the welcome window.
 - **Clipboard history.** Recent copies, paste by number from the keyboard;
   with the list open, ↑↓ walk the rows and Enter pastes the chosen one.
 - **File shelf.** Drag files onto the notch and they land on the shelf. Drag
-  them off into any window — the file moves for good.
+  them off into any window — the file moves for good. Over the notch you can
+  also drop a file into a section: compress to ZIP or unarchive, copy an iCloud
+  link to the clipboard, move to Trash.
+- **Window layout.** Drag a window by its title bar to the notch and it shows
+  layouts: full screen and centered at 85% in the middle, halves, two thirds,
+  thirds and top or bottom quarters on either side. Drop the window on the one you want.
 - **Model prompts.** The question goes off with Enter, the answer is written
   right in the notch, and can be copied or pasted into the active window.
   Answering is Ollama on your own machine, and there is no need to install it
@@ -185,7 +190,13 @@ changed in settings or right in the welcome window.
   a kiss, spins after its tail, hunts the cursor and puts on shades. How often
   it comes out is up to you: every 2–4, 5–10 or 20–40 minutes. It stays away
   while a window is full screen, with Reduce Motion or in Low Power Mode; turn it
-  off with "Liven up the notch".
+  off with "Cat in the notch" in the Notch section.
+- **Breaks.** Reminders to take a break, drink water and stretch, each on its own
+  interval; only time at the computer counts. The pill waits for an answer —
+  done or skip. The cat comes out with each one: laps up milk from a knocked-over
+  mug, drinks water through a straw, does its workout.
+- **Countdown.** A home screen tile: your own event and how long is left. When
+  it arrives — a pill and confetti from the notch.
 
 - **Updates itself.** Once a day the app asks GitHub whether a newer version
   exists and downloads it in the background. When it is ready, a pill appears

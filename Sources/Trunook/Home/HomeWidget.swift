@@ -47,6 +47,8 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
     case tasks
     case ask
     case timer
+    /// Обратный отсчёт до события, которое задал человек.
+    case countdown
     case weather
     case monitor
     case battery
@@ -82,7 +84,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .voice: return .voice
         case .dictation: return .dictation
         case .teleprompter: return .teleprompter
-        case .music, .tasks, .weather, .battery, .pinnedNotes: return nil
+        case .music, .tasks, .weather, .battery, .pinnedNotes, .countdown: return nil
         }
     }
 
@@ -97,6 +99,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .weather: return t("Погода")
         case .battery: return t("Батарея")
         case .pinnedNotes: return t("Закреплённые заметки")
+        case .countdown: return t("Обратный отсчёт")
         default: return hubEntry?.title ?? rawValue
         }
     }
@@ -109,6 +112,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .weather: return "cloud.sun.fill"
         case .battery: return "battery.75percent"
         case .pinnedNotes: return "pin.fill"
+        case .countdown: return "hourglass"
         default: return hubEntry?.symbol ?? "square"
         }
     }
@@ -120,6 +124,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .weather: return Palette.weather
         case .battery: return Palette.positive
         case .pinnedNotes: return Palette.notes
+        case .countdown: return Palette.magenta
         default: return hubEntry?.tint ?? .white
         }
     }
@@ -134,6 +139,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .tasks: return [.full, .wide, .threeWide, .large, .fullTall]
         case .ask: return [.full, .wide, .threeWide]
         case .timer: return [.small, .wide, .threeWide]
+        case .countdown: return [.wide, .small, .threeWide, .full]
         case .weather: return [.small, .wide, .threeWide]
         case .monitor: return [.wide, .small, .threeWide, .full]
         case .battery: return [.small]
@@ -155,7 +161,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
     /// вернуть его человек пошёл бы не в тот раздел.
     func isEnabled(_ settings: Settings) -> Bool {
         switch self {
-        case .music, .battery: return true
+        case .music, .battery, .countdown: return true
         case .tasks: return settings.thingsEnabled
         case .weather: return settings.weatherEnabled
         case .pinnedNotes: return settings.notesEnabled

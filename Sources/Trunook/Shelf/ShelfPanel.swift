@@ -12,6 +12,10 @@ struct ShelfPanel: View {
     let metrics: NotchMetrics
     /// Перетаскивание уже над полкой — подсвечиваем, куда ронять.
     let isDropTarget: Bool
+    /// Раздел под файлами, пока их держат над полкой.
+    let dropZone: ShelfDropZone
+    /// Держат одни архивы — второй раздел распаковывает, а не сжимает.
+    let dropUnpacks: Bool
     let onRemove: (ShelfItem) -> Void
     let onOpen: (ShelfItem) -> Void
     let onRevealInFinder: (ShelfItem) -> Void
@@ -72,8 +76,68 @@ struct ShelfPanel: View {
                 NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
             }
         } content: {
-            if items.isEmpty { empty } else { grid }
+            // Слоями, а не ветвлением: разделы появляются поверх сетки
+            // прозрачностью, и тождество вида при этом не меняется.
+            ZStack(alignment: .top) {
+                Group { if items.isEmpty { empty } else { grid } }
+                    .opacity(isDropTarget ? 0 : 1)
+                zones
+                    .opacity(isDropTarget ? 1 : 0)
+                    .allowsHitTesting(false)
+            }
+            // Высота — та, что отвёл расчёт размера: полная сетка, пока
+            // держат файлы, иначе — по числу лежащих.
+            .frame(height: Self.gridHeight(count: isDropTarget ? Self.columns * Self.visibleRows : items.count),
+                   alignment: .top)
+            .clipped()
+            .animation(.easeOut(duration: 0.15), value: isDropTarget)
         }
+    }
+
+    /// Разделы на время перетаскивания: колонки во всю высоту сетки.
+    ///
+    /// Колонками, а не плитками в два ряда: раздел узнаёт окно приёма
+    /// по одной горизонтали, см. `ShelfDropZone.at`. Высота — полной сетки:
+    /// окно приёма раздаётся под полную полку, и панель на время
+    /// перетаскивания растёт до того же.
+    private var zones: some View {
+        HStack(spacing: Self.tileSpacing) {
+            ForEach(ShelfDropZone.allCases) { zone in
+                zoneTile(zone)
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private func zoneTile(_ zone: ShelfDropZone) -> some View {
+        let active = zone == dropZone
+        return VStack(spacing: 8) {
+            Image(systemName: zone.symbol(unpacks: dropUnpacks))
+                .font(.system(size: NotchStyle.font(22), weight: .semibold))
+                .foregroundStyle(active ? zone.tint : .white.opacity(NotchStyle.secondaryOpacity))
+            Text(zone.title(unpacks: dropUnpacks))
+                .font(.system(size: NotchStyle.font(10.5), weight: .medium))
+                .foregroundStyle(.white.opacity(active ? NotchStyle.primaryOpacity : NotchStyle.secondaryOpacity))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+            if zone == .shelf, !items.isEmpty {
+                Text(tf("лежит %d", items.count))
+                    .font(.system(size: NotchStyle.font(9)))
+                    .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+            }
+        }
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: NotchStyle.tileRadius, style: .continuous)
+                .fill(active ? zone.tint.opacity(0.22) : .white.opacity(NotchStyle.tileFill))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: NotchStyle.tileRadius, style: .continuous)
+                .strokeBorder(zone.tint.opacity(active ? 0.7 : 0), lineWidth: 1)
+        )
+        .animation(.easeOut(duration: 0.12), value: active)
     }
 
     private var empty: some View {

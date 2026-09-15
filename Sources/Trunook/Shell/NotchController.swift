@@ -105,6 +105,8 @@ final class NotchController {
     var onOpenSettings: (() -> Void)?
     /// Открыть настройки сразу на нужном разделе.
     var onOpenSettingsTab: ((SettingsSelection.Tab) -> Void)?
+    /// Залп конфетти из чёлки. Окном залпа владеет `AppDelegate`.
+    var onCelebrate: (() -> Void)?
     /// Показать описание выпуска. Окном знакомства владеет `AppDelegate` —
     /// контроллер выреза о нём не знает и знать не должен.
     var onOpenReleaseNotes: (() -> Void)?
@@ -117,6 +119,8 @@ final class NotchController {
     let critter = NotchCritter()
     /// Погодные сценки под чёлкой при смене погоды.
     let weatherScenes = WeatherScenePlayer()
+    /// Напоминания о перерыве, воде и разминке.
+    private lazy var breaks = BreakReminders(settings: settings)
     /// Какой экран у острова и где стоят отражения.
     private let screens = NotchScreens()
     private let router: OverlayRouter
@@ -139,6 +143,11 @@ final class NotchController {
     private var questionObservation: AnyCancellable?
     /// Метка сводок меняет размер свёрнутой чёлки — окно обязано узнать.
     private var feedsObservation: AnyCancellable?
+    /// Ход обновления — для проверки, запущенной из меню.
+    private var updateObservation: AnyCancellable?
+    /// Проверку запустил человек из меню: каждый её шаг показывается в чёлке.
+    /// Фоновые проверки остаются тихими — сообщает только готовое обновление.
+    private var isReportingUpdate = false
 
     /// Плашку полки убрали крестиком. Держится до следующего файла:
     /// человек уже знает, что на полке лежит.
@@ -189,6 +198,7 @@ final class NotchController {
         retentionTimer?.invalidate()
         retentionTimer = nil
         critter.stop()
+        breaks.stop()
         weatherScenes.stop()
         purr.shutdown()
         chime.shutdown()
@@ -267,14 +277,26 @@ final class NotchController {
         // а не только в тике опроса: между тиками десятая доля секунды,
         // и быстрый бросок к полоске с нажатием в неё не уложился бы.
         input.onCursorMoved = { [weak self] in
+            // Сеанс перетаскивания заводится чуть позже, чем курсор тронулся:
+            // зона приёма ждёт его на каждом движении.
+            if let self, self.input.isDragging { self.shelfDrop.isArmed = self.input.isDraggingData }
             self?.updateWindowInteractivity()
             self?.updateCritterGaze()
+            self?.updateWindowSlot()
         }
         // Зона приёма файлов оживает только пока что-то тащат: в покое она
         // прозрачна для мыши и не ест нажатия по тому, что под чёлкой.
-        input.onDragChanged = { [weak self] dragging in self?.shelfDrop.isArmed = dragging }
+        // Оживает только когда тащат данные, а не окно и не выделение: см.
+        // `NotchInput.isDraggingData`. Гаснет — вместе с перетаскиванием.
+        input.onDragChanged = { [weak self] dragging in
+            guard let self else { return }
+            self.shelfDrop.isArmed = dragging && self.input.isDraggingData
+        }
         // То, что пересчитывается по времени, а не по событию.
         input.onTick = { [weak self] in
+            self?.updateWindowSnap()
+            self?.keepBreakReminder()
+            self?.checkCountdownReached()
             self?.placeScreens()
             self?.interruptCritterIfBusy()
             self?.updateWeatherScene()
@@ -454,6 +476,10 @@ final class NotchController {
             self?.activities.present(.update(version: release.version.text))
         }
         updates.start()
+        updateObservation = updates.$state
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in self?.reportManualUpdate(state) }
 
         digest.onReady = { [weak self] ready in
             self?.activities.present(.digestReady(entries: ready.entryCount))
@@ -491,6 +517,8 @@ final class NotchController {
         critter.onDue = { [weak self] in self?.critterDue() }
         critter.frequency = { [weak self] in self?.settings.critterFrequency ?? .normal }
         critter.start()
+        breaks.onDue = { [weak self] kind in self?.remindBreak(kind) ?? false }
+        breaks.start()
 
         // Заметка из записи готова — показать её так же, как показывают
         // сохранённое выделение: плашкой, если панель закрыта, и вспышкой
@@ -892,7 +920,12 @@ final class NotchController {
             assistantModelEnabled: settings.ollamaEnabled,
             assistantPending: assistant.pending != nil,
             assistantHasAnswer: !assistant.answer.isEmpty,
-            shelfCount: shelf.items.count,
+            // Пока держат файлы, полка во весь рост — ровно под окно приёма,
+            // которое раздаётся под полную сетку: разделы узнаются по месту
+            // курсора, и мишень не должна быть меньше панели.
+            shelfCount: state.isShelfDropTarget
+                ? ShelfPanel.columns * ShelfPanel.visibleRows
+                : shelf.items.count,
             notesRows: notes.notes.count,
             notesEnabled: settings.notesEnabled,
             voicePhase: voice.phase,
@@ -2944,7 +2977,8 @@ final class NotchController {
 
     private func critterDue() {
         // Погодная сценка идёт или ждёт своего мига — кот подождёт её.
-        if weatherScenes.scene != nil || weatherScenes.pending != nil {
+        // Сценка напоминания уже идёт — тоже: котик в чёлке один.
+        if weatherScenes.scene != nil || weatherScenes.pending != nil || critter.act != nil {
             critter.retrySoon()
             return
         }
@@ -2963,6 +2997,14 @@ final class NotchController {
     private func interruptCritterIfBusy() {
         guard critter.act != nil else {
             critterForced = false
+            return
+        }
+        // Сценка напоминания идёт вместе со своей плашкой: перебивает её
+        // только то, что заведено рукой.
+        if critter.act?.isReminder == true {
+            if state.overlay != nil || state.isHovered || state.isPinnedOpen || ring.isOpen {
+                critter.cancel()
+            }
             return
         }
         // Отладочную сценку полоски не перебивают: снимать её приходится
@@ -2994,6 +3036,309 @@ final class NotchController {
         }
         critter.squints = critter.act == .eyes && hypot(dx, dy) < 70
     }
+
+    // MARK: - Проверка обновлений из меню
+
+    /// «Проверить обновления» в меню. Раньше нажатие проходило молча: проверка
+    /// шла, но итог «новее нет» не показывался нигде, а готовое обновление
+    /// сообщает о себе один раз за запуск. Теперь чёлка ведёт от «проверяю»
+    /// до итога.
+    func checkForUpdatesManually() {
+        switch updates.state {
+        case let .ready(release, _):
+            // Уже скачано — показываем плашку с кнопкой ещё раз.
+            activities.present(.update(version: release.version.text))
+            return
+        case let .downloading(release, progress):
+            isReportingUpdate = true
+            activities.present(.command(
+                text: tf("Скачиваю версию %@ — %d%%", release.version.text, Int(progress * 100)),
+                state: .running
+            ))
+            return
+        case .checking, .installing:
+            isReportingUpdate = true
+            activities.present(.command(text: t("Проверяю обновления…"), state: .running))
+            return
+        default:
+            break
+        }
+        isReportingUpdate = true
+        activities.present(.command(text: t("Проверяю обновления…"), state: .running))
+        updates.check(manual: true)
+    }
+
+    private func reportManualUpdate(_ state: UpdateState) {
+        guard isReportingUpdate else { return }
+        switch state {
+        case .idle, .checking, .installing:
+            break
+        case let .found(release):
+            activities.present(.command(text: tf("Найдена версия %@", release.version.text), state: .running))
+        case let .downloading(release, progress):
+            // Плашка обновляется по каждому проценту незачем — хватит начала.
+            guard progress == 0 else { return }
+            activities.present(.command(text: tf("Найдена версия %@ — скачиваю…", release.version.text), state: .running))
+        case let .ready(release, _):
+            isReportingUpdate = false
+            activities.present(.update(version: release.version.text))
+        case .upToDate:
+            isReportingUpdate = false
+            activities.present(.command(text: tf("У вас последняя версия %@", AppInfo.shortVersion), state: .done))
+        case let .failed(failure):
+            isReportingUpdate = false
+            activities.present(.command(text: failure.message, state: .failed))
+        }
+    }
+
+    // MARK: - Раскладка окон
+
+    /// Окно, которое потащили, пока кнопка зажата. `nil` — ничего не тащат
+    /// или тащат не окно.
+    private var draggedWindow: DraggedWindow?
+    /// Для этого нажатия окно уже искали: искать на каждом тике — дёргать
+    /// чужое приложение десять раз в секунду.
+    private var draggedWindowLooked = false
+
+    /// На каждом тике: несут ли окно, не пора ли показать раскладки
+    /// и не отпустили ли его над ними.
+    private func updateWindowSnap() {
+        let pressed = NSEvent.pressedMouseButtons & 1 != 0
+        guard pressed else {
+            finishWindowSnap()
+            return
+        }
+        guard settings.windowSnapEnabled, input.isDragging else { return }
+        if !draggedWindowLooked {
+            draggedWindowLooked = true
+            // Под курсором, а не в точке нажатия: окно едет вместе с курсором,
+            // а от точки нажатия быстрый рывок уносит его за один тик.
+            draggedWindow = DraggedWindow(pressedAt: NSEvent.mouseLocation)
+        }
+        guard let window = draggedWindow else { return }
+        window.refresh()
+        guard window.isMoving else { return }
+
+        if state.overlay != .windowSnap, isNearNotch(NSEvent.mouseLocation) {
+            // Поверх того, с чем работают руками, раскладки не открываем.
+            guard state.overlay == nil else { return }
+            router.set(.windowSnap)
+        }
+        updateWindowSlot()
+    }
+
+    /// Курсор у чёлки: над ней или чуть ниже, на её ширину с запасом.
+    ///
+    /// Не у самой кромки: окно, задержанное у верхнего края, система понимает
+    /// как жест и открывает Mission Control — раскладки должны открыться
+    /// раньше, чем курсор туда дойдёт.
+    private func isNearNotch(_ point: CGPoint) -> Bool {
+        guard let notch = host.geometry?.notchRect else { return false }
+        let zone = CGRect(x: notch.minX - 60, y: notch.minY - 60, width: notch.width + 120, height: notch.height + 60)
+        return zone.contains(point)
+    }
+
+    /// Раскладка под курсором — по движению, а не только по тику: плитки
+    /// мелкие, и подсветка, отстающая на десятую долю секунды, промахивается.
+    private func updateWindowSlot() {
+        guard state.overlay == .windowSnap, let geometry = host.geometry, let metrics = host.metrics else { return }
+        let size = CGSize(width: WindowSnapLayout.width, height: WindowSnapLayout.height(notchHeight: metrics.notchHeight))
+        let frame = geometry.windowFrame(contentSize: size)
+        let cursor = NSEvent.mouseLocation
+        let point = CGPoint(x: cursor.x - frame.minX, y: frame.maxY - cursor.y)
+        let slot = WindowSnapLayout.slot(at: point, notchHeight: metrics.notchHeight)
+        guard slot != state.windowSlot else { return }
+        state.windowSlot = slot
+        Haptics.tap(.alignment)
+    }
+
+    /// Кнопку отпустили. Над раскладками — окно ложится по выбранной.
+    private func finishWindowSnap() {
+        // Нажатия не было — и заканчивать нечего. Иначе отпущенная кнопка
+        // закрывала бы раскладки на каждом тике, кто бы их ни открыл.
+        guard draggedWindowLooked else { return }
+        defer {
+            draggedWindow = nil
+            draggedWindowLooked = false
+        }
+        guard state.overlay == .windowSnap else { return }
+        let slot = state.windowSlot
+        let window = draggedWindow
+        state.windowSlot = nil
+        router.close()
+        guard let slot, let window, let screen = host.geometry?.screen else { return }
+        let frame = slot.frame(in: screen.visibleFrame)
+        DebugLog.write("окна: раскладка \(slot.rawValue) → \(NSStringFromRect(frame))")
+        // С задержкой: система заканчивает перенос окна по отпусканию сама
+        // и поставила бы его на место отпускания поверх нашей раскладки.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            DraggedWindow.place(window.element, in: frame, edges: slot.edges)
+        }
+    }
+
+    /// Раскладки без перетаскивания: первый вызов открывает, каждый следующий
+    /// подсвечивает следующую, после последней — закрывает.
+    func debugStepWindowSlots() {
+        guard state.overlay == .windowSnap else {
+            router.set(.windowSnap)
+            state.windowSlot = WindowSlot.allCases.first
+            return
+        }
+        let all = WindowSlot.allCases
+        guard let current = state.windowSlot, let index = all.firstIndex(of: current), index + 1 < all.count else {
+            state.windowSlot = nil
+            router.close()
+            return
+        }
+        state.windowSlot = all[index + 1]
+    }
+
+    /// Все раскладки по очереди на переднем окне — сверка в журнале,
+    /// какие получились. В конце окно возвращается как было.
+    func debugCycleWindowSlots() {
+        guard let window = DraggedWindow.frontmost(), let screen = host.geometry?.screen,
+              let original = DraggedWindow.frame(of: window) else {
+            DebugLog.write("окна: переднего окна нет")
+            return
+        }
+        for (index, slot) in WindowSlot.allCases.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 1.6) {
+                let frame = slot.frame(in: screen.visibleFrame)
+                DebugLog.write("окна: цикл \(slot.rawValue)")
+                DraggedWindow.place(window, in: frame, edges: slot.edges)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(WindowSlot.allCases.count) * 1.6) {
+            DraggedWindow.place(window, in: original)
+        }
+    }
+
+    /// Разложить окно переднего приложения — проверка установки места
+    /// и размера без рук.
+    func debugApplyWindowSlot(_ slot: WindowSlot) {
+        guard let window = DraggedWindow.frontmost(), let screen = host.geometry?.screen else {
+            DebugLog.write("окна: переднего окна нет")
+            return
+        }
+        let frame = slot.frame(in: screen.visibleFrame)
+        DebugLog.write("окна: проба \(slot.rawValue) → \(NSStringFromRect(frame))")
+        DraggedWindow.place(window, in: frame, edges: slot.edges)
+    }
+
+    // MARK: - Перерывы
+
+    /// Пора напомнить о перерыве. Возврат — показано ли: вырез занят —
+    /// напоминание подождёт следующего тика.
+    ///
+    /// Не поверх того, с чем работают руками, и не поверх другой плашки:
+    /// напоминание — не срочность, оно подождёт полминуты. Окно на весь экран
+    /// тоже ждёт: фильм и презентацию не прерываем.
+    private func remindBreak(_ kind: BreakKind) -> Bool {
+        let busy = state.overlay != nil || state.isHovered || state.isPinnedOpen || ring.isOpen
+            || voice.phase != nil || activities.current != nil || weatherScenes.scene != nil
+        if busy {
+            DebugLog.write("перерывы: \(kind.rawValue) ждёт — вырез занят")
+            return false
+        }
+        if CritterGate.isFullScreen(on: host.geometry?.screen) {
+            DebugLog.write("перерывы: \(kind.rawValue) ждёт — окно на весь экран")
+            return false
+        }
+        showBreak(kind)
+        return true
+    }
+
+    /// Плашка и сценка кота разом.
+    private func showBreak(_ kind: BreakKind) {
+        critter.cancel()
+        activities.present(.breakReminder(kind))
+        Haptics.tap(.levelChange)
+        // Котик — если у экрана есть чёлка, из-за которой выходить,
+        // и человек не просил меньше движения.
+        guard host.metrics?.hasNotch == true, !MotionPreference.shared.reduceMotion else { return }
+        if let metrics = host.metrics {
+            critter.islandWidth = notchSnapshot.size(metrics: metrics).width
+        }
+        // Как отладочная: штатный выход кота по расписанию она не переносит.
+        critter.play(kind.act, debug: true)
+    }
+
+    /// Напоминание сразу, в обход счёта и занятости.
+    func debugBreak(_ kind: BreakKind) {
+        router.close()
+        activities.dismiss()
+        breaks.debugAwait(kind)
+        showBreak(kind)
+    }
+
+    /// Ответ на напоминание кнопкой в плашке.
+    private func answerBreak(_ kind: BreakKind, done: Bool) {
+        breaks.answer(kind, done: done)
+        if case .breakReminder? = activities.current?.kind { activities.dismiss() }
+        Haptics.tap(.levelChange)
+    }
+
+    /// Когда последний раз проверяли, на месте ли плашка напоминания.
+    private var breakCheckedAt = Date.distantPast
+
+    /// Напоминание, которому не ответили, возвращается, как только вырез
+    /// освободится: его убирает любая открытая панель и перебивает важная
+    /// плашка, а пропасть без ответа оно не должно.
+    private func keepBreakReminder() {
+        guard let kind = breaks.awaiting, Date().timeIntervalSince(breakCheckedAt) >= 1 else { return }
+        breakCheckedAt = Date()
+        guard activities.current == nil, state.overlay == nil, !state.isHovered, !state.isPinnedOpen,
+              !ring.isOpen, voice.phase == nil else { return }
+        activities.present(.breakReminder(kind))
+    }
+
+    /// Крестик на плашке: у полки он прячет напоминание до следующего файла,
+    /// у остальных просто убирает плашку.
+    private func dismissActivity() {
+        if case .shelf? = activities.current?.kind {
+            dismissShelfChip()
+        } else {
+            activities.dismiss()
+        }
+    }
+
+    // MARK: - Событие обратного отсчёта
+
+    private var countdownCheckedAt = Date.distantPast
+
+    /// Наступило событие отсчёта — плашка с его названием и залп конфетти,
+    /// один раз на дату.
+    ///
+    /// Только пока плитка отсчёта стоит на главном экране: убранная плитка —
+    /// значит, событие человеку больше не нужно. Наступившее больше суток
+    /// назад не празднуется: приложение было выключено, и залп через три дня
+    /// после отпуска — не праздник, а недоразумение.
+    private func checkCountdownReached() {
+        guard Date().timeIntervalSince(countdownCheckedAt) >= 1 else { return }
+        countdownCheckedAt = Date()
+        guard let date = settings.countdownEventDate, date <= Date(),
+              settings.countdownCelebratedDate != date,
+              settings.homeWidgets.contains(where: { $0.kind == .countdown })
+        else { return }
+        guard Date().timeIntervalSince(date) < 24 * 3600 else {
+            settings.countdownCelebratedDate = date
+            return
+        }
+        // Под открытой панелью плашку не видно — подождём, пока закроют.
+        guard state.overlay == nil else { return }
+        settings.countdownCelebratedDate = date
+        celebrateCountdown()
+    }
+
+    private func celebrateCountdown() {
+        router.close()
+        activities.present(.countdownReached(title: settings.countdownEventTitle))
+        Haptics.tap(.levelChange)
+        onCelebrate?()
+        DebugLog.write("отсчёт: событие наступило")
+    }
+
+    func debugCountdownReached() { celebrateCountdown() }
 
     // MARK: - Погодные сценки
 
@@ -3187,13 +3532,20 @@ final class NotchController {
     /// Связывает зону приёма с вырезом. Ставится один раз: само окно приёма
     /// переживает перестройку геометрии, меняются только его размеры.
     private func installShelf() {
-        shelfDrop.onEnter = { [weak self] in
+        shelfDrop.onEnter = { [weak self] urls in
             guard let self else { return }
-            // Файлы ведут над чёлкой — раскрываем полку, чтобы человек видел,
-            // куда роняет, и мог доложить к уже лежащему.
+            // Файлы ведут над чёлкой — раскрываем полку разделами, чтобы
+            // человек видел, куда роняет и что с файлами станет.
             self.shelf.pruneMissing()
+            self.state.shelfDropUnpacks = ShelfFileActions.unpacks(urls)
+            self.state.shelfDropZone = .shelf
             self.state.isShelfDropTarget = true
             self.router.set(.shelf)
+        }
+        shelfDrop.onMove = { [weak self] point in
+            guard let self, let zone = self.shelfZone(at: point), zone != self.state.shelfDropZone else { return }
+            self.state.shelfDropZone = zone
+            Haptics.tap(.alignment)
         }
         shelfDrop.onExit = { [weak self] in
             // Полку не закрываем: человек мог обвести файл мимо панели
@@ -3201,9 +3553,15 @@ final class NotchController {
             // курсора за её границы.
             self?.state.isShelfDropTarget = false
         }
-        shelfDrop.onDrop = { [weak self] urls in
+        shelfDrop.onDrop = { [weak self] urls, point in
             guard let self else { return false }
             self.state.isShelfDropTarget = false
+            let zone = self.shelfZone(at: point) ?? .shelf
+            DebugLog.write("полка: уронили в раздел \(zone)")
+            guard zone == .shelf else {
+                self.perform(zone, on: urls)
+                return true
+            }
             let added = self.shelf.add(urls)
             if added > 0 {
                 Haptics.tap()
@@ -3214,6 +3572,192 @@ final class NotchController {
             self.router.set(.shelf)
             return added > 0
         }
+    }
+
+    /// Раздел полки под точкой экрана. Пока окно приёма не раздалось
+    /// до панели — никакого: полоска по чёлке уже панели, и горизонталь
+    /// в ней значила бы не то.
+    private func shelfZone(at point: CGPoint) -> ShelfDropZone? {
+        guard let geometry = host.geometry, let metrics = host.metrics else { return nil }
+        let size = NotchSizing.size(
+            presentation: .shelf,
+            content: NotchContent(shelfCount: ShelfPanel.columns * ShelfPanel.visibleRows),
+            metrics: metrics
+        )
+        let frame = geometry.windowFrame(contentSize: size)
+        guard point.y >= frame.minY - 1 else { return nil }
+        return ShelfDropZone.at(x: point.x - frame.minX, width: frame.width)
+    }
+
+    /// Файлы уронили не на полку, а в раздел действия.
+    ///
+    /// Полка закрывается сразу: итог сообщает плашка, а плашку накладка
+    /// закрывает собой.
+    private func perform(_ zone: ShelfDropZone, on urls: [URL]) {
+        router.close()
+        switch zone {
+        case .shelf:
+            break
+        case .archive:
+            let unpacks = ShelfFileActions.unpacks(urls)
+            activities.present(.command(text: unpacks ? t("Распаковываю…") : t("Сжимаю…"), state: .running))
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                var made: [URL] = []
+                var failed = false
+                do {
+                    if unpacks {
+                        for archive in urls { made.append(try ShelfFileActions.unarchive(archive)) }
+                    } else {
+                        made.append(try ShelfFileActions.archive(urls))
+                    }
+                } catch {
+                    failed = true
+                }
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if failed {
+                        self.activities.present(.command(
+                            text: unpacks ? t("Не удалось распаковать") : t("Не удалось сжать"), state: .failed
+                        ))
+                        return
+                    }
+                    DebugLog.write("полка: готово — \(made.map(\.lastPathComponent))")
+                    let text = made.count == 1
+                        ? made[0].lastPathComponent
+                        : tf("Распаковано архивов: %d", made.count)
+                    self.activities.present(.command(text: text, state: .done))
+                }
+            }
+        case .share:
+            shareToCloud(urls)
+        case .trash:
+            ShelfFileActions.trash(urls) { [weak self] moved in
+                guard let self else { return }
+                self.shelf.pruneMissing()
+                self.refreshShelfChip()
+                guard moved > 0 else {
+                    self.activities.present(.command(text: t("Не удалось переместить в Корзину"), state: .failed))
+                    return
+                }
+                Haptics.tap()
+                self.activities.present(.command(
+                    text: urls.count == 1 ? tf("В Корзине: %@", urls[0].lastPathComponent) : tf("В Корзине: %d", moved),
+                    state: .done
+                ))
+            }
+        }
+    }
+
+    /// Ссылки iCloud на файлы — в буфер обмена, по строке на файл.
+    ///
+    /// Плашка «Загружаю в iCloud…» висит, пока файл едет на сервер: без неё
+    /// минута ожидания выглядела бы как отказ.
+    private func shareToCloud(_ urls: [URL]) {
+        guard CloudShare.isAvailable else {
+            activities.present(.command(text: t("iCloud Drive выключен"), state: .failed))
+            return
+        }
+        activities.present(.command(text: t("Копирую в iCloud…"), state: .running))
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var links: [URL] = []
+            var failure: CloudShare.Failure?
+            for url in urls {
+                do {
+                    links.append(try CloudShare.publish(url, onUploading: {
+                        DispatchQueue.main.async {
+                            self?.activities.present(.command(text: t("Загружаю в iCloud…"), state: .running))
+                        }
+                    }, onQueued: {
+                        // Плашка ожидания уходит через пять минут, а ждать
+                        // бывает дольше: говорим прямо, что ссылка придёт сама.
+                        DispatchQueue.main.async {
+                            self?.activities.present(.command(
+                                text: t("iCloud загружает файл — ссылка скопируется, когда будет готова"),
+                                state: .running
+                            ))
+                        }
+                    }))
+                } catch {
+                    failure = error as? CloudShare.Failure ?? .other(error.localizedDescription)
+                    break
+                }
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let failure {
+                    let text: String
+                    switch failure {
+                    case .noDrive: text = t("iCloud Drive выключен")
+                    case .timedOut: text = t("iCloud за час так и не загрузил файл")
+                    case .other: text = t("Не удалось получить ссылку")
+                    }
+                    // Ссылки, что успели, всё равно в буфере: терять их незачем.
+                    if !links.isEmpty { self.copyLinks(links) }
+                    self.activities.present(.command(text: text, state: .failed))
+                    return
+                }
+                self.copyLinks(links)
+                Haptics.tap()
+                self.activities.present(.command(
+                    text: links.count == 1 ? t("Ссылка скопирована") : tf("Ссылок скопировано: %d", links.count),
+                    state: .done
+                ))
+            }
+        }
+    }
+
+    private func copyLinks(_ links: [URL]) {
+        let board = NSPasteboard.general
+        board.clearContents()
+        board.setString(links.map(\.absoluteString).joined(separator: "\n"), forType: .string)
+    }
+
+    /// Разделы полки, как при перетаскивании: первый вызов открывает, каждый
+    /// следующий подсвечивает следующий раздел, после последнего — закрывает.
+    func debugStepShelfZones() {
+        guard state.isShelfDropTarget else {
+            state.shelfDropUnpacks = false
+            state.shelfDropZone = .shelf
+            state.isShelfDropTarget = true
+            router.set(.shelf)
+            return
+        }
+        guard let next = ShelfDropZone(rawValue: state.shelfDropZone.rawValue + 1) else {
+            state.isShelfDropTarget = false
+            router.close()
+            return
+        }
+        state.shelfDropZone = next
+    }
+
+    /// Папка пробных файлов. В кэше, а не на рабочем столе: там iCloud
+    /// и чужие файлы, а пробы должны трогать только своё.
+    private static var debugShelfFolder: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("TrunookShelfProbe", isDirectory: true)
+    }
+
+    /// Действие раздела на пробных файлах — тем же путём, что и падение файла.
+    func debugShelfAction(_ zone: ShelfDropZone, unpack: Bool) {
+        let folder = Self.debugShelfFolder
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        if unpack {
+            let archives = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+                .filter(ShelfFileActions.isArchive)
+            guard !archives.isEmpty else {
+                DebugLog.write("полка: проба — архивов нет, сначала shelfZip")
+                return
+            }
+            perform(zone, on: archives)
+            return
+        }
+        let stamp = Int(Date().timeIntervalSince1970)
+        let files = ["заметка", "список"].map { name -> URL in
+            let url = folder.appendingPathComponent("\(name)-\(stamp).txt")
+            try? "проба полки \(stamp)\n".write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        perform(zone, on: zone == .archive ? files : [files[0]])
     }
 
     /// Зона приёма: в покое — полоска ровно по чёлке, при перетаскивании
@@ -3838,9 +4382,15 @@ final class NotchController {
             onOpenTimer: { [weak self] in self?.openTimer() },
             onOpenMonitor: { [weak self] in self?.openMonitor() },
             onOpenActivityMonitor: { [weak self] in self?.openActivityMonitor() },
-            onDismissActivity: { [weak self] in self?.dismissShelfChip() },
+            onDismissActivity: { [weak self] in self?.dismissActivity() },
+            onBreakAnswer: { [weak self] kind, done in self?.answerBreak(kind, done: done) },
             onOpenHub: { [weak self] in self?.openRingMenu() },
             onOpenTeleprompter: { [weak self] in self?.openTeleprompter() },
+            onEditCountdown: { [weak self] in
+                self?.router.close()
+                self?.collapsePanel()
+                self?.onOpenSettingsTab?(.home)
+            },
             onOpenExpanded: { [weak self] in self?.openExpanded() },
             onAskAssistant: { [weak self] in self?.askAssistant() },
             onOpenAwake: { [weak self] in self?.openAwake() },

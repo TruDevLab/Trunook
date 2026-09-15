@@ -56,6 +56,9 @@ struct CritterView: View {
                 case .ribbon: drawRibbon(in: &ctx, geometry, t: t)
                 case .dragon: drawDragon(in: &ctx, geometry, t: t)
                 case .rocket: drawRocket(in: &ctx, geometry, t: t)
+                case .rest: drawRest(in: &ctx, geometry, t: t)
+                case .drink: drawDrink(in: &ctx, geometry, t: t)
+                case .stretch: drawStretch(in: &ctx, geometry, t: t)
                 }
             }
         }

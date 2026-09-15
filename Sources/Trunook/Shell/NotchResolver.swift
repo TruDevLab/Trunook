@@ -132,6 +132,7 @@ struct NotchInputs: Equatable {
         case .calendar: return .calendar
         case .eventEditor: return .eventEditor
         case .feeds: return .feeds
+        case .windowSnap: return .windowSnap
         case nil: break
         }
         // Кольцо выше всего, кроме накладок: его держат рукой прямо сейчас,

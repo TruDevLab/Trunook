@@ -33,6 +33,8 @@ struct HomeActions {
     let startVoice: () -> Void
     let dictateNote: () -> Void
     let openTeleprompter: () -> Void
+    /// Событие обратного отсчёта задают в настройках главного экрана.
+    let editCountdown: () -> Void
 }
 
 /// Службы, из которых плитки берут данные. Каждая плитка подписывается
@@ -79,13 +81,11 @@ struct HomePanel: View {
             // плечо формы съедало бы у крайних три четверти бокового поля.
             bodyPadding: HomeGrid.bodyPadding
         ) {
-            // Погода и чашка в крыле — только пока их нет плитками: одно
+            // Чашка в крыле — только пока её нет плиткой (погода — так же,
+            // но в правом крыле): одно
             // и то же в двух местах одного экрана человек читает как две
             // разные вещи.
             HStack(spacing: 6) {
-                if settings.weatherEnabled, !placed.contains(.weather), let snapshot = weather.current {
-                    WeatherCorner(snapshot: snapshot, notchHeight: metrics.notchHeight)
-                }
                 if settings.caffeineEnabled, !placed.contains(.caffeine) {
                     CaffeineButton(isOn: wake.isOn, action: actions.openAwake)
                 }
@@ -101,6 +101,13 @@ struct HomePanel: View {
             .frame(height: metrics.notchHeight)
         } trailing: {
             HStack(spacing: 2) {
+                // Погода — справа, а не слева: в левом крыле рядом с чашкой,
+                // клавиатурой и «Командами» значок с температурой не помещался
+                // и обрезался. Справа только кольцо и настройки.
+                if settings.weatherEnabled, !placed.contains(.weather), let snapshot = weather.current {
+                    WeatherCorner(snapshot: snapshot, notchHeight: metrics.notchHeight)
+                        .padding(.trailing, 4)
+                }
                 // «Всё сразу» переехала сюда из строки музыки: музыка стала
                 // плиткой, которой на экране может и не быть. Открывает она
                 // кольцо кружков — единственное меню всех функций.
@@ -337,6 +344,8 @@ struct HomeWidgetView: View {
             AskWidget(widget: widget, settings: settings, actions: actions)
         case .timer:
             TimerWidget(widget: widget, timer: services.timer, actions: actions)
+        case .countdown:
+            CountdownWidget(widget: widget, settings: settings, actions: actions)
         case .weather:
             WeatherWidget(widget: widget, weather: services.weather)
         case .monitor:

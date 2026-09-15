@@ -40,6 +40,8 @@ enum NotchPresentation: Equatable {
     case eventEditor
     /// Сводки новостей и слежка за сайтами.
     case feeds
+    /// Раскладки окна, донесённого до чёлки.
+    case windowSnap
     /// Голосовой заход: панель не раскрывается, светится сам остров.
     case voice
     /// Кольцо быстрого доступа: кружки веером под чёлкой, пока держат кнопку.
@@ -82,7 +84,7 @@ enum NotchPresentation: Equatable {
         case .activity, .preview: return true
         case .collapsed, .chip, .swiping, .voice, .quickRing, .expanded,
              .clipboard, .assistant, .shelf, .timer, .monitor,
-             .teleprompter, .caffeine, .keyboardLock, .notes, .calendar, .eventEditor, .feeds:
+             .teleprompter, .caffeine, .keyboardLock, .notes, .calendar, .eventEditor, .feeds, .windowSnap:
             return false
         }
     }
@@ -309,6 +311,11 @@ enum NotchSizing {
                     notchHeight: metrics.notchHeight,
                     count: content.shelfCount
                 )
+            )
+        case .windowSnap:
+            return CGSize(
+                width: WindowSnapLayout.width,
+                height: WindowSnapLayout.height(notchHeight: metrics.notchHeight)
             )
         case .feeds:
             return CGSize(

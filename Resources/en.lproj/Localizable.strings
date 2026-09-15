@@ -80,7 +80,6 @@
 "Не удалось скачать" = "Download failed";
 "Запись разговора" = "Recording a Conversation";
 "Расшифровка на устройстве появилась в macOS 26." = "On-device transcription arrived in macOS 26.";
-"Записывать разговор" = "Record conversations";
 "Кнопка записи появится в панели встречи и в заметке." = "A record button appears in the meeting panel and in a note.";
 "Аудиозаметка" = "Voice note";
 "Нажатие начинает запись, повторное — заканчивает." = "Press to start, press again to finish.";
@@ -111,7 +110,6 @@
 "%d ядер" = "%d cores";
 "%@ из %@ ГБ" = "%@ of %@ GB";
 "%@ ГБ свободно" = "%@ GB free";
-"Общие" = "General";
 "Полка" = "Shelf";
 "Таймер" = "Timer";
 "Телесуфлер" = "Teleprompter";
@@ -128,7 +126,6 @@
 "Знакомство с вырезом" = "Getting started";
 "Открыть" = "Open";
 "Музыка" = "Music";
-"Управление музыкой" = "Music controls";
 "Показывать смену трека" = "Show track changes";
 "Свайп двумя пальцами по острову переключает трек." = "A two-finger swipe across the island switches tracks.";
 "Поменять стороны свайпа" = "Swap swipe directions";
@@ -138,21 +135,17 @@
 "Как он устроен" = "How it works";
 "Хранится в %@ — в формате RTF, вместе с оформлением." = "Stored in %@ — as RTF, formatting included.";
 "Нагрузка на систему" = "System load";
-"Показывать нагрузку" = "Show system load";
 "Открыть нагрузку" = "Open system load";
 "Что показано и чего нет" = "What is shown and what is not";
 "Таймер и секундомер" = "Timer and stopwatch";
-"Показывать таймер" = "Show the timer";
 "Открыть таймер" = "Open the timer";
 "Звук" = "Sound";
 "После работы заводить перерыв" = "Queue a break after work";
 "Как это устроено" = "How it works";
-"Принимать перетаскиваемые файлы" = "Accept dragged files";
 "Ведите файлы на чёлку — вырез раскроется полкой. Оттуда их вытаскивают в любое окно." = "Drag files onto the notch and it opens as a shelf. From there you can drag them into any window.";
 "Открыть полку" = "Open shelf";
 "Как это работает" = "How it works";
 "История буфера обмена" = "Clipboard History";
-"Запоминать копирования" = "Remember copies";
 "Открыть историю" = "Open history";
 "Клавиши записей" = "Entry shortcuts";
 "Вставлять сразу" = "Paste immediately";
@@ -171,10 +164,7 @@
 "Очистить историю" = "Clear History";
 "Что не сохраняется" = "What Is Not Saved";
 "Служебные копирования, которые приложения делают для своих нужд." = "Utility copies that apps make for their own needs.";
-"Погода в вырезе" = "Weather in the Notch";
-"Показывать погоду" = "Show the weather";
 "Сообщать" = "Notify";
-"Как часто" = "How often";
 "Место" = "Place";
 "Где смотреть погоду" = "Where to look up weather";
 "Состояние" = "Status";
@@ -190,7 +180,6 @@
 "Через %d ч %@, вероятность %d%%" = "In %d h: %@, %d%% chance";
 "Город не выбран — прогноз запрашивать не для чего." = "No city chosen — there is nothing to request a forecast for.";
 "Прогноз ещё не загружен" = "The forecast has not loaded yet";
-"Показывать состояние питания" = "Show power state";
 "Предупреждать о низком заряде" = "Warn about low battery";
 "Порог предупреждения" = "Warning threshold";
 "Запросы к модели" = "Model Prompts";
@@ -439,7 +428,6 @@
 "Вставьте текст — он поедет вверх сам" = "Paste text — it will scroll up on its own";
 
 /* Чашка кофе: срок выбирается в самой панели, здесь остался только показ. */
-"Показывать чашку" = "Show the cup";
 "Удержание не переживает перезапуск приложения." = "Keeping the screen awake does not survive an app restart.";
 
 /* Шаблоны запросов к модели. Раньше лежали здесь с настоящими
@@ -556,7 +544,6 @@
 "Живут в панели модели. Работают и с выключенной Ollama." = "They live in the model panel. They work with Ollama off, too.";
 "Заголовок, начертания, ссылки и эмодзи." = "Headings, styles, links and emoji.";
 "Записывает выделенный текст, ничего не открывая." = "Saves the selected text without opening anything.";
-"Значок и температура в углу раскрытой панели." = "An icon and the temperature in the corner of the open panel.";
 "Изображения крупнее шести мегабайт." = "Images larger than six megabytes.";
 "Как долго держатся плашки событий." = "How long event badges stay up.";
 "Кнопка есть в истории буфера и на плашке о копировании." = "The button is in the clipboard history and on the copy badge.";
@@ -602,7 +589,6 @@
 "Команд пока нет — задайте их в настройках" = "No commands yet — add them in settings";
 "Нечего обрабатывать — ничего не выделено" = "Nothing to work on — nothing is selected";
 "Сохранить в заметки" = "Save to notes";
-"Показывать список команд" = "Show the command list";
 "Спросить о выделенном" = "Ask about the selection";
 "Захватывает выделенное и открывает разговор с моделью." = "Captures the selection and opens a conversation with the model.";
 "{{selection}} — место захваченного текста." = "{{selection}} marks where the captured text goes.";
@@ -638,7 +624,6 @@
 "Сервер модели вернул пустой ответ" = "The model server returned an empty answer";
 "Сервер модели не принял ключ" = "The model server rejected the key";
 "Сервер модели ответил %d" = "The model server replied %d";
-"Использовать модель" = "Use a model";
 "Нужна командам, разговору и заметкам." = "Needed by commands, the conversation and notes.";
 "Ключ доступа" = "Access key";
 "Хранится в настройках приложения, не в связке ключей." = "Kept in the app settings, not in the keychain.";
@@ -688,7 +673,6 @@
 "Обновляться самому" = "Update itself";
 "Раз в сутки спрашивает GitHub о новой версии и скачивает её фоном. Ставится по нажатию" = "Asks GitHub about a new version once a day and downloads it in the background. Installs at a tap";
 "Основные" = "General";
-"В вырезе" = "In the notch";
 "Инструменты" = "Tools";
 "Прозрачнее" = "More transparent";
 "Матовее" = "More frosted";
@@ -787,7 +771,6 @@
 "Записи с именем от модели и поиском по смыслу" = "Notes named by the model, searched by meaning";
 "Разговор становится заметкой с задачами" = "A conversation becomes a note with tasks";
 "История копирований под рукой" = "Your copy history at hand";
-"Файлы на чёлке между окнами" = "Files parked on the notch between windows";
 "Отсчёт виден, не занимая экрана" = "The countdown is visible without taking the screen";
 "Процессор, память и диск одним взглядом" = "CPU, memory and disk at a glance";
 "Текст у самой камеры" = "Your text right by the camera";
@@ -801,11 +784,9 @@
 "⌃⌥Z открывает пустую заметку, ⌃⌥⇧Z записывает выделенное, не открывая ничего. Имя придумывает модель. Поиск идёт по смыслу, а не по словам, и умеет искать по хранилищу Obsidian, если синхронизация включена." = "⌃⌥Z opens an empty note; ⌃⌥⇧Z saves the selection without opening anything. The model comes up with the title. Search goes by meaning rather than by words, and covers the Obsidian vault when syncing is on.";
 "Кнопка в панели встречи пишет и вас, и собеседников; ⌃⌥R — только вас. Сказанное переводится в текст на самом компьютере и ложится заметкой: название, пересказ и задачи отдельным списком. Запись прикладывается к заметке и играет прямо из списка." = "The button in the meeting panel records both you and the others; ⌃⌥R records only you. What was said is turned into text on this Mac and saved as a note: a title, a summary and tasks as a separate list. The recording is attached to the note and plays right from the list.";
 "Приложение помнит скопированное — текст, ссылки и картинки. ⌃⌥V открывает историю, цифры вставляют нужную запись. Пароли из менеджеров и служебные копирования не сохраняются." = "The app remembers what you copy — text, links and images. ⌃⌥V opens the history, and the number keys paste the entry you need. Passwords from managers and utility copies are not kept.";
-"Ведите файлы на чёлку — вырез раскроется полкой и примет их. Оттуда их вытаскивают в любое окно. Удобно, когда файл нужно перенести между приложениями, а окна закрывают друг друга." = "Drag files onto the notch and it opens as a shelf to take them. From there you drag them into any window. Handy when a file has to move between apps and the windows cover each other.";
 "⌃⌥T открывает таймер и секундомер. Пока идёт отсчёт, чёлка раздвигается счётом — нажатие по нему возвращает панель. По окончании звучит сигнал и предлагается перерыв." = "⌃⌥T opens the timer and the stopwatch. While it runs, the notch expands into a counter — click it to bring the panel back. When it ends a sound plays and a break is offered.";
 "⌃⌥M показывает загрузку процессора, занятую память и место на диске. Нажатие по плитке открывает Мониторинг системы." = "⌃⌥M shows CPU load, memory in use and disk space. Clicking a tile opens Activity Monitor.";
 "⌃⌥P разворачивает текст под чёлкой — там, где стоит камера. С оформлением и автопрокруткой: читая с середины экрана, смотришь мимо объектива, и это видно собеседнику." = "⌃⌥P unfolds your text under the notch — right where the camera sits. With formatting and auto-scrolling: reading from the middle of the screen means looking past the lens, and the other side can tell.";
-"Вырез предупреждает о дожде и снеге заранее. Место берётся по геопозиции или называется вручную; наружу уходят только округлённые координаты." = "The notch warns about rain and snow in advance. The place comes from your location or is named by hand; only rounded coordinates ever leave the Mac.";
 "Подключение и отключение питания видно плашкой, низкий заряд — предупреждением. Порог настраивается." = "Plugging in and unplugging shows as a chip, and a low charge as a warning. The threshold is adjustable.";
 "Чашка не даёт экрану гаснуть заданный срок. Пока она горит, вырез раздвинут полоской с остатком времени." = "The cup keeps the screen awake for a set time. While it is lit, the notch stays expanded with the remaining time.";
 "Модификатор, нажатый дважды подряд. Вопрос вслух, ответ вслух — панель не раскрывается, светится сам вырез. Второй модификатор спрашивает по вашим заметкам" = "A modifier pressed twice in a row. Question out loud, answer out loud — the panel does not open, the notch itself glows. The second modifier asks across your notes";
@@ -978,7 +959,6 @@
 "Мысль пришла посреди работы: ⌃⌥Z, две строки — и назад. Имя записи придумает модель, искать потом можно по смыслу, а не по словам." = "A thought arrives mid-task: ⌃⌥Z, two lines, and back to work. The model names the note, and later you can search it by meaning rather than by words.";
 "Созвон на сорок минут: включили запись, после неё в заметках лежит пересказ, список задач и полная расшифровка." = "A forty-minute call: turn on recording, and afterwards your notes hold a summary, a task list and the full transcript.";
 "Скопировали код из письма, потом ссылку, потом адрес — и всё это нужно вставить: ⌃⌥V показывает последние копирования, ⌃⌥1 вставляет предпоследнее." = "You copied a code, then a link, then an address — and all of them need pasting: ⌃⌥V shows what you copied recently, and ⌃⌥1 pastes the one before last.";
-"Собираете вложения из трёх писем в одно: перетащили на чёлку, открыли нужное окно, вытащили все разом." = "Gathering attachments from three emails into one: drag them onto the notch, open the window you need, and pull them all out at once.";
 "Поставили чайник и вернулись к работе: счёт видно прямо в чёлке, а сигнал прозвучит, даже если окно таймера давно закрыто." = "You put the kettle on and went back to work: the count is visible in the notch itself, and the chime sounds even if the timer panel has long been closed.";
 "Вентилятор завыл на пустом месте: ⌃⌥M — и видно, что именно упёрлось: процессор, память или диск." = "The fan spins up for no obvious reason: ⌃⌥M shows what is actually maxed out — the processor, the memory or the disk.";
 "Записываете видео и хотите смотреть в камеру: текст идёт под чёлкой, у самого объектива, а не внизу экрана." = "You are recording a video and want to look into the lens: the text scrolls under the notch, right by the camera, not at the bottom of the screen.";
@@ -1137,11 +1117,9 @@
 "Новая сводка" = "New digest";
 "Сайт изменился" = "Site changed";
 "Нужна модель" = "Model required";
-"Сводки и слежку собирает модель — включите её в разделе «ИИ»." = "Digests and site tracking are done by the model — turn it on in the AI section.";
 "Панель сводок" = "Digest panel";
 "Открыть сводки" = "Open digests";
 "Сводка новостей" = "News digest";
-"Собирать сводку новостей" = "Collect a news digest";
 "По каждой теме — до пяти главных новостей со ссылками." = "Up to five top stories with links for each topic.";
 "Тема" = "Topic";
 "Удалить тему" = "Remove topic";
@@ -1151,7 +1129,6 @@
 "Сводок пока не было" = "No digests yet";
 "Последняя сводка — %@" = "Last digest — %@";
 "Слежка за сайтами" = "Site tracking";
-"Следить за сайтами" = "Track sites";
 "Перестать следить" = "Stop tracking";
 "За чем следить" = "What to track";
 "Пройти проверку" = "Pass the check";
@@ -1237,7 +1214,6 @@
 "Выбранная плитка" = "Selected tile";
 "Добавить виджет" = "Add widget";
 "Соберите вырез из нужных плиток" = "Build the notch from the tiles you need";
-"Раскрытый вырез — это сетка плиток: музыка, ближайшие встречи, месяц, таймер, погода, нагрузка, новости, строка вопроса к ИИ, чашка кофе и другие. Плитка показывает главное и умеет главное — поставить на паузу, пустить таймер, зажечь чашку, — а нажатие по ней открывает полную панель. Состав, порядок и размер плиток — в настройках, в разделе «Главный экран»: плитки перетаскивают мышью, размер выбирают нажатием." = "The expanded notch is a grid of tiles: music, upcoming meetings, the month, timer, weather, system load, news, an AI question field, the coffee cup and more. Each tile shows the essentials and does the essentials — pause, start the timer, light the cup — and clicking it opens the full panel. Choose which tiles appear, their order and size in Settings, under Home screen: drag tiles to move them, click to pick a size.";
 "Весь день работаете с таймером и следите за новостями: поставьте их плитками рядом с музыкой — одно наведение на чёлку, и всё перед глазами." = "You work with a timer all day and keep an eye on the news: put them as tiles next to music — one hover over the notch and it's all in front of you.";
 "Кольцо всех функций стоит открытым: щёлкните по нужному кружку, мимо — закроется" = "Every feature in a ring that stays open: click the circle you want, click elsewhere to close";
 
@@ -1270,7 +1246,6 @@
 "Список с галочками" = "Checklist";
 
 /* Кот в чёлке */
-"Оживлять вырез" = "Liven up the notch";
 "Изредка в чёлке появляется кот, пока ей нечего показывать." = "Now and then a cat shows up in the notch when it has nothing to show.";
 
 /* Блокировка клавиатуры для чистки */
@@ -1304,3 +1279,113 @@
 "Снегопад" = "Heavy snow";
 "Вьюга" = "Blizzard";
 "%@, %@" = "%1$@, %2$@";
+
+/* Окна у чёлки, перерывы, обратный отсчёт, разделы полки */
+"Вода" = "Water";
+"Разминка" = "Stretch";
+"Пора сделать перерыв" = "Time for a break";
+"Попейте воды" = "Drink some water";
+"Время размяться" = "Time to stretch";
+"%d дн %d ч" = "%1$dd %2$dh";
+"Изменить событие" = "Edit event";
+"Наступило" = "It's here";
+"Задайте событие в настройках" = "Set the event in Settings";
+"Обратный отсчёт" = "Countdown";
+"Перерывы" = "Breaks";
+"Не напоминать" = "Don't remind";
+"Каждые %d мин" = "Every %d min";
+"Считается только время за компьютером." = "Only time at the computer counts.";
+"Раскладка окон" = "Window layout";
+"Тащите окно за заголовок к чёлке и отпустите на нужной раскладке." = "Drag a window by its title bar to the notch and drop it on a layout.";
+"Например, отпуск" = "For example, vacation";
+"Когда" = "When";
+"Выберите дату — плитка начнёт считать." = "Pick a date and the tile starts counting.";
+"На полку" = "To shelf";
+"Распаковать" = "Unarchive";
+"Сжать в ZIP" = "Compress to ZIP";
+"Ссылка iCloud" = "iCloud link";
+"В Корзину" = "Move to Trash";
+"Архив" = "Archive";
+"лежит %d" = "%d on shelf";
+"Распаковываю…" = "Unarchiving…";
+"Сжимаю…" = "Compressing…";
+"Не удалось распаковать" = "Couldn't unarchive";
+"Не удалось сжать" = "Couldn't compress";
+"Распаковано архивов: %d" = "Archives unpacked: %d";
+"Не удалось переместить в Корзину" = "Couldn't move to Trash";
+"В Корзине: %@" = "In Trash: %@";
+"В Корзине: %d" = "In Trash: %d";
+"iCloud Drive выключен" = "iCloud Drive is off";
+"Копирую в iCloud…" = "Copying to iCloud…";
+"Загружаю в iCloud…" = "Uploading to iCloud…";
+"Не удалось получить ссылку" = "Couldn't get a link";
+"Ссылка скопирована" = "Link copied";
+"Ссылок скопировано: %d" = "Links copied: %d";
+"Весь экран" = "Full screen";
+"Левая половина" = "Left half";
+"Левая треть" = "Left third";
+"Левая верхняя четверть" = "Top left quarter";
+"Левая нижняя четверть" = "Bottom left quarter";
+"Правая половина" = "Right half";
+"Правая треть" = "Right third";
+"Правая верхняя четверть" = "Top right quarter";
+"Правая нижняя четверть" = "Bottom right quarter";
+"Окно" = "Window";
+"Отпустите окно на раскладке" = "Drop the window on a layout";
+"iCloud загружает файл — ссылка скопируется, когда будет готова" = "iCloud is uploading — the link will be copied when ready";
+"iCloud за час так и не загрузил файл" = "iCloud didn't upload the file within an hour";
+"Событие наступило" = "The event has arrived";
+"Наступило: %@" = "It's here: %@";
+"Левые две трети" = "Left two thirds";
+"Правые две трети" = "Right two thirds";
+"По центру, 85%" = "Centered, 85%";
+"Проверяю обновления…" = "Checking for updates…";
+"Скачиваю версию %@ — %d%%" = "Downloading version %1$@ — %2$d%%";
+"Найдена версия %@" = "Found version %@";
+"Найдена версия %@ — скачиваю…" = "Found version %@ — downloading…";
+"У вас последняя версия %@" = "You have the latest version %@";
+"Очистить историю буфера?" = "Clear clipboard history?";
+"Все сохранённые копирования удалятся. Вернуть их будет нельзя." = "All saved copies will be deleted. This can't be undone.";
+"Как часто сообщать" = "How often to report";
+"не назначено" = "not set";
+"Нажмите, затем введите сочетание. Delete снимает, Escape отменяет." = "Press, then type a shortcut. Delete clears it, Escape cancels.";
+"Сочетание команды «%@»" = "Shortcut for command “%@”";
+"Раньше" = "Earlier";
+"Позже" = "Later";
+"Геопозиция" = "Location";
+"Погоде по положению. Наружу уходят координаты, округлённые до километра." = "For weather by location. Only coordinates rounded to a kilometer leave the Mac.";
+"Вырез" = "Notch";
+"Музыка и погода" = "Music & Weather";
+"Система" = "System";
+"Голосовому ассистенту отвечает модель." = "The voice assistant is answered by the model.";
+"Поведение" = "Behavior";
+"Вид" = "Appearance";
+"Плашки событий" = "Event pills";
+"Состояние питания" = "Power status";
+"Живой вырез" = "Living notch";
+"Кот в вырезе" = "Cat in the notch";
+"Как часто выходит кот" = "How often the cat appears";
+"Сводки и слежку собирает модель." = "Digests and site tracking are gathered by the model.";
+"Запросы к модели и разговор работают только с ней." = "Model prompts and chat only work with it.";
+"Список команд" = "Command list";
+"Напоминания Apple" = "Apple Reminders";
+"Открыть «ИИ»" = "Open “AI”";
+"%@ — нужен включённым функциям" = "%@ — needed by enabled features";
+"Занято и у: %@" = "Also used by: %@";
+"Сочетания команд — в разделе «Команды»." = "Command shortcuts are in “Commands”.";
+"Плитка на главном экране, а без плитки — значок в углу панели." = "A home screen tile, or an icon in the panel corner when there is no tile.";
+"Окна" = "Windows";
+"Файлы на чёлке: отложить, сжать, поделиться" = "Files on the notch: stash, zip, share";
+"Окно к чёлке — и оно разложено" = "Drag a window to the notch to arrange it";
+"Перерыв, вода и разминка — вовремя" = "Breaks, water and stretching on time";
+"Сколько осталось до вашего события" = "How long until your event";
+"Раскрытый вырез — это сетка плиток: музыка, ближайшие встречи, месяц, таймер, обратный отсчёт, погода, нагрузка, новости, строка вопроса к ИИ, чашка кофе и другие. Плитка показывает главное и умеет главное — поставить на паузу, пустить таймер, зажечь чашку, — а нажатие по ней открывает полную панель. Состав, порядок и размер плиток — в настройках, в разделе «Главный экран»: плитки перетаскивают мышью, размер выбирают нажатием." = "The expanded notch is a grid of tiles: music, upcoming meetings, the month, timer, countdown, weather, system load, news, an AI question field, the coffee cup and more. A tile shows the essentials and does the essentials — pause, start the timer, light the cup — and clicking it opens the full panel. Which tiles, their order and size are set in Settings → Home screen: drag tiles with the mouse, click to pick a size.";
+"Ведите файлы на чёлку — вырез раскроется разделами. «На полку» откладывает файлы, чтобы вытащить их в другом окне. «Сжать в ZIP» собирает архив рядом, а над архивами раздел распаковывает. «Ссылка iCloud» кладёт копию в iCloud Drive и копирует ссылку на неё. «В Корзину» — без открытия Finder." = "Drag files onto the notch and it opens sections. “To shelf” stashes files to drag out in another window. “Compress to ZIP” makes an archive next to them, and over archives the section unpacks. “iCloud link” puts a copy in iCloud Drive and copies a link to it. “Move to Trash” — without opening Finder.";
+"Потащите окно за заголовок к чёлке — она покажет раскладки. Посередине весь экран и окно по центру на 85%, по бокам зеркально половина, две трети, треть и четверти. Отпустите окно на нужной — оно встанет по месту. Работает с окнами любых приложений; нужен Универсальный доступ." = "Drag a window by its title bar to the notch and it shows layouts: full screen and centered at 85 percent in the middle, halves, two thirds, thirds and quarters mirrored on the sides. Drop the window on one and it snaps into place. Works with any app’s windows; needs Accessibility access.";
+"Задайте, как часто напоминать сделать перерыв, попить воды и размяться. Считается только время за компьютером: ушли на обед — счёт не идёт. Вместе с напоминанием из чёлки выходит котик и показывает, что делать; напоминание ждёт, пока вы не нажмёте «Готово» или «Пропустить». Промежутки — в настройках, в разделе «Инструменты»." = "Choose how often to be reminded to take a break, drink water and stretch. Only time at the computer counts: away at lunch, the clock stops. With each reminder a cat comes out of the notch and shows what to do; the reminder waits until you press Done or Skip. Intervals are in Settings → Tools.";
+"Плитка главного экрана с названием вашего события и тем, сколько до него осталось: дни и часы, а в последние сутки — с секундами. Когда событие наступит, вырез покажет плашку и выпустит конфетти. Событие задают в настройках, в разделе «Главный экран»." = "A home screen tile with your event’s name and how long is left: days and hours, and seconds in the last day. When it arrives, the notch shows a pill and fires confetti. Set the event in Settings → Home screen.";
+"Вырез предупреждает о дожде и снеге заранее, а при смене погоды из чёлки капает дождь, сыплется снег или всплывает солнце. Температура — плиткой на главном экране или значком в его углу. Место берётся по геопозиции или называется вручную; наружу уходят только округлённые координаты." = "The notch warns about rain and snow ahead of time, and when the weather changes, rain drips, snow falls or the sun pops up from the notch. Temperature is a home screen tile or an icon in its corner. The place comes from your location or is set by hand; only rounded coordinates leave the Mac.";
+"Нужно отправить папку с макетами: перетащили на чёлку в «Ссылку iCloud» — ссылка уже в буфере, остаётся вставить её в письмо." = "Need to send a folder of mockups: drop it on “iCloud link” at the notch — the link is already on the clipboard, just paste it into the email.";
+"Сравниваете два документа: первый к чёлке на левую половину, второй — на правую, и оба перед глазами без возни с краями окон." = "Comparing two documents: drag the first to the notch onto the left half, the second onto the right — both in view without fiddling with window edges.";
+"Засиделись над задачей три часа подряд: вырез напомнит размяться, котик покажет зарядку, а отложить можно одной кнопкой." = "Stuck on a task for three hours straight: the notch reminds you to stretch, the cat shows the workout, and you can skip with one button.";
+"Ждёте отпуска: плитка «Отпуск — 12 дн 4 ч» на главном экране, а в день вылета — конфетти из чёлки." = "Waiting for a vacation: a “Vacation — 12d 4h” tile on the home screen, and confetti from the notch on the day you fly.";
