@@ -1294,7 +1294,6 @@
 "Перерывы" = "Breaks";
 "Не напоминать" = "Don't remind";
 "Каждые %d мин" = "Every %d min";
-"Считается только время за компьютером." = "Only time at the computer counts.";
 "Раскладка окон" = "Window layout";
 "Тащите окно за заголовок к чёлке и отпустите на нужной раскладке." = "Drag a window by its title bar to the notch and drop it on a layout.";
 "Например, отпуск" = "For example, vacation";
@@ -1389,3 +1388,40 @@
 "Сравниваете два документа: первый к чёлке на левую половину, второй — на правую, и оба перед глазами без возни с краями окон." = "Comparing two documents: drag the first to the notch onto the left half, the second onto the right — both in view without fiddling with window edges.";
 "Засиделись над задачей три часа подряд: вырез напомнит размяться, котик покажет зарядку, а отложить можно одной кнопкой." = "Stuck on a task for three hours straight: the notch reminds you to stretch, the cat shows the workout, and you can skip with one button.";
 "Ждёте отпуска: плитка «Отпуск — 12 дн 4 ч» на главном экране, а в день вылета — конфетти из чёлки." = "Waiting for a vacation: a “Vacation — 12d 4h” tile on the home screen, and confetti from the notch on the day you fly.";
+
+/* Шкала дня: представление календаря и плитка */
+"Списком" = "As a list";
+"Шкалой времени" = "As a timeline";
+"Показать списком" = "Show as a list";
+"Показать шкалой" = "Show as a timeline";
+"Шкала дня" = "Day timeline";
+"Дела дня" = "Day’s events";
+"То же переключает кнопка в открытом календаре." = "The same switch is a button in the open calendar.";
+"Сегодня" = "Today";
+"свободно" = "free";
+
+/* Вода: ползунок, плашка и плитка */
+"Вода" = "Water";
+"%d мл" = "%d ml";
+"%@ л" = "%@ l";
+"Записать %@" = "Log %@";
+"Записать воду" = "Log water";
+"Отменить последний заход" = "Undo the last entry";
+"Сегодня %@ · %d" = "Today %@ · %d";
+"Сегодня ещё не пили" = "Nothing to drink yet today";
+"заходов: %d" = "entries: %d";
+"нажмите, чтобы записать" = "click to log";
+"Выпито %@" = "Drank %@";
+
+
+"Считается только время за компьютером. Галочка у воды спросит, сколько вы выпили." = "Only time at the computer counts. The checkmark on the water reminder asks how much you drank.";
+
+/* Вода: посуда рядом с числом */
+"рюмка" = "shot glass";
+"чашка" = "cup";
+"стакан" = "glass";
+"кружка" = "mug";
+"бутылка" = "bottle";
+"большая бутылка" = "large bottle";
+
+"Вставить в %@" = "Paste into %@";

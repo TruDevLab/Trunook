@@ -28,6 +28,18 @@ extension SettingsView {
             }
             .disabled(!settings.calendarEnabled)
 
+            VStack(alignment: .leading, spacing: 4) {
+                Picker(t("Дела дня"), selection: settings.binding(\.calendarDayView)) {
+                    ForEach(CalendarDayView.allCases) { view in
+                        Text(view.title).tag(view)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!settings.calendarEnabled)
+                hint(t("То же переключает кнопка в открытом календаре."))
+            }
+            .accessibilityElement(children: .combine)
+
             Toggle(t("Напоминания Apple"), isOn: Binding(
                 get: { settings.remindersEnabled },
                 set: { enabled in

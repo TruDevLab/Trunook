@@ -114,6 +114,7 @@ final class OverlayRouter {
         case .teleprompter: return "телесуфлер"
         case .caffeine: return "бодрость"
         case .keyboardLock: return "блокировка клавиатуры"
+        case .water: return "вода"
         case .notes: return "список заметок"
         case .calendar: return "календарь"
         case .eventEditor: return "правка события"

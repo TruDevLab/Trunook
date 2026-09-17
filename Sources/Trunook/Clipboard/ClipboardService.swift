@@ -176,7 +176,9 @@ enum ClipboardPaster {
     /// работает вставка по цифре, когда панель фокуса не забирала.
     static func paste(into destination: NSRunningApplication? = nil) {
         guard let destination, !destination.isActive else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { press() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                aim(at: NSWorkspace.shared.frontmostApplication)
+            }
             return
         }
 
@@ -186,8 +188,43 @@ enum ClipboardPaster {
         NSApp.deactivate()
         destination.activate()
         DebugLog.write("буфер: вставка в \(destination.localizedName ?? "?")")
-        DispatchQueue.main.asyncAfter(deadline: .now() + switchDelay) { press() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + switchDelay) {
+            aim(at: destination)
+        }
     }
+
+    /// Поставить фокус в поле ввода и только потом нажать.
+    ///
+    /// Без этого вставка попадала туда, где у приложения остался фокус, —
+    /// а он остаётся там, откуда копировали. Скопировал из ответа в чате,
+    /// нажал «Вставить» — и ⌘V уходило в текст, который читают, то есть
+    /// в никуда.
+    ///
+    /// Нажимаем в любом случае, нашлось поле или нет: ⌘V — это не только
+    /// текст в поле. В Finder им вставляют файлы, и поля ввода там нет
+    /// вовсе.
+    private static func aim(at destination: NSRunningApplication?) {
+        guard let pid = destination?.processIdentifier, AXTree.isTrusted else {
+            press()
+            return
+        }
+        // Обход чужого дерева — не на главном потоке: каждый шаг это
+        // обращение к чужому процессу, а на тяжёлой странице их тысячи.
+        // С главного потока такой обход однажды вешал запуск насмерть.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let ready = PasteTarget.prepare(pid: pid)
+            DispatchQueue.main.async {
+                // Приложению нужно мгновение, чтобы принять фокус: нажатие,
+                // посланное в тот же такт, достаётся прежнему полю.
+                DispatchQueue.main.asyncAfter(deadline: .now() + (ready ? focusDelay : 0)) {
+                    press()
+                }
+            }
+        }
+    }
+
+    /// Сколько ждать после перевода фокуса в поле.
+    private static let focusDelay: TimeInterval = 0.05
 
     /// Через `SyntheticKey`: вставку зовут клавишей — ⌃⌥1…9 или Enter
     /// в открытом списке, — и в этот миг клавиши человека ещё нажаты. Своё

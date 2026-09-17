@@ -24,6 +24,8 @@ struct HomeActions {
     let chooseAwakeLimit: (Int) -> Void
     let disableAwake: () -> Void
     let openKeyboardLock: () -> Void
+    /// Ползунок воды: им же отвечают на напоминание о воде.
+    let openWater: () -> Void
     let openFeeds: (FeedsPanelState.Mode) -> Void
     let openClipboard: () -> Void
     let openShelf: () -> Void
@@ -56,6 +58,7 @@ struct HomeServices {
     let shelf: ShelfStore
     let notes: NotesService
     let dictation: Dictation
+    let water: WaterLog
 }
 
 /// Главный экран: плитки по раскладке из настроек.
@@ -336,6 +339,8 @@ struct HomeWidgetView: View {
             MusicWidget(widget: widget, music: services.music)
         case .schedule:
             ScheduleWidget(widget: widget, events: events, actions: actions)
+        case .timeline:
+            TimelineWidget(widget: widget, planner: services.planner, actions: actions)
         case .month:
             MonthWidget(widget: widget, planner: services.planner, actions: actions)
         case .tasks:
@@ -364,6 +369,8 @@ struct HomeWidgetView: View {
             ShelfWidget(widget: widget, shelf: services.shelf, actions: actions)
         case .notes:
             NotesWidget(widget: widget, notes: services.notes, actions: actions)
+        case .water:
+            WaterWidget(widget: widget, log: services.water, actions: actions)
         case .pinnedNotes:
             PinnedNotesWidget(widget: widget, notes: services.notes, actions: actions)
         case .voice:

@@ -112,6 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.caffeine", #selector(toggleCaffeine)),
             ("com.trunook.debug.notes", #selector(showNotes)),
             ("com.trunook.debug.calendar", #selector(showCalendar)),
+            ("com.trunook.debug.calendarTimeline", #selector(showCalendarTimeline)),
+            ("com.trunook.debug.homeTimeline", #selector(toggleHomeTimeline)),
             ("com.trunook.debug.ring", #selector(showQuickRing)),
             ("com.trunook.debug.eventEdit", #selector(editEvent2)),
             ("com.trunook.debug.eventNew", #selector(composeEvent)),
@@ -136,6 +138,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.noteSave", #selector(saveNote)),
             ("com.trunook.debug.caffeineExpire", #selector(expireCaffeine)),
             ("com.trunook.debug.caffeineOn", #selector(startCaffeine)),
+            ("com.trunook.debug.water", #selector(showWater)),
+            ("com.trunook.debug.waterPill", #selector(showWaterPill)),
+            ("com.trunook.debug.waterVessel", #selector(showWaterVessel)),
             ("com.trunook.debug.keyboardLock", #selector(showKeyboardLock)),
             ("com.trunook.debug.keyboardLockRun", #selector(runKeyboardLock)),
             ("com.trunook.debug.keyboardLockExpire", #selector(expireKeyboardLock)),
@@ -224,6 +229,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.clipboardDown", #selector(testClipboardHighlight)),
             ("com.trunook.debug.captureModels", #selector(testCaptureModels)),
             ("com.trunook.debug.runslot1", #selector(runSlot1)),
+            ("com.trunook.debug.captureRun", #selector(runCaptureCommand)),
+            ("com.trunook.debug.pasteProbe", #selector(probePaste)),
+            ("com.trunook.debug.pasteRow", #selector(stepPasteRow)),
             ("com.trunook.debug.ollama", #selector(ollamaEcho)),
             ("com.trunook.debug.meetingButtons", #selector(dumpMeetingButtons)),
             ("com.trunook.debug.meetingHand", #selector(toggleMeetingHand)),
@@ -511,6 +519,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.debugExpand(seconds: 8)
     }
 
+    /// Раскладка человека на время показа плиток шкалы дня.
+    private var homeBeforeTimeline: [HomeWidget]?
+    private var timelinePage = 0
+
+    /// Шкала дня во всех своих размерах: две вёрстки сразу — лента в один
+    /// ряд и шкала с часами в два. Пять плиток в четыре ряда не влезают,
+    /// поэтому идут страницами; после последней раскладка человека
+    /// возвращается сама — главный экран трогать насовсем нельзя.
+    @objc private func toggleHomeTimeline() {
+        let pages = HomeWidgets.showcasePages(of: [.timeline])
+        guard timelinePage < pages.count else {
+            Settings.shared.homeWidgets = homeBeforeTimeline ?? HomeWidgets.standard
+            homeBeforeTimeline = nil
+            timelinePage = 0
+            DebugLog.write("главный экран: раскладка возвращена")
+            return
+        }
+        if homeBeforeTimeline == nil {
+            homeBeforeTimeline = Settings.shared.homeWidgets
+            controller.debugCloseOverlay()
+        }
+        let page = pages[timelinePage]
+        Settings.shared.homeWidgets = page
+        DebugLog.write("главный экран: шкала дня, страница \(timelinePage + 1) из \(pages.count) — "
+            + page.map(\.size.title).joined(separator: ", "))
+        timelinePage += 1
+        controller.debugExpand(seconds: 8)
+    }
+
     /// Закрепить или открепить последнюю заметку — нажать булавку из сессии нечем.
     @objc private func togglePinNewestNote() {
         controller.debugTogglePinNewestNote()
@@ -658,6 +695,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showCalendar() {
         controller.debugCalendar()
+    }
+
+    @objc private func showWater() {
+        controller.debugWater()
+    }
+
+    @objc private func showWaterPill() {
+        controller.debugWaterPill()
+    }
+
+    @objc private func showWaterVessel() {
+        controller.debugWaterVessel()
+    }
+
+    @objc private func showCalendarTimeline() {
+        controller.debugCalendarTimeline()
     }
 
     @objc private func showQuickRing() {
@@ -1020,6 +1073,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func runSlot1() {
         controller.debugRunSlot(0)
+    }
+
+    @objc private func runCaptureCommand() {
+        controller.debugCaptureRun()
+    }
+
+    @objc private func probePaste() {
+        controller.debugPasteProbe()
+    }
+
+    @objc private func stepPasteRow() {
+        controller.debugPasteRow()
     }
 
     @objc private func showTeleprompter() {

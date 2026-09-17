@@ -32,6 +32,8 @@ final class NotchState: ObservableObject {
         case teleprompter
         case caffeine
         case keyboardLock
+        /// Сколько воды выпито — ползунок.
+        case water
         case notes
         case calendar
         case eventEditor
@@ -59,8 +61,10 @@ final class NotchState: ObservableObject {
             // уходит за края, а панель должна дождаться возвращения.
             // Блокировка — по той же причине: пока клавиатура мертва,
             // панель с отсчётом и кнопкой снятия должна дождаться курсора.
+            // Вода — руками: ползунок тянут, и рука выходит за края панели
+            // раньше, чем доводит его до края шкалы.
             case .shelf, .assistant, .teleprompter, .notes,
-                 .calendar, .eventEditor, .feeds, .keyboardLock: return false
+                 .calendar, .eventEditor, .feeds, .keyboardLock, .water: return false
             }
         }
 
@@ -172,6 +176,8 @@ struct NotchView: View {
     @ObservedObject var wake: WakeGuard
     /// Блокировка клавиатуры для чистки: подложка под значком и отсчёт.
     @ObservedObject var keyboardLock: KeyboardLock
+    /// Журнал воды: им живут ползунок и плитка «Вода».
+    @ObservedObject var water: WaterLog
     /// Кот, изредка оживляющий свёрнутый вырез.
     let critter: NotchCritter
     /// Погодная сценка при смене погоды.
@@ -338,6 +344,10 @@ struct NotchView: View {
     /// Выбран срок блокировки в секундах.
     let onLockKeyboard: (Int) -> Void
     let onUnlockKeyboard: () -> Void
+    /// Ползунок воды: открыть, записать выставленное, отменить последнее.
+    let onOpenWater: () -> Void
+    let onRecordWater: () -> Void
+    let onUndoWater: () -> Void
     let onOpenFeeds: () -> Void
     let onOpenFeedsTab: (FeedsPanelState.Mode) -> Void
     let onOpenFeedsSettings: () -> Void
@@ -411,7 +421,7 @@ struct NotchView: View {
             bottomRadius: {
                 switch presentation {
                 case .expanded, .clipboard, .assistant, .shelf, .timer,
-                     .monitor, .teleprompter, .caffeine, .keyboardLock, .notes,
+                     .monitor, .teleprompter, .caffeine, .keyboardLock, .water, .notes,
                      .calendar, .eventEditor, .feeds, .windowSnap:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
@@ -949,6 +959,7 @@ struct NotchView: View {
         case .calendar:
             CalendarPanel(
                 planner: planner,
+                settings: settings,
                 metrics: metrics,
                 onOpenEvent: onOpenItem,
                 onCompose: onComposeEvent,
@@ -995,6 +1006,14 @@ struct NotchView: View {
                 metrics: metrics,
                 onChoose: onLockKeyboard,
                 onUnlock: onUnlockKeyboard,
+                onClose: onCloseOverlay
+            )
+        case .water:
+            WaterPanel(
+                log: water,
+                metrics: metrics,
+                onRecord: onRecordWater,
+                onUndo: onUndoWater,
                 onClose: onCloseOverlay
             )
         case .teleprompter:
@@ -1141,7 +1160,8 @@ struct NotchView: View {
             clipboard: clipboard,
             shelf: shelf,
             notes: notes,
-            dictation: dictation
+            dictation: dictation,
+            water: water
         )
     }
 
@@ -1171,6 +1191,7 @@ struct NotchView: View {
             chooseAwakeLimit: onChooseAwakeLimit,
             disableAwake: onDisableAwake,
             openKeyboardLock: onOpenKeyboardLock,
+            openWater: onOpenWater,
             openFeeds: onOpenFeedsTab,
             openClipboard: onOpenClipboard,
             openShelf: onOpenShelf,

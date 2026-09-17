@@ -395,6 +395,8 @@ struct ActivityView: View {
             iconTile(kind.symbol)
         case .countdownReached:
             iconTile("party.popper.fill")
+        case .waterLogged:
+            iconTile("drop.fill")
         }
     }
 
@@ -442,6 +444,8 @@ struct ActivityView: View {
             return kind.message
         case let .countdownReached(title):
             return title.isEmpty ? t("Событие наступило") : tf("Наступило: %@", title)
+        case let .waterLogged(portion):
+            return tf("Выпито %@", WaterVolume.label(portion))
         }
     }
 
@@ -475,6 +479,12 @@ struct ActivityView: View {
             return nil
         case .siteChanged:
             return t("Открыть")
+        // Итог дня — справа от текста, тем же местом, каким плашка заряда
+        // показывает проценты. У напоминания он стоит и до ответа: человек
+        // видит, сколько уже выпил, ещё не нажав галочку.
+        case .breakReminder(.water), .waterLogged:
+            let total = WaterLog.shared.day.total
+            return total > 0 ? WaterVolume.label(total) : nil
         case .breakReminder, .countdownReached:
             return nil
         }
@@ -514,6 +524,7 @@ struct ActivityView: View {
         case .update: return Palette.positive
         case .digestReady, .siteChanged: return Palette.feeds
         case .countdownReached: return Palette.magenta
+        case .waterLogged: return Palette.blue
         case let .breakReminder(kind):
             switch kind {
             case .rest: return Palette.amber

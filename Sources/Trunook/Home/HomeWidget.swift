@@ -43,6 +43,9 @@ enum HomeWidgetSize: String, Codable, CaseIterable, Identifiable {
 enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
     case music
     case schedule
+    /// День шкалой времени — то же представление, что и в самой панели
+    /// календаря.
+    case timeline
     case month
     case tasks
     case ask
@@ -50,6 +53,8 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
     /// Обратный отсчёт до события, которое задал человек.
     case countdown
     case weather
+    /// Сколько воды выпито за сегодня.
+    case water
     case monitor
     case battery
     case caffeine
@@ -71,7 +76,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
     /// к нему ни шли.
     var hubEntry: HubEntry? {
         switch self {
-        case .schedule, .month: return .calendar
+        case .schedule, .month, .timeline: return .calendar
         case .ask: return .assistant
         case .timer: return .timer
         case .monitor: return .monitor
@@ -84,7 +89,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .voice: return .voice
         case .dictation: return .dictation
         case .teleprompter: return .teleprompter
-        case .music, .tasks, .weather, .battery, .pinnedNotes, .countdown: return nil
+        case .music, .tasks, .weather, .battery, .pinnedNotes, .countdown, .water: return nil
         }
     }
 
@@ -93,10 +98,12 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .music: return t("Музыка")
         // Два виджета одного календаря различаются тем, что показывают.
         case .schedule: return t("Ближайшие встречи")
+        case .timeline: return t("Шкала дня")
         case .month: return t("Месяц")
         case .tasks: return t("Задачи Things")
         case .ask: return t("Вопрос к ИИ")
         case .weather: return t("Погода")
+        case .water: return t("Вода")
         case .battery: return t("Батарея")
         case .pinnedNotes: return t("Закреплённые заметки")
         case .countdown: return t("Обратный отсчёт")
@@ -107,9 +114,13 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .music: return "music.note"
-        case .schedule: return "calendar.day.timeline.left"
+        // Значок шкалы отдан шкале: у ближайших встреч он обещал
+        // размещение во времени, которого в их списке нет.
+        case .schedule: return "calendar.badge.clock"
+        case .timeline: return "calendar.day.timeline.left"
         case .tasks: return "checklist"
         case .weather: return "cloud.sun.fill"
+        case .water: return "drop.fill"
         case .battery: return "battery.75percent"
         case .pinnedNotes: return "pin.fill"
         case .countdown: return "hourglass"
@@ -122,6 +133,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .music: return Palette.voice
         case .tasks: return Palette.calendar
         case .weather: return Palette.weather
+        case .water: return Palette.blue
         case .battery: return Palette.positive
         case .pinnedNotes: return Palette.notes
         case .countdown: return Palette.magenta
@@ -135,12 +147,18 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .music: return [.full, .small, .wide, .threeWide, .large]
         case .schedule: return [.fullTall, .wide, .threeWide, .full, .large]
+        // Плитки в один ряд получают ленту дня, в два — шкалу с часами
+        // сбоку. Размера 1×1 нет: в одну клетку не встаёт ни то ни другое.
+        case .timeline: return [.fullTall, .large, .full, .threeWide, .wide]
         case .month: return [.large]
         case .tasks: return [.full, .wide, .threeWide, .large, .fullTall]
         case .ask: return [.full, .wide, .threeWide]
         case .timer: return [.small, .wide, .threeWide]
         case .countdown: return [.wide, .small, .threeWide, .full]
         case .weather: return [.small, .wide, .threeWide]
+        // Двух рядов нет: столбики заходов и одно число во весь рост плитки
+        // растянулись бы пустотой — показывать там больше нечего.
+        case .water: return [.wide, .small, .threeWide, .full]
         case .monitor: return [.wide, .small, .threeWide, .full]
         case .battery: return [.small]
         case .caffeine: return [.small, .wide, .threeWide]
@@ -161,7 +179,9 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
     /// вернуть его человек пошёл бы не в тот раздел.
     func isEnabled(_ settings: Settings) -> Bool {
         switch self {
-        case .music, .battery, .countdown: return true
+        // Вода не спрашивает ни модели, ни доступов: пить можно и с
+        // выключенным напоминанием.
+        case .music, .battery, .countdown, .water: return true
         case .tasks: return settings.thingsEnabled
         case .weather: return settings.weatherEnabled
         case .pinnedNotes: return settings.notesEnabled
@@ -236,11 +256,13 @@ enum HomeWidgets {
     /// Проверочные раскладки: каждый вид в каждом своём размере, разложенные
     /// по страницам так, чтобы на странице ничего не выпало за четыре ряда.
     /// Глазами обрезку плитки иначе не поймать — ради неё и снимают.
-    static func showcasePages() -> [[HomeWidget]] {
+    static func showcasePages(
+        of kinds: [HomeWidgetKind] = HomeWidgetKind.allCases
+    ) -> [[HomeWidget]] {
         var pages: [[HomeWidget]] = []
         var page: [HomeWidget] = []
         var id = 0
-        for kind in HomeWidgetKind.allCases {
+        for kind in kinds {
             for size in kind.allowedSizes {
                 let widget = HomeWidget(id: id, kind: kind, size: size)
                 id += 1

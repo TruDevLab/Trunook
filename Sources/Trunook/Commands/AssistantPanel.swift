@@ -842,19 +842,28 @@ struct AssistantPanel: View {
                         .font(.system(size: NotchStyle.font(11), weight: .medium))
                         .foregroundStyle(tint)
                         .frame(width: 16)
-                    Text(action.title)
+                    Text(action.title(pasteTo: PasteApps.shortName(of: session.pasteDestination)))
                         .font(.system(size: NotchStyle.font(11.5)))
                         .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 8)
+                    // Клавиша перебора — там же, где у строки команды имя
+                    // модели: в панели Tab всюду значит «поменять то,
+                    // на чём стоит подсветка».
+                    if action == .paste, isHighlighted {
+                        Text("Tab")
+                            .font(.system(size: NotchStyle.font(9.5), weight: .medium))
+                            .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+                            .padding(.trailing, 8)
+                    }
                 }
                 .padding(.leading, 8)
                 .frame(height: CommandRows.rowHeight)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PressableStyle())
-            .notchHint(action.title)
+            .notchHint(action.title(pasteTo: PasteApps.shortName(of: session.pasteDestination)))
         }
         // Обводка говорит, что сюда привела клавиатура и Enter сработает
         // здесь, — то же правило, что и у строки команды.

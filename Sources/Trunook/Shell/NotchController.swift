@@ -63,6 +63,9 @@ final class NotchController {
     let siteWatch = SiteWatchService()
     /// Вкладка и номер сводки в панели — переживают закрытие накладки.
     let feedsPanel = FeedsPanelState()
+
+    /// Представление дня, стоявшее до отладочного показа шкалы.
+    private var viewBeforeTimeline: CalendarDayView?
     /// Синхронизация заметок с хранилищем Obsidian. По умолчанию выключена
     /// и в этом состоянии не заводит ни таймера, ни слежения за папкой.
     let obsidian = ObsidianService()
@@ -95,6 +98,8 @@ final class NotchController {
     let wake: WakeGuard
     /// Блокировка клавиатуры для чистки.
     let keyboardLock = KeyboardLock()
+    /// Журнал воды: общий с плиткой главного экрана.
+    let water = WaterLog.shared
 
     private let alerts = EventAlertScheduler()
     /// Отдельное окно приёма файлов: сам вырез принимать их не может,
@@ -1137,6 +1142,25 @@ final class NotchController {
         takeKeyboard()
     }
 
+    /// Панель с захваченным текстом и сразу запущенной командой из списка.
+    ///
+    /// Тем же путём, каким её запускает нажатие по строке
+    /// (`runCommandFromPanel`), а не горячей клавишей: у клавиши свой путь,
+    /// с чтением выделения из чужого окна, и беда с задвоенным абзацем
+    /// в ленте живёт не там.
+    func debugCaptureRun() {
+        debugCapture()
+        guard let command = settings.quickCommands.first(where: { $0.kind == .ollama }) else {
+            DebugLog.write("команды: запроса к модели в списке нет")
+            return
+        }
+        // С задержкой: подряд панель к этому мигу ещё не построена — та же
+        // ловушка, что у подсветки.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.runCommandFromPanel(command)
+        }
+    }
+
     /// То же, но с подсветкой, уведённой вниз на несколько шагов.
     ///
     /// Стрелки из сессии не послать — синтетические нажатия до Carbon
@@ -1310,12 +1334,31 @@ final class NotchController {
     private func armAgent(spoken: Bool = false) {
         assistant.availableTools = { [weak self] in
             guard let self, !spoken else { return [] }
+            // Модель, про которую известно, что инструменты она не умеет,
+            // их и не получает: Ollama отвечает на такой запрос отказом,
+            // и команда падает целиком — «Перевести» не переводит ничего
+            // из-за помощника, которого о переводе не просили.
+            //
+            // Ответа три, и два были бы враньём: `/api/show` есть только
+            // у Ollama, у облачного провайдера спросить нечего вовсе.
+            // Умалчиваем только про заведомо неумеющую.
+            guard self.modelHandlesTools else { return [] }
             return self.agent.tools()
         }
         if AgentTool.searchNotes.isEnabled(settings) { assistant.usesNotes = false }
         assistant.runTool = { [weak self] call, done in
             self?.handleToolCall(call, done: done)
         }
+    }
+
+    /// Достанутся ли инструменты той модели, которая будет отвечать.
+    ///
+    /// Спрашивается в момент запроса, а не при снаряжении помощника: модель
+    /// разговора назначается первым вопросом, и на снаряжении её ещё нет.
+    private var modelHandlesTools: Bool {
+        let stored = assistant.model ?? settings.ollamaModel
+        guard let ref = ModelRef.parse(stored, fallback: settings.aiProvider) else { return true }
+        return ModelList.shared.toolSupport(of: ref) != .no
     }
 
     /// Модель просит что-то сделать.
@@ -2020,7 +2063,9 @@ final class NotchController {
     /// не зная, какой из них что делает.
     private func showHintForHighlight() {
         if let action = assistant.highlightedAnswerAction {
-            NotchHintTracker.shared.focus(action.title)
+            NotchHintTracker.shared.focus(
+                action.title(pasteTo: PasteApps.shortName(of: assistant.pasteDestination))
+            )
             return
         }
         if let id = assistant.highlightedCommandID,
@@ -2032,6 +2077,22 @@ final class NotchController {
             return
         }
         NotchHintTracker.shared.focus(nil)
+    }
+
+    /// Следующее приложение для вставки.
+    ///
+    /// Перебор идёт по кругу и по именам: список чужой и длинный, упереться
+    /// в его конец значило бы заставить человека считать нажатия, а случайный
+    /// порядок `runningApplications` менял бы направление перебора между
+    /// нажатиями.
+    private func cyclePasteTarget() -> Bool {
+        let list = PasteApps.candidates()
+        guard !list.isEmpty else { return true }
+        let next = PasteApps.next(after: assistant.pasteDestination, in: list)
+        assistant.pasteTarget = next
+        DebugLog.write("вставка: цель — \(next?.localizedName ?? "?")")
+        showHintForHighlight()
+        return true
     }
 
     /// Выполнить подсвеченное действие с ответом.
@@ -2050,6 +2111,10 @@ final class NotchController {
     /// лишить человека возможности вернуть команду к общей модели, не заходя
     /// в настройки.
     private func cycleModel() -> Bool {
+        // Подсветка стоит на вставке — Tab меняет не модель, а приложение,
+        // в которое эта вставка уйдёт. Клавиша в панели всюду значит одно:
+        // «поменять то, на чём стоит подсветка».
+        if assistant.highlightedAnswerAction == .paste { return cyclePasteTarget() }
         guard let id = assistant.highlightedCommandID,
               var command = settings.quickCommands.first(where: { $0.id == id })
         else {
@@ -2413,6 +2478,22 @@ final class NotchController {
 
     func debugCalendar() {
         openCalendar()
+    }
+
+    /// Календарь со шкалой времени. Выбор представления — настройка
+    /// человека, поэтому повторный вызов возвращает прежний: отладка
+    /// не должна оставлять после себя чужой выбор.
+    func debugCalendarTimeline() {
+        if let saved = viewBeforeTimeline {
+            settings.calendarDayView = saved
+            viewBeforeTimeline = nil
+            DebugLog.write("календарь: представление возвращено — \(saved.rawValue)")
+            return
+        }
+        viewBeforeTimeline = settings.calendarDayView
+        settings.calendarDayView = .timeline
+        openCalendar()
+        DebugLog.write("календарь: шкала времени, дел на день — \(planner.events.count)")
     }
 
     /// Правка первого события выбранного дня, а если день пуст — новое
@@ -3271,11 +3352,51 @@ final class NotchController {
         showBreak(kind)
     }
 
+    /// Подсветка на строке вставки, а следующий вызов — то же, что Tab.
+    ///
+    /// Нажать Tab из сессии нечем: синтетические нажатия до Carbon
+    /// не доходят. Ходим тем же путём, что и клавиша, — иначе проверялся бы
+    /// не он.
+    func debugPasteRow() {
+        guard state.overlay == .assistant else {
+            DebugLog.write("вставка: панель разговора закрыта")
+            return
+        }
+        if assistant.highlightedAnswerAction != .paste {
+            assistant.highlightedCommandID = nil
+            assistant.highlightedAnswerAction = .paste
+            showHintForHighlight()
+            DebugLog.write("вставка: подсветка на строке вставки")
+            return
+        }
+        _ = cycleModel()
+    }
+
+    /// Куда попадёт вставка в переднем приложении — словами в журнал.
+    func debugPasteProbe() {
+        guard let app = NSWorkspace.shared.frontmostApplication else {
+            DebugLog.write("вставка: переднего приложения нет")
+            return
+        }
+        let name = app.localizedName ?? "?"
+        let pid = app.processIdentifier
+        DispatchQueue.global(qos: .userInitiated).async {
+            DebugLog.write("вставка в \(name): \(PasteTarget.probe(pid: pid))")
+        }
+    }
+
     /// Ответ на напоминание кнопкой в плашке.
+    ///
+    /// У воды галочка значит не «отстань», а «попил» — и следом спрашивает
+    /// сколько. Счёт до следующего напоминания при этом начинается сразу,
+    /// не дожидаясь записи: человек воду выпил, даже если закроет ползунок
+    /// не записав.
     private func answerBreak(_ kind: BreakKind, done: Bool) {
         breaks.answer(kind, done: done)
         if case .breakReminder? = activities.current?.kind { activities.dismiss() }
         Haptics.tap(.levelChange)
+        guard kind == .water, done else { return }
+        openWater()
     }
 
     /// Когда последний раз проверяли, на месте ли плашка напоминания.
@@ -4083,6 +4204,63 @@ final class NotchController {
     /// Отладочный вход: ждать конца срока в сессии незачем.
     func debugExpireKeyboardLock() { keyboardLock.debugExpireNow() }
 
+    // MARK: - Вода
+
+    /// Ползунок воды. Открывается галочкой на напоминании и нажатием
+    /// по плитке «Вода».
+    func openWater() {
+        water.refresh()
+        router.set(.water)
+    }
+
+    /// Записать выставленное и сказать итог дня плашкой.
+    ///
+    /// Плашка, а не подтверждение внутри панели: панель закрывается тем же
+    /// движением, и подтверждение в ней человек увидел бы долей секунды.
+    /// Итог дня — то единственное, ради чего объём и спрашивали.
+    private func recordWater() {
+        let portion = water.record()
+        router.close()
+        Haptics.tap(.levelChange)
+        activities.present(.waterLogged(portion: portion))
+    }
+
+    /// Ползунок сразу: нажать галочку на плашке из сессии нечем.
+    func debugWater() {
+        router.close()
+        activities.dismiss()
+        openWater()
+    }
+
+    /// Следующая посуда на ползунке — под снимок: протянуть его из сессии
+    /// нечем. Журнал не трогает, двигается только черновик.
+    func debugWaterVessel() {
+        if state.overlay != .water { openWater() }
+        // Следующая за той, что стоит сейчас, а не за самим объёмом:
+        // середина полосы посуды меньше её границы, и счёт по объёму
+        // топтался бы на месте.
+        let current = WaterVessel.of(water.draft)
+        let next = WaterVessel.allCases.first { $0.upperBound > current.upperBound }
+            ?? WaterVessel.allCases[0]
+        // Середина между границами, а не сама граница: на границе значок
+        // ещё прежний, и снимок показал бы не ту посуду.
+        let lower = WaterVessel.allCases.last { $0.upperBound < next.upperBound }?.upperBound
+            ?? WaterVolume.minimum - WaterVolume.step
+        water.setDraft((lower + next.upperBound) / 2)
+        DebugLog.write("вода: \(water.draft) мл — \(next.title)")
+    }
+
+    /// Плашка с итогом дня на выдуманном заходе — под снимок. Журнал
+    /// не трогает: записанное человеком не наше.
+    func debugWaterPill() {
+        activities.present(.waterLogged(portion: WaterVolume.standard))
+    }
+
+    private func undoWater() {
+        water.undoLast()
+        Haptics.tap(.levelChange)
+    }
+
     /// Телесуфлер. Клавишей — переключателем, как и остальные накладки.
     ///
     /// Фокус забирается сразу и явно: в телесуфлер печатают, а вырез по
@@ -4281,6 +4459,7 @@ final class NotchController {
             flash: flash,
             wake: wake,
             keyboardLock: keyboardLock,
+            water: water,
             critter: critter,
             weatherScenes: weatherScenes,
             digest: digest,
@@ -4399,6 +4578,9 @@ final class NotchController {
             onOpenKeyboardLock: { [weak self] in self?.openKeyboardLock() },
             onLockKeyboard: { [weak self] seconds in self?.lockKeyboard(seconds: seconds) },
             onUnlockKeyboard: { [weak self] in self?.unlockKeyboard() },
+            onOpenWater: { [weak self] in self?.openWater() },
+            onRecordWater: { [weak self] in self?.recordWater() },
+            onUndoWater: { [weak self] in self?.undoWater() },
             onOpenFeeds: { [weak self] in self?.openFeeds() },
             onOpenFeedsTab: { [weak self] tab in self?.openFeeds(tab: tab) },
             onOpenFeedsSettings: { [weak self] in

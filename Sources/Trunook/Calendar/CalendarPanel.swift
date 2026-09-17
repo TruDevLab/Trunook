@@ -11,6 +11,10 @@ import SwiftUI
 /// и читая, что там.
 struct CalendarPanel: View {
     @ObservedObject var planner: CalendarPlanner
+    /// Выбранное представление дня хранится в настройках, а не в панели:
+    /// накладка живёт от открытия до закрытия, и выбор, сделанный руками,
+    /// пропадал бы вместе с ней.
+    @ObservedObject var settings: Settings
     let metrics: NotchMetrics
     let onOpenEvent: (CalendarItem) -> Void
     let onCompose: () -> Void
@@ -32,6 +36,14 @@ struct CalendarPanel: View {
     static var monthWidth: CGFloat {
         weekNumberWidth + 7 * cellWidth + 7 * cellSpacing
     }
+    /// Между половинами.
+    private static var columnSpacing: CGFloat { NotchStyle.scaled(14) }
+    /// Ширина правой половины — тем же ходом: то, что осталось от панели
+    /// за вычетом полей, месяца и промежутка. Шкале времени ширину надо
+    /// знать числом, а `maxWidth: .infinity` его не называет.
+    static var dayWidth: CGFloat {
+        width - 2 * (bodyPadding + NotchStyle.shoulderInset) - monthWidth - columnSpacing
+    }
     private static var headerHeight: CGFloat { NotchStyle.scaled(22) }
     private static var weekdayHeight: CGFloat { NotchStyle.scaled(15) }
     private static var gridHeight: CGFloat {
@@ -47,6 +59,13 @@ struct CalendarPanel: View {
 
     static var rowHeight: CGFloat { NotchStyle.scaled(34) }
     static var newEventSize: CGFloat { NotchStyle.scaled(30) }
+    /// Место под сам день: содержимое без строки с датой над ним.
+    static var dayBodyHeight: CGFloat { contentHeight - headerHeight - 4 }
+    /// Высота часа на шкале в панели. Пять с половиной часов в видимой
+    /// части — остальное прокручивается: час мельче тридцати точек
+    /// перестаёт вмещать название встречи, а без названия шкала
+    /// не отвечает ни на что.
+    private static var hourHeight: CGFloat { NotchStyle.scaled(34) }
 
     static func height(notchHeight: CGFloat) -> CGFloat {
         NotchStyle.height(notchHeight: notchHeight, contentHeight: contentHeight)
@@ -58,11 +77,16 @@ struct CalendarPanel: View {
         NotchPanel(metrics: metrics, width: Self.width, bodyPadding: Self.bodyPadding) {
             NotchPanelTitle(symbol: "calendar", title: t("Календарь"), tint: Palette.calendar)
         } trailing: {
-            NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
+            HStack(spacing: 2) {
+                viewSwitch
+                // Крестик в правом крыле всегда последний — правило общее
+                // на все накладки.
+                NotchPanelButton(symbol: "xmark", hint: t("Закрыть"), action: onClose)
+            }
         } content: {
-            HStack(alignment: .top, spacing: NotchStyle.scaled(14)) {
+            HStack(alignment: .top, spacing: Self.columnSpacing) {
                 monthSide.frame(width: Self.monthWidth)
-                daySide.frame(maxWidth: .infinity)
+                daySide.frame(width: Self.dayWidth)
             }
             .frame(height: Self.contentHeight)
         }
@@ -189,6 +213,21 @@ struct CalendarPanel: View {
         return inMonth ? NotchStyle.primaryOpacity : 0.3
     }
 
+    // MARK: - Переключатель представления
+
+    /// Одна кнопка, а не два сегмента.
+    ///
+    /// Представлений ровно два, и кнопка показывает то, куда переключит,
+    /// — как «пауза» у играющего трека. Сегментный переключатель на два
+    /// слова занял бы крыло целиком, и крестику места не осталось бы:
+    /// крыло здесь у́же трети панели.
+    private var viewSwitch: some View {
+        let next = settings.calendarDayView.other
+        return NotchPanelButton(symbol: next.symbol, hint: next.switchHint) {
+            settings.calendarDayView = next
+        }
+    }
+
     // MARK: - День
 
     private var daySide: some View {
@@ -201,11 +240,14 @@ struct CalendarPanel: View {
                 if planner.events.isEmpty {
                     emptyDay
                 } else {
-                    dayList
+                    switch settings.calendarDayView {
+                    case .list: dayList
+                    case .timeline: dayTimeline
+                    }
                 }
                 newEventButton
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: Self.dayWidth, height: Self.dayBodyHeight)
         }
     }
 
@@ -220,6 +262,25 @@ struct CalendarPanel: View {
     /// Список дня. Ближайшее дело выделено, и выделение живое: полминуты
     /// хватает, чтобы «через 3 мин» не превратилось во враньё, пока панель
     /// открыта, — а закрытая панель не стоит ни одного пробуждения.
+    /// День шкалой времени. Тот же живой такт в полминуты, что и у списка:
+    /// им двигается черта «сейчас».
+    private var dayTimeline: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            DayTimelineChart(
+                timeline: DayTimeline.make(
+                    items: planner.events,
+                    day: planner.day,
+                    now: context.date
+                ),
+                items: planner.events,
+                size: CGSize(width: Self.dayWidth, height: Self.dayBodyHeight),
+                hourHeight: Self.hourHeight,
+                bottomInset: Self.newEventSize,
+                onOpen: onOpenEvent
+            )
+        }
+    }
+
     private var dayList: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             let next = DayAgenda.nextIndex(in: planner.events, now: context.date)

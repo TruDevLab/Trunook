@@ -652,6 +652,30 @@ final class Settings: ObservableObject {
         set { defaults.set(newValue, forKey: "countdownCelebratedDate") }
     }
 
+    // MARK: - Вода
+
+    /// Что выпито за сегодня.
+    ///
+    /// Вместе с датой: день сменился — счёт начинается с нуля, и проверяется
+    /// это при чтении, а не таймером в полночь. Таймер, который должен был
+    /// сработать во сне машины, не срабатывает вовсе.
+    ///
+    /// Цели нет намеренно — так решил пользователь: человек не весь день
+    /// за компьютером, и «выполнено 40%» врало бы о дне, половину которого
+    /// приложение не видело.
+    var waterDay: WaterDay {
+        get {
+            guard let data = defaults.data(forKey: "waterDay"),
+                  let stored = try? JSONDecoder().decode(WaterDay.self, from: data)
+            else { return .empty(on: Date()) }
+            return stored
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(try? JSONEncoder().encode(newValue), forKey: "waterDay")
+        }
+    }
+
     // MARK: - Перерывы
 
     /// Как часто напоминать о перерыве, в минутах. Ноль — не напоминать.
@@ -1385,6 +1409,17 @@ final class Settings: ObservableObject {
     var calendarEnabled: Bool {
         get { flag("calendarEnabled", default: true) }
         set { store(newValue, "calendarEnabled") }
+    }
+
+    /// Каким показывать дела дня в мини-календаре: списком или шкалой
+    /// времени. Переключается кнопкой в крыле самой панели, здесь — только
+    /// хранение.
+    ///
+    /// По умолчанию список: шкала — новый вид панели, а не замена прежнему,
+    /// и менять его тому, кто ничего не выбирал, не за что.
+    var calendarDayView: CalendarDayView {
+        get { CalendarDayView(rawValue: defaults.string(forKey: "calendarDayView") ?? "") ?? .list }
+        set { store(newValue.rawValue, "calendarDayView") }
     }
 
     var remindersEnabled: Bool {

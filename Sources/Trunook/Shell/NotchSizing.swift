@@ -32,6 +32,8 @@ enum NotchPresentation: Equatable {
     case caffeine
     /// Блокировка клавиатуры для чистки.
     case keyboardLock
+    /// Сколько воды выпито: ползунок и итог дня.
+    case water
     /// Список заметок.
     case notes
     /// Мини-календарь: месяц и дела выбранного дня.
@@ -84,7 +86,7 @@ enum NotchPresentation: Equatable {
         case .activity, .preview: return true
         case .collapsed, .chip, .swiping, .voice, .quickRing, .expanded,
              .clipboard, .assistant, .shelf, .timer, .monitor,
-             .teleprompter, .caffeine, .keyboardLock, .notes, .calendar, .eventEditor, .feeds, .windowSnap:
+             .teleprompter, .caffeine, .keyboardLock, .water, .notes, .calendar, .eventEditor, .feeds, .windowSnap:
             return false
         }
     }
@@ -346,6 +348,11 @@ enum NotchSizing {
             return CGSize(
                 width: KeyboardLockPanel.width,
                 height: KeyboardLockPanel.height(notchHeight: metrics.notchHeight)
+            )
+        case .water:
+            return CGSize(
+                width: WaterPanel.width,
+                height: WaterPanel.height(notchHeight: metrics.notchHeight)
             )
         }
     }

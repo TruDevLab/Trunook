@@ -104,6 +104,16 @@ final class AssistantSession: ObservableObject {
             }
         }
 
+        /// Подпись с именем приложения: «Вставить в Заметки».
+        ///
+        /// Куда уйдёт вставка, до сих пор было ниоткуда не видно — человек
+        /// узнавал это по тому, куда текст в итоге лёг. Имя стоит на самой
+        /// кнопке, потому что решение принимают перед нажатием, а не после.
+        func title(pasteTo app: String?) -> String {
+            guard self == .paste, let app, !app.isEmpty else { return title }
+            return tf("Вставить в %@", app)
+        }
+
         var symbol: String {
             switch self {
             case .copy: return "doc.on.doc"
@@ -143,6 +153,19 @@ final class AssistantSession: ObservableObject {
     /// в саму панель.
     private(set) var target: NSRunningApplication?
 
+    /// Куда уйдёт вставка ответа.
+    ///
+    /// Отдельно от `target`: тот — приложение, откуда пришли, и ему же
+    /// возвращается фокус при закрытии панели. Цель вставки человек может
+    /// сменить клавишей, и подменять ею адрес возврата нельзя — закрытие
+    /// панели уводило бы его в чужое окно.
+    ///
+    /// `nil` — вставляем туда, откуда пришли.
+    @Published var pasteTarget: NSRunningApplication?
+
+    /// Приложение, в которое уйдёт вставка на самом деле.
+    var pasteDestination: NSRunningApplication? { pasteTarget ?? target }
+
     private let client: ModelClient
     private var messages: [ModelClient.ChatMessage] = []
     private var task: Task<Void, Never>?
@@ -160,7 +183,9 @@ final class AssistantSession: ObservableObject {
     /// модель, модель ответила, человек возразил — отвечать на возражение
     /// обязана та же. Смена модели посреди разговора означала бы, что
     /// продолжение пишет кто-то другой, не помнящий сказанного своим голосом.
-    private var model: String?
+    /// Модель разговора. Открыта на чтение: по ней решают, достанутся ли
+    /// ей инструменты, — снаряжающий помощника про неё знать обязан.
+    private(set) var model: String?
 
     /// Какой моделью спрашивать свободный вопрос. `nil` — как в настройках.
     ///
@@ -186,6 +211,52 @@ final class AssistantSession: ObservableObject {
     /// каждой отправкой. Номера при этом устойчивы — переписка только
     /// дописывается с конца.
     private var hiddenMessages: Set<Int> = []
+
+    /// Перенос номеров при вставке в середину переписки.
+    ///
+    /// И скрытые реплики, и подписи шагов помнят **номера**, а не сами
+    /// реплики. Вставка в начало сдвигает всё, что стоит за ней, — и без
+    /// переноса скрытая реплика перестаёт быть скрытой.
+    ///
+    /// Ровно так захваченный абзац попадал в ленту вторым экземпляром:
+    /// команда прячет свой промт нулевой репликой, а `run` вставляет перед
+    /// ним указание помощнику — промт уезжает на первую, спрятанной остаётся
+    /// пустота, и человек видит в переписке весь свой абзац, который уже
+    /// стоит плашкой сверху. Случалось только при включённом помощнике:
+    /// без инструментов вставлять нечего.
+    ///
+    /// Чистой функцией и отдельно: беда молчаливая, а проверяется правило
+    /// одним сравнением.
+    static func shifted(_ marks: Set<Int>, insertedAt index: Int) -> Set<Int> {
+        Set(marks.map { $0 >= index ? $0 + 1 : $0 })
+    }
+
+    /// Обратный ход: реплику из середины сняли.
+    static func shifted(_ marks: Set<Int>, removedAt index: Int) -> Set<Int> {
+        Set(marks.compactMap { $0 == index ? nil : ($0 > index ? $0 - 1 : $0) })
+    }
+
+    static func shifted<Value>(
+        _ marks: [Int: Value],
+        removedAt index: Int
+    ) -> [Int: Value] {
+        var moved: [Int: Value] = [:]
+        for (number, value) in marks where number != index {
+            moved[number > index ? number - 1 : number] = value
+        }
+        return moved
+    }
+
+    static func shifted<Value>(
+        _ marks: [Int: Value],
+        insertedAt index: Int
+    ) -> [Int: Value] {
+        var moved: [Int: Value] = [:]
+        for (number, value) in marks {
+            moved[number >= index ? number + 1 : number] = value
+        }
+        return moved
+    }
 
     // MARK: - Помощник
 
@@ -370,6 +441,7 @@ final class AssistantSession: ObservableObject {
         style = .written
         self.title = title
         self.target = target
+        pasteTarget = nil
         self.model = model
         answer = ""
         error = nil
@@ -377,6 +449,7 @@ final class AssistantSession: ObservableObject {
         hasAgentInstruction = false
         hiddenMessages = [0]
         highlightedAnswerAction = nil
+        toolsRefused = false
         run()
     }
 
@@ -393,6 +466,7 @@ final class AssistantSession: ObservableObject {
         title = t("Команды")
         self.target = target
         self.captured = captured
+        pasteTarget = nil
         isCaptureExpanded = false
         highlightedAnswerAction = nil
         model = nil
@@ -402,6 +476,7 @@ final class AssistantSession: ObservableObject {
         error = nil
         messages = []
         hiddenMessages = []
+        toolsRefused = false
     }
 
     /// Убрать захваченное — крестиком на плашке.
@@ -502,9 +577,17 @@ final class AssistantSession: ObservableObject {
     /// столько раз, сколько было реплик.
     private var hasAgentInstruction = false
 
+    /// Сервер отказался брать инструменты у этой модели.
+    ///
+    /// Отказ приходит на сам запрос («does not support tools»), и заранее
+    /// он не всегда известен: список умений спрашивается отдельным запросом
+    /// и к первой команде по горячей клавише прийти не успевает. Признак
+    /// держится до конца разговора: переспрашивать по кругу нечего.
+    private var toolsRefused = false
+
     private func run() {
         isStreaming = true
-        let tools = availableTools()
+        let tools = toolsRefused ? [] : availableTools()
         // Указание про сегодняшнее число — первой репликой и **раньше
         // расчёта окна**: без него думающая модель уходит выяснять, какое
         // сегодня число, у самой себя. Она не выясняет: `qwen3:4b`
@@ -514,6 +597,9 @@ final class AssistantSession: ObservableObject {
         // верным вызовом.
         if !tools.isEmpty, !hasAgentInstruction {
             messages.insert(.system(AgentTool.instruction()), at: 0)
+            // Всё, что помнит номера реплик, переезжает вместе с ними.
+            hiddenMessages = Self.shifted(hiddenMessages, insertedAt: 0)
+            stepLabels = Self.shifted(stepLabels, insertedAt: 0)
             hasAgentInstruction = true
         }
         // Инструменты занимают место в контексте, и место немалое. Ollama
@@ -611,9 +697,47 @@ final class AssistantSession: ObservableObject {
                 NotchHintTracker.shared.focus(AnswerAction.copy.title)
             }
         case let .failure(failure):
+            // Модель не умеет инструменты, и сказал это сервер, а не список
+            // умений. Переспрашиваем один раз без них: человек нажал
+            // «Перевести», а не «поговори с помощником», — и падать команде
+            // из-за помощника не за что.
+            if Self.refusesTools(failure), !toolsRefused {
+                toolsRefused = true
+                if let model { ModelList.shared.noteNoTools(Self.modelName(of: model)) }
+                dropAgentInstruction()
+                DebugLog.write("модель: инструменты отвергнуты — переспрашиваю без них")
+                run()
+                return
+            }
             error = failure.localizedDescription
             DebugLog.write("модель: ошибка — \(failure.localizedDescription)")
         }
+    }
+
+    /// Отказ именно из-за инструментов.
+    ///
+    /// По словам сервера, а не по коду ответа: 400 Ollama отвечает
+    /// и на переросший контекст, и на незнакомую модель, — а переспрашивать
+    /// без инструментов стоит ровно в одном из этих случаев.
+    static func refusesTools(_ failure: Error) -> Bool {
+        failure.localizedDescription.lowercased().contains("does not support tools")
+    }
+
+    /// Имя модели без провайдера: список умений знает её по имени.
+    static func modelName(of stored: String) -> String {
+        stored.components(separatedBy: "|").last ?? stored
+    }
+
+    /// Снять указание помощнику: без инструментов оно лишнее и занимает
+    /// место в контексте, а номера реплик за ним съезжают обратно.
+    private func dropAgentInstruction() {
+        guard hasAgentInstruction,
+              let index = messages.firstIndex(where: { $0.role == "system" })
+        else { return }
+        messages.remove(at: index)
+        hiddenMessages = Self.shifted(hiddenMessages, removedAt: index)
+        stepLabels = Self.shifted(stepLabels, removedAt: index)
+        hasAgentInstruction = false
     }
 
     // MARK: - Предложение помощника
@@ -715,7 +839,7 @@ final class AssistantSession: ObservableObject {
         guard !answer.isEmpty else { return }
         copyAnswer()
 
-        let destination = target
+        let destination = pasteDestination
         completion()
 
         // Порядок — деактивация, переключение, пауза, нажатие — живёт

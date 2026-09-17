@@ -128,6 +128,7 @@ struct NotchInputs: Equatable {
         case .teleprompter: return .teleprompter
         case .caffeine: return .caffeine
         case .keyboardLock: return .keyboardLock
+        case .water: return .water
         case .notes: return .notes
         case .calendar: return .calendar
         case .eventEditor: return .eventEditor

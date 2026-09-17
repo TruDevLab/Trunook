@@ -52,6 +52,9 @@ struct Activity: Identifiable, Equatable {
         /// Наступило событие обратного отсчёта. Вместе с плашкой — залп
         /// конфетти из чёлки.
         case countdownReached(title: String)
+        /// Записан заход воды. Итог дня плашка берёт у журнала живьём:
+        /// в случае она несёт только что записанное.
+        case waterLogged(portion: Int)
     }
 
     /// Чем важнее событие, тем выше приоритет. Событие с приоритетом ниже
@@ -91,6 +94,9 @@ struct Activity: Identifiable, Equatable {
         case .powerConnected, .powerDisconnected: return 2
         // Вровень с погодой: напоминание подождёт, пока вырез освободится.
         case .breakReminder: return 2
+        // Ответ на только что сделанное нажатие: подождать ему нечего,
+        // но и перебивать разряд батареи незачем.
+        case .waterLogged: return 2
         // Вровень со встречей: событие ждали днями, и наступает оно один раз.
         case .countdownReached: return 4
         case .trackChanged: return 1
@@ -137,6 +143,9 @@ struct Activity: Identifiable, Equatable {
         // Без срока: висит, пока человек не ответит «готово» или «пропустить»,
         // — и следующий отсчёт начинается только с ответа.
         case .breakReminder: return .infinity
+        // Коротко: человек уже знает, что записал, — плашка лишь называет
+        // итог дня.
+        case .waterLogged: return 3.5
         // Долго: наступившее событие не пропускают, отвернувшись на минуту.
         // Убирает крестик.
         case .countdownReached: return 60
@@ -203,6 +212,7 @@ extension Activity.Kind {
         case .digestReady: return "сводка"
         case .siteChanged: return "сайт изменился"
         case .breakReminder: return "перерыв"
+        case .waterLogged: return "вода записана"
         case .countdownReached: return "событие наступило"
         }
     }

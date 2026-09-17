@@ -1,4 +1,5 @@
 import SwiftUI
+import TrunookXPC
 import AppKit
 
 /// Поле записи сочетания клавиш.
@@ -39,7 +40,20 @@ struct HotKeyRecorder: NSViewRepresentable {
             didSet {
                 needsDisplay = true
                 guard isRecording != oldValue else { return }
-                isRecording ? installMonitor() : removeMonitor()
+                if isRecording {
+                    installMonitor()
+                    // Свои глобальные сочетания отпускаются на время записи.
+                    // Carbon забирает нажатие себе раньше приложения —
+                    // и раньше этого поля в его же окне: ⌃⌥1 уходила команде,
+                    // сидящей на этой цифре, а поле не получало ничего
+                    // и молчало. Локального монитора тут мало: он ловит
+                    // события, которые до приложения дошли, а это до него
+                    // не доходит вовсе.
+                    HotKeyCenter.shared.suspend()
+                } else {
+                    removeMonitor()
+                    HotKeyCenter.shared.resume()
+                }
             }
         }
 
@@ -63,7 +77,13 @@ struct HotKeyRecorder: NSViewRepresentable {
             monitor = nil
         }
 
-        deinit { removeMonitor() }
+        deinit {
+            removeMonitor()
+            // Окно настроек закрыли прямо во время записи — сочетания
+            // остались бы отпущенными до следующей их перестановки,
+            // то есть, возможно, до перезапуска.
+            if isRecording { HotKeyCenter.shared.resume() }
+        }
 
         override var acceptsFirstResponder: Bool { true }
         /// Tab доходит до поля, а не перепрыгивает его.
@@ -152,10 +172,16 @@ struct HotKeyRecorder: NSViewRepresentable {
                 NSSound.beep()
                 return
             }
+            // Запись кончается **до** того, как новое сочетание уйдёт
+            // в настройки: `onCapture` тут же назначает клавиши заново,
+            // и порядок наоборот вернул бы поверх них прежний набор.
+            isRecording = false
             spec = captured
+            // В журнал — записанное: жалоба «не записывается» проверяется
+            // по нему, а не по рассказу о том, что нажимали.
+            DebugLog.write("запись сочетания: \(captured.display)")
             onCapture?(captured)
             // Фокус остаётся на поле: с клавиатуры человек не теряет места.
-            isRecording = false
             NSAccessibility.post(element: self, notification: .valueChanged)
         }
 
