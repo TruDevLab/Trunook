@@ -177,7 +177,12 @@ extension CritterView {
         return (sprite, place.point, !facingRight)
     }
 
-    private struct Stage {
+    /// Сцена: где у этой сценки край чёлки, полоса меню и земля.
+    ///
+    /// Не `private`: по ней же живут и обычные сценки из `CritterPlay`.
+    /// Свой такой же расчёт у них разошёлся бы с этим на первой же правке
+    /// высоты земли — а земля у всех одна.
+    struct Stage {
         let p = CritterArt.pixel
         let side: CGFloat
         let edge: CGFloat

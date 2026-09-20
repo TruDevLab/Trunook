@@ -46,6 +46,9 @@ struct AssistantPanel: View {
     let defaultModel: ModelRef
 
     let onSend: () -> Void
+    /// Оборвать ответ на полуслове. Та же кнопка, что и отправка: пока
+    /// модель пишет, отправлять всё равно нечего.
+    let onStop: () -> Void
     /// Запустить команду из списка.
     let onRunCommand: (QuickCommand) -> Void
     /// Убрать захваченный текст.
@@ -84,6 +87,11 @@ struct AssistantPanel: View {
     let onToggleNotesSearch: () -> Void
     /// Выбрали запись из списка «@».
     let onPickMention: (Mention) -> Void
+    /// Выбрали группу инструментов из списка по «/».
+    let onPickSlash: (SlashTool) -> Void
+    /// Чем ещё умеет поле: «/» — инструмент, «@» — запись. `nil` — ни того
+    /// ни другого сейчас нет, и обещать их нечем.
+    let pickerHint: String?
     let onSelectMode: (NotePanelMode) -> Void
     let onClose: () -> Void
     /// Оборвать голосовой заход. Кнопка нужна и здесь, а не только
@@ -381,7 +389,7 @@ struct AssistantPanel: View {
             // Ноль строк — признак того, что списка нет вовсе: команды
             // выключены в настройках.
             if let mentionRows {
-                content += NotchStyle.gridSpacing + MentionRows.height(rows: mentionRows)
+                content += NotchStyle.gridSpacing + PickerRows<Mention>.height(rows: mentionRows)
             } else if hasAnswer {
                 let rows = answerActionCount(notesEnabled: notesEnabled)
                 content += NotchStyle.gridSpacing
@@ -428,7 +436,7 @@ struct AssistantPanel: View {
         var tallest: CGFloat = 0
         for mode in NotePanelMode.allCases {
             for hasAnswer in [false, true] {
-                for mentionRows in [nil, MentionRows.visibleRows] {
+                for mentionRows in [nil, PickerRows<Mention>.visibleRows] {
                     tallest = max(tallest, height(
                         notchHeight: notchHeight,
                         notchWidth: notchWidth,
@@ -542,8 +550,17 @@ struct AssistantPanel: View {
                     // человек его набрал, и отвечает на то, что печатают
                     // сейчас. Действия с ответом и команды подождут —
                     // и то и другое никуда не денется, когда список закроется.
-                    if session.isPickingMention {
-                        MentionRows(
+                    // Список инструментов по «/» — раньше прочего, как
+                    // и список «@»: он открыт ровно тогда, когда человек
+                    // его набрал.
+                    if session.isPickingSlash {
+                        PickerRows(
+                            mentions: session.slashMatches,
+                            highlighted: session.highlightedSlash,
+                            onPick: onPickSlash
+                        )
+                    } else if session.isPickingMention {
+                        PickerRows(
                             mentions: session.mentionMatches,
                             highlighted: session.highlightedMention,
                             onPick: onPickMention
@@ -888,6 +905,18 @@ struct AssistantPanel: View {
 
     // MARK: - Поля ввода
 
+    /// Что написано в пустом поле.
+    ///
+    /// Про «/» и «@» сказано прямо здесь, а не в настройках: набрать их
+    /// догадается только тот, кто уже знает, что они есть. Дописывается
+    /// к подсказке, а не заменяет её: поле по-прежнему прежде всего
+    /// для вопроса.
+    static func placeholder(asksNotes: Bool, pickers: String?) -> String {
+        let base = asksNotes ? t("Спросите по заметкам") : t("Спросите модель")
+        guard let pickers else { return base }
+        return base + " · " + pickers
+    }
+
     /// Вопрос: Enter отправляет, ⇧Enter переводит строку.
     ///
     /// Поле растёт вместе с текстом до пяти строк, дальше прокручивается.
@@ -939,7 +968,7 @@ struct AssistantPanel: View {
         // поля — выписанные заново, они разъехались бы с текстом.
         .overlay(alignment: .topLeading) {
             if draft.question.isEmpty {
-                Text(session.usesNotes ? t("Спросите по заметкам") : t("Спросите модель"))
+                Text(Self.placeholder(asksNotes: session.usesNotes, pickers: pickerHint))
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
@@ -1301,15 +1330,22 @@ struct AssistantPanel: View {
             if Self.showsNotesSearch(notesEnabled: notesEnabled, agentSearchesNotes: agentSearchesNotes) {
                 NotesSearchToggle(isOn: session.usesNotes, action: onToggleNotesSearch)
             }
-            // Подпись всегда одна и та же. Была разная — «Спросить
+            // Пока идёт ответ, та же кнопка останавливает его.
+            //
+            // Та же, а не вторая рядом: отправлять во время ответа всё равно
+            // нечего — кнопка стояла погашенной, — а место у неё самое
+            // заметное в панели. Второй кнопкой пришлось бы поступиться либо
+            // шириной отправки, либо соседним переключателем поиска.
+            //
+            // Подпись отправки всегда одна и та же. Была разная — «Спросить
             // по заметкам» при включённом поиске, — и она не помещалась,
             // обрываясь на «Спросить по зам…». Режим и так виден соседней
             // кнопкой, повторять его на отправке незачем.
             wideAction(
-                symbol: "arrow.up.circle.fill",
-                title: t("Отправить"),
-                isEnabled: !draft.isEmpty && !session.isStreaming,
-                action: onSend
+                symbol: session.isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill",
+                title: session.isStreaming ? t("Остановить") : t("Отправить"),
+                isEnabled: session.isStreaming || !draft.isEmpty,
+                action: session.isStreaming ? onStop : onSend
             )
             .frame(width: Self.sendWidth(notchWidth: metrics.notchWidth))
         }

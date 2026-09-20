@@ -17,6 +17,11 @@ struct HomeActions {
     /// `nil` — выключены и модель, и заметки: спросить некого и записать
     /// некуда.
     let ask: (() -> Void)?
+    /// Команда с плитки. Выделение читается на месте, как по горячей
+    /// клавише: главный экран фокус не отбирает, и оно ещё живо.
+    let runCommand: (QuickCommand) -> Void
+    /// Пустая плитка команд ведёт туда, где команды на неё и выбирают.
+    let chooseCommands: () -> Void
     let dictateQuestion: () -> Void
     let openTimer: () -> Void
     let openMonitor: () -> Void
@@ -347,6 +352,8 @@ struct HomeWidgetView: View {
             TasksWidget(widget: widget, things: services.things, actions: actions)
         case .ask:
             AskWidget(widget: widget, settings: settings, actions: actions)
+        case .commands:
+            CommandsWidget(widget: widget, settings: settings, actions: actions)
         case .timer:
             TimerWidget(widget: widget, timer: services.timer, actions: actions)
         case .countdown:

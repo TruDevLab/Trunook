@@ -256,7 +256,10 @@ struct HomeWidgetPalette: View {
                     }
                 }
                 Spacer()
-                if placed.contains(kind) {
+                // Плитку команд можно поставить второй раз: что на ней стоит,
+                // выбирает человек, и две плитки 1×1 с разными командами —
+                // две разные кнопки, а не одна дважды.
+                if placed.contains(kind), !kind.allowsDuplicates {
                     Text(t("На экране"))
                         .font(.system(size: SettingsStyle.font(11.5)))
                         .foregroundStyle(.secondary)

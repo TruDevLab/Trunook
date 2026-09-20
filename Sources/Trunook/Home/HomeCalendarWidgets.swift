@@ -291,28 +291,69 @@ struct AskWidget: View {
 
     var body: some View {
         HomeTile(widget: widget, onTap: actions.ask, hint: t("Команды")) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: NotchStyle.font(12), weight: .semibold))
-                    .foregroundStyle(widget.kind.tint)
-                Text(settings.ollamaEnabled ? t("Спросить…") : t("Команды и заметки…"))
-                    .font(.system(size: NotchStyle.font(12.5)))
-                    .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                if settings.voiceEnabled, let ask = actions.ask {
-                    HomeTileButton(symbol: "mic.fill", hint: t("Надиктовать вопрос")) {
-                        ask()
-                        actions.dictateQuestion()
-                    }
-                }
+            if widget.size == .small { compact } else { field }
+        }
+    }
+
+    /// Плитки шире клетки: полоса, похожая на поле набора.
+    private var field: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: NotchStyle.font(12), weight: .semibold))
+                .foregroundStyle(widget.kind.tint)
+            Text(settings.ollamaEnabled ? t("Спросить…") : t("Команды и заметки…"))
+                .font(.system(size: NotchStyle.font(12.5)))
+                .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            if let dictate {
+                HomeTileButton(symbol: "mic.fill", hint: t("Надиктовать вопрос"), action: dictate)
             }
-            .padding(.horizontal, 10)
-            .frame(maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
-                    .strokeBorder(.white.opacity(0.14), lineWidth: 1)
-            )
+        }
+        .padding(.horizontal, 10)
+        .frame(maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
+                .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+    /// Плитка 1×1: кнопка диктовки и название.
+    ///
+    /// Без рамки поля и без «Спросить…»: в клетку они встали бы обрезанным
+    /// обещанием набора, которого здесь всё равно нет. Остаётся то, за чем
+    /// к плитке тянутся, — голос под пальцем; нажатие мимо кнопки открывает
+    /// команды, как и у плиток пошире.
+    private var compact: some View {
+        VStack(spacing: 3) {
+            if let dictate {
+                HomeTileButton(symbol: "mic.fill", hint: t("Надиктовать вопрос"), action: dictate)
+            } else {
+                // Голос выключен — на месте кнопки значок функции: иначе
+                // плитка осталась бы пустой клеткой с одной подписью.
+                Image(systemName: widget.kind.symbol)
+                    .font(.system(size: NotchStyle.font(16), weight: .medium))
+                    .foregroundStyle(widget.kind.tint)
+                    .frame(height: NotchStyle.scaled(26))
+            }
+            Text(widget.kind.title)
+                .font(.system(size: NotchStyle.font(10.5), weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Надиктовать вопрос: открыть команды и сразу начать запись.
+    ///
+    /// Пусто, когда голос выключен: кнопка, которая ответит «включите
+    /// в настройках», в плитке 1×1 была бы единственной.
+    private var dictate: (() -> Void)? {
+        guard settings.voiceEnabled, let ask = actions.ask else { return nil }
+        return {
+            ask()
+            actions.dictateQuestion()
         }
     }
 }

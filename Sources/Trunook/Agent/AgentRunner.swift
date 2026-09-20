@@ -48,7 +48,17 @@ final class AgentRunner {
     }
 
     /// Описания инструментов, доступных прямо сейчас.
-    func tools() -> [[String: Any]] { AgentTool.wire(for: settings) }
+    ///
+    /// `only` — выбранная человеком группа («/настройки», «/календарь»).
+    /// Остального модель тогда не видит вовсе: в этом и смысл выбора —
+    /// не подсказать ей, куда пойти, а не оставить выбора. Отбор идёт
+    /// пересечением с доступным, а не подменой: выключенная функция
+    /// не оживает оттого, что её позвали.
+    func tools(only: [AgentTool]? = nil) -> [[String: Any]] {
+        let available = AgentTool.available(for: settings)
+        guard let only else { return available.map(\.schema.wire) }
+        return available.filter { only.contains($0) }.map(\.schema.wire)
+    }
 
     var hasTools: Bool { !AgentTool.available(for: settings).isEmpty }
 
@@ -70,7 +80,7 @@ final class AgentRunner {
         }
 
         switch tool {
-        case .upcoming, .dayAgenda, .weatherNow, .searchNotes,
+        case .upcoming, .dayAgenda, .weatherNow, .searchNotes, .appHelp,
              .startTimer, .stopTimer, .startStopwatch:
             return .run(tool, call)
         case .createEvent:
@@ -96,6 +106,7 @@ final class AgentRunner {
         case .dayAgenda: completion(readDay(call, now: now))
         case .weatherNow: readWeather(completion: completion)
         case .searchNotes: readNotes(call, completion: completion)
+        case .appHelp: completion(readHelp(call))
         case .startTimer: completion(startTimer(call))
         case .stopTimer: completion(stopTimer())
         case .startStopwatch: completion(startStopwatch())
@@ -593,6 +604,33 @@ final class AgentRunner {
                 label: tf("Поискал «%@» в заметках", query)
             ))
         }
+    }
+
+    // MARK: - Справка о приложении
+
+    /// Ответ на вопрос о самом приложении.
+    ///
+    /// Не одна тема, а до трёх: вопрос «как настроить новости» задевает
+    /// и сводку, и панель сводок, и расписание, а выбирать из трёх абзацев
+    /// модель умеет лучше, чем угадывать по одному.
+    ///
+    /// Не нашлось — уходит оглавление, а не пустота: на «ничего нет» модель
+    /// отвечает выдумкой про приложение, а на список тем переспрашивает.
+    private func readHelp(_ call: ToolCall) -> AgentToolResult {
+        let query = (call.string("query") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let found = HelpSearch.find(query, in: HelpBook.topics)
+        DebugLog.write("справка: «\(query)» — \(found.map(\.id).joined(separator: ", "))")
+
+        guard !found.isEmpty else {
+            return AgentToolResult(
+                text: HelpBook.contents(),
+                label: t("Посмотрел справку")
+            )
+        }
+        return AgentToolResult(
+            text: found.map(\.answer).joined(separator: "\n\n"),
+            label: tf("Справка: «%@»", found[0].title)
+        )
     }
 
     // MARK: - Погода

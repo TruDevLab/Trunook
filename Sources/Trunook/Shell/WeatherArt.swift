@@ -449,6 +449,9 @@ enum WeatherArt {
         case "v": return Color(red: 0.62, green: 0.36, blue: 0.92)
         // Сценки-напоминания кота: чай в кружке.
         case "t": return Color(red: 0.62, green: 0.36, blue: 0.14)
+        // Мышь, за которой гоняется кот: тёмно-серая. Светлая читалась
+        // облачком, а чёрная слилась бы с самим котом.
+        case "m": return Color(white: 0.52)
         default: return .clear
         }
     }

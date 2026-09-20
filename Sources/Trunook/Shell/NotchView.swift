@@ -266,6 +266,8 @@ struct NotchView: View {
     let onPasteAnswer: () -> Void
     /// Отправить набранное модели.
     let onSendDraft: () -> Void
+    /// Оборвать ответ модели на полуслове — той же кнопкой, что и отправка.
+    let onStopAnswer: () -> Void
     /// Сохранить набранное заметкой — или переписать ту, что открыта на правку.
     let onSaveDraft: () -> Void
     /// Переключить режим панели: разговор или заметка.
@@ -278,6 +280,33 @@ struct NotchView: View {
     let onToggleNotesSearch: () -> Void
     /// Выбрали запись из списка «@».
     let onPickMention: (Mention) -> Void
+    /// Выбрали группу инструментов из списка по «/».
+    let onPickSlash: (SlashTool) -> Void
+
+    /// Подсказка в пустом поле вопроса: чем ещё оно умеет пользоваться.
+    ///
+    /// Обещаем только то, что сейчас и правда работает: без помощника
+    /// «/» не сделает ничего, а без календаря и заметок «@» некого звать.
+    ///
+    /// Словом «запись» звать это нельзя: записью в приложении зовётся звук
+    /// разговора, а «@» достаёт событие календаря или заметку.
+    ///
+    /// Названо одно, а не всё доступное: подсказка стоит в строке поля,
+    /// где справа уже висит имя модели, и «@ — событие или заметка» на него
+    /// наезжало — поймано снимком. Подсказка здесь приглашает попробовать,
+    /// а полный список человек увидит, как только наберёт «@».
+    static func pickerHint(_ settings: Settings) -> String? {
+        var parts: [String] = []
+        if settings.agentEnabled && !SlashCatalogue.all(for: settings).isEmpty {
+            parts.append(t("/ — инструмент"))
+        }
+        switch (settings.calendarEnabled, settings.notesEnabled) {
+        case (true, _): parts.append(t("@ — событие"))
+        case (false, true): parts.append(t("@ — заметка"))
+        case (false, false): break
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
     let onCloseAssistant: () -> Void
     let onOpenNotes: () -> Void
     /// Мини-календарь: месяц и дела выбранного дня.
@@ -327,6 +356,12 @@ struct NotchView: View {
     let onOpenTeleprompter: () -> Void
     /// Плитка обратного отсчёта: событие правят в настройках главного экрана.
     let onEditCountdown: () -> Void
+    /// Команда с плитки главного экрана. Отдельно от `onRunCommand`: у той
+    /// выделение уже захвачено и показано плашкой, а здесь оно ещё живёт
+    /// в чужом окне, и прочитать его надо на месте.
+    let onRunCommandFromHome: (QuickCommand) -> Void
+    /// Пустая плитка команд: выбирают их в настройках главного экрана.
+    let onChooseCommands: () -> Void
     /// Раскрыть главную панель. Плитки в меню у этого больше нет — возврат
     /// туда и так делается крестиком, — но нажатие по полоске отсчёта ведёт
     /// именно сюда.
@@ -894,6 +929,7 @@ struct NotchView: View {
                 models: models.models,
                 defaultModel: settings.defaultModel,
                 onSend: onSendDraft,
+                onStop: onStopAnswer,
                 onRunCommand: onRunCommand,
                 onClearCapture: onClearCapture,
                 onToggleCapture: onToggleCapture,
@@ -916,6 +952,8 @@ struct NotchView: View {
                 onOpenNotes: onOpenNotes,
                 onToggleNotesSearch: onToggleNotesSearch,
                 onPickMention: onPickMention,
+                onPickSlash: onPickSlash,
+                pickerHint: Self.pickerHint(settings),
                 onSelectMode: onSelectMode,
                 onClose: onCloseAssistant,
                 onStopVoice: onStopVoice,
@@ -1184,6 +1222,8 @@ struct NotchView: View {
             // работают сами по себе. Пропадает вход только если
             // выключено и то и другое.
             ask: (settings.ollamaEnabled || settings.notesEnabled) ? onAskAssistant : nil,
+            runCommand: onRunCommandFromHome,
+            chooseCommands: onChooseCommands,
             dictateQuestion: onDictateQuestion,
             openTimer: onOpenTimer,
             openMonitor: onOpenMonitor,

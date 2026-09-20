@@ -64,6 +64,10 @@ voice, dictation and the teleprompter. Sizes run from 1×1 to 4×2 on
 a four-column grid. Pick the tiles, their order and size in Settings →
 **Home screen**: drag them with the mouse.
 
+The commands tile stands a little apart: it holds up to four of your own
+commands — one in the 1×1 size. Select text in another window, click
+"Translate" on the tile, and the model's answer opens right in the notch.
+
 ---
 
 ## Features
@@ -80,7 +84,8 @@ a four-column grid. Pick the tiles, their order and size in Settings →
   Today's tasks are picked up from Things 3.
 - **Online meetings.** While a call is running, hovering gives you the
   microphone, camera, screen sharing, raise hand and leave — in Telemost,
-  Google Meet, Zoom and Teams. The record button is there too: it captures
+  Google Meet, Zoom and Teams in the browser, and in the Telemost and Zoom
+  apps as well (Zoom gives microphone, camera and sharing). The record button is there too: it captures
   both you and the others, speech is turned into text on your own Mac and
   becomes a note — a title, a summary and the tasks as a separate list, with
   the recording attached. Recording needs macOS 26 and is off by default.
@@ -115,7 +120,7 @@ a four-column grid. Pick the tiles, their order and size in Settings →
 
 - **Ask and read the answer in the notch.** Enter sends the question, the
   answer is written right under the notch — copy it or paste it into the
-  active window. Ollama installs itself: the app downloads and starts it,
+  active window; while it is being written, the send button stops it. Ollama installs itself: the app downloads and starts it,
   and suggests models your machine can carry — a light, a medium and
   a powerful one for conversation, plus a separate one for notes. The
   fitting one is marked "recommended", one button installs the pair.
@@ -129,8 +134,10 @@ a four-column grid. Pick the tiles, their order and size in Settings →
   creates an event, a reminder or a note. Reading happens at once; writing
   only after a "Create / Cancel" card in the notch itself. An at sign in the
   question opens a list of meetings and notes: what you pick goes into the
-  question as a word — "@Standup move to Tuesday 15:00". Off by default;
-  needs a model that can call tools.
+  question as a word — "@Standup move to Tuesday 15:00". It also answers
+  questions about the app itself — "what can this thing do?", "how do I set
+  up the news digest?" — and names the settings section where it is switched
+  on. Off by default; needs a model that can call tools.
 - **Voice and dictation.** You can ask out loud: the panel does not open —
   the notch shivers and glows, blue while listening, the model's colour
   while thinking — with a volume meter on the side. The answer is read aloud
@@ -144,7 +151,8 @@ a four-column grid. Pick the tiles, their order and size in Settings →
   model — shown on the right of the row, changed with Tab. A command is not
   only a request to the model: it can be an app, a folder, a link, an
   AppleScript, a macOS Shortcut, or saving the capture to notes. The first
-  nine run straight from the keyboard.
+  nine run straight from the keyboard, and the favourites can go onto the
+  home screen as a tile.
 
 ### What's going on around you
 
@@ -205,7 +213,9 @@ a four-column grid. Pick the tiles, their order and size in Settings →
   of a cat runs out from under it: it watches the cursor, wags its tail,
   sleeps, runs upside down along the edge, chases a ball of yarn, swears,
   smokes, blows a kiss, spins after its own tail, hunts the cursor and tries
-  on sunglasses. How often is a setting: every 2–4, 5–10 or 20–40 minutes.
+  on sunglasses. It also catches a mouse, suns itself
+  under a beach umbrella with a smoothie — the notch shines like the sun
+  meanwhile — and chases a bird. How often is a setting: every 2–4, 5–10 or 20–40 minutes.
   It stays away from full-screen windows, Reduce Motion and Low Power Mode.
 - **Weather under the notch.** When the weather changes, rain drips from the
   notch, snow falls, a blizzard blows, lightning strikes, the sun comes up,

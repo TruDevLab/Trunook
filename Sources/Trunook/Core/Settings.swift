@@ -608,12 +608,29 @@ final class Settings: ObservableObject {
     }
 
     /// Размер, под который у виджета нет вёрстки, не ставится вовсе.
+    ///
+    /// Запись пересобирается через `init`, а не правится полем: у плитки
+    /// команд от размера зависит, сколько их на ней стоит, и присвоенный
+    /// напрямую размер оставил бы четыре команды на плитке в одну клетку.
     func setHomeWidgetSize(id: Int, _ size: HomeWidgetSize) {
         var all = homeWidgets
         guard let index = all.firstIndex(where: { $0.id == id }),
               all[index].kind.allowedSizes.contains(size)
         else { return }
-        all[index].size = size
+        let old = all[index]
+        all[index] = HomeWidget(id: old.id, kind: old.kind, size: size, commands: old.commands)
+        homeWidgets = all
+    }
+
+    /// Какие команды стоят на плитке команд.
+    ///
+    /// Лишние отрезает сама запись: сколько их влезает, знает размер плитки,
+    /// и второй такой счёт разошёлся бы с первым.
+    func setHomeWidgetCommands(id: Int, _ commands: [Int]) {
+        var all = homeWidgets
+        guard let index = all.firstIndex(where: { $0.id == id }) else { return }
+        let old = all[index]
+        all[index] = HomeWidget(id: old.id, kind: old.kind, size: old.size, commands: commands)
         homeWidgets = all
     }
 

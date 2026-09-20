@@ -56,6 +56,38 @@ final class AssistantSession: ObservableObject {
         highlightedMention = nil
     }
 
+    // MARK: - Инструменты по «/»
+
+    /// Что показывает список под полем на набранное «/» — группы
+    /// инструментов. Отдельно от списка «@»: у них разные правила разбора
+    /// и разное содержимое, а слот под полем один, и занимают они его
+    /// по очереди.
+    @Published private(set) var slashMatches: [SlashTool] = []
+    @Published private(set) var isPickingSlash = false
+    @Published var highlightedSlash: Int?
+
+    /// Какие инструменты достанутся модели на этот вопрос. `nil` — все,
+    /// какие доступны; список — ровно выбранная группа.
+    ///
+    /// Ставится перед отправкой по тому, что написано в самом вопросе,
+    /// и живёт до следующего: человек выбрал «/настройки» один раз,
+    /// а следующий вопрос задал без выбора — и помощник снова волен брать
+    /// что угодно.
+    var toolFilter: [AgentTool]?
+
+    func showSlash(_ matches: [SlashTool]) {
+        slashMatches = matches
+        isPickingSlash = true
+        highlightedSlash = matches.isEmpty ? nil : 0
+    }
+
+    func hideSlash() {
+        guard isPickingSlash || !slashMatches.isEmpty else { return }
+        slashMatches = []
+        isPickingSlash = false
+        highlightedSlash = nil
+    }
+
     /// Запомнить позванное. Повтор не удваивается: показать на одну встречу
     /// дважды — обычное дело, когда набранное стёрли и набрали заново.
     func remember(_ mention: Mention) {
@@ -785,6 +817,8 @@ final class AssistantSession: ObservableObject {
         hasAgentInstruction = false
         mentions = []
         hideMentions()
+        hideSlash()
+        toolFilter = nil
     }
 
     // MARK: - Отладка

@@ -1,6 +1,6 @@
 // Лист кадров кота в чёлке — подбирать рисунок глазами, не пересобирая
 // приложение: `make critter`, кадры в ~/Library/Logs/Trunook-critter-N.png
-// (0 — хвост, 1 — котик, 2 — мордочка, 3 — уши и лапа, 4 — сон, зевок, клубок, 5 — вверх ногами и ругательства, 6 — поцелуйчик и головокружение, 7 — очки, 8 — кулак), каждый на тёмном и светлом фоне.
+// (0 — хвост, 1 — котик, 2 — мордочка, 3 — уши и лапа, 4 — сон, зевок, клубок, 5 — вверх ногами и ругательства, 6 — поцелуйчик и головокружение, 7 — очки, 8 — кулак, 9 — мышь, зонт, птичка и взгляд), каждый на тёмном и светлом фоне.
 // Рисунок берётся из Sources/Trunook/Shell/CritterArt.swift как есть.
 import SwiftUI
 import AppKit
@@ -157,8 +157,41 @@ let cool: [Frame] = [
     },
 ]
 
+// Новые сценки: реквизит крупно и рядом с буханкой — по нему и подбирается
+// рисунок. Мышь, зонт со смузи, птичка и взгляд.
+let play: [Frame] = [
+    { ctx, s in
+        CritterArt.draw(CritterArt.loaf[0], in: ctx, anchor: CGPoint(x: s.width / 2 - 12, y: 44))
+        WeatherArt.draw(CritterArt.mouse(step: 0), in: ctx, anchor: CGPoint(x: s.width / 2 + 14, y: 40))
+    },
+    { ctx, s in WeatherArt.draw(CritterArt.mouse(step: 0), in: ctx, anchor: CGPoint(x: s.width / 2, y: 40)) },
+    { ctx, s in WeatherArt.draw(CritterArt.mouse(step: 1), in: ctx, anchor: CGPoint(x: s.width / 2, y: 40)) },
+    { ctx, s in
+        WeatherArt.draw(CritterArt.umbrella(open: 1), in: ctx, anchor: CGPoint(x: s.width / 2 + 10, y: 46))
+        CritterArt.draw(CritterArt.loaf[0], in: ctx, anchor: CGPoint(x: s.width / 2 - 8, y: 44))
+        WeatherArt.draw(CritterArt.smoothie(level: 4), in: ctx, anchor: CGPoint(x: s.width / 2 - 34, y: 44))
+    },
+    { ctx, s in
+        WeatherArt.draw(CritterArt.umbrella(open: 0.35), in: ctx, anchor: CGPoint(x: s.width / 2, y: 46))
+    },
+    { ctx, s in
+        WeatherArt.draw(CritterArt.bird(wingsUp: true), in: ctx, anchor: CGPoint(x: s.width / 2, y: 34))
+    },
+    { ctx, s in
+        WeatherArt.draw(CritterArt.bird(wingsUp: false), in: ctx, anchor: CGPoint(x: s.width / 2, y: 34))
+    },
+    { ctx, s in
+        CritterArt.draw(CritterArt.loafLooking(look: 2, blink: false), in: ctx,
+                        anchor: CGPoint(x: s.width / 2, y: 44))
+    },
+    { ctx, s in
+        CritterArt.draw(CritterArt.loafLooking(look: -2, blink: false), in: ctx,
+                        anchor: CGPoint(x: s.width / 2, y: 44))
+    },
+]
+
 MainActor.assumeIsolated {
-    let sheets: [([Frame], CGSize)] = [(tail, CGSize(width: 120, height: 110)), (cat, CGSize(width: 60, height: 44)), (eyes, CGSize(width: 110, height: 56)), (more, CGSize(width: 50, height: 44)), (rest, CGSize(width: 70, height: 44)), (mood, CGSize(width: 60, height: 48)), (love, CGSize(width: 64, height: 48)), (cool, CGSize(width: 76, height: 48)), (fist, CGSize(width: 64, height: 48))]
+    let sheets: [([Frame], CGSize)] = [(tail, CGSize(width: 120, height: 110)), (cat, CGSize(width: 60, height: 44)), (eyes, CGSize(width: 110, height: 56)), (more, CGSize(width: 50, height: 44)), (rest, CGSize(width: 70, height: 44)), (mood, CGSize(width: 60, height: 48)), (love, CGSize(width: 64, height: 48)), (cool, CGSize(width: 76, height: 48)), (fist, CGSize(width: 64, height: 48)), (play, CGSize(width: 86, height: 56))]
     for (i, sheet) in sheets.enumerated() {
         let renderer = ImageRenderer(content: Sheet(frames: sheet.0, size: sheet.1))
         renderer.scale = 1

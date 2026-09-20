@@ -34,6 +34,13 @@ enum HomeWidgetSize: String, Codable, CaseIterable, Identifiable {
     /// Подпись в настройках: клетками, а не словами — «широкий» и «большой»
     /// не говорят, что из них выше.
     var title: String { "\(columns)×\(rows)" }
+
+    /// Сколько команд встаёт в плитку команд: по клетке на команду.
+    ///
+    /// Потолок в четыре — не про место, а про то, зачем плитка нужна: она
+    /// под рукой, и выбирать из восьми ярлыков дольше, чем открыть список
+    /// команд целиком.
+    var commandSlots: Int { min(4, columns * rows) }
 }
 
 /// Что может стоять на главном экране.
@@ -49,6 +56,9 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
     case month
     case tasks
     case ask
+    /// Быстрые команды, выбранные человеком: ярлыки к тому же списку,
+    /// что под полем вопроса.
+    case commands
     case timer
     /// Обратный отсчёт до события, которое задал человек.
     case countdown
@@ -89,7 +99,11 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .voice: return .voice
         case .dictation: return .dictation
         case .teleprompter: return .teleprompter
-        case .music, .tasks, .weather, .battery, .pinnedNotes, .countdown, .water: return nil
+        // У команд своя функция и свой раздел настроек: кольцо ведёт
+        // в панель разговора, а плитка запускает команду на месте.
+        case .music, .tasks, .weather, .battery, .pinnedNotes, .countdown, .water,
+             .commands:
+            return nil
         }
     }
 
@@ -102,6 +116,9 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .month: return t("Месяц")
         case .tasks: return t("Задачи Things")
         case .ask: return t("Вопрос к ИИ")
+        // Тем же словом, что и раздел настроек: плитка ведёт ровно в тот
+        // список, который там собирают.
+        case .commands: return t("Команды")
         case .weather: return t("Погода")
         case .water: return t("Вода")
         case .battery: return t("Батарея")
@@ -119,6 +136,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .schedule: return "calendar.badge.clock"
         case .timeline: return "calendar.day.timeline.left"
         case .tasks: return "checklist"
+        case .commands: return "square.grid.2x2.fill"
         case .weather: return "cloud.sun.fill"
         case .water: return "drop.fill"
         case .battery: return "battery.75percent"
@@ -132,6 +150,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .music: return Palette.voice
         case .tasks: return Palette.calendar
+        case .commands: return Palette.commands
         case .weather: return Palette.weather
         case .water: return Palette.blue
         case .battery: return Palette.positive
@@ -152,7 +171,15 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .timeline: return [.fullTall, .large, .full, .threeWide, .wide]
         case .month: return [.large]
         case .tasks: return [.full, .wide, .threeWide, .large, .fullTall]
-        case .ask: return [.full, .wide, .threeWide]
+        // 1×1 — ярлык, а не поле: кнопка диктовки и название, нажатие мимо
+        // кнопки открывает команды. Стоит последним, потому что ради строки
+        // набора плитку и берут, а в клетку она не встаёт.
+        case .ask: return [.full, .wide, .threeWide, .small]
+        // По умолчанию 2×2: четыре команды — это та горсть, за которой
+        // тянутся не глядя, и в два ряда у названия остаётся вторая строка.
+        // Двух рядов у прочих размеров нет: команд в них всё равно не больше
+        // четырёх, а высокая плитка с одним ярлыком — пустое место.
+        case .commands: return [.large, .small, .wide, .threeWide, .full]
         case .timer: return [.small, .wide, .threeWide]
         case .countdown: return [.wide, .small, .threeWide, .full]
         case .weather: return [.small, .wide, .threeWide]
@@ -174,6 +201,14 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
 
     var defaultSize: HomeWidgetSize { allowedSizes[0] }
 
+    /// Можно ли поставить на экран вторую такую же плитку.
+    ///
+    /// Обычно нельзя: две плитки музыки показали бы один и тот же трек,
+    /// и вторая была бы не второй вещью, а копией первой. У команд
+    /// содержимое выбирает человек — две плитки 1×1 с разными командами
+    /// это две разные кнопки, а не одна дважды.
+    var allowsDuplicates: Bool { self == .commands }
+
     /// Выключенная функция остаётся на экране приглушённой, как и в кольце:
     /// пропавшая плитка читается как «виджет удалили», и
     /// вернуть его человек пошёл бы не в тот раздел.
@@ -183,6 +218,9 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         // выключенным напоминанием.
         case .music, .battery, .countdown, .water: return true
         case .tasks: return settings.thingsEnabled
+        // Тем же выключателем, что и список под полем вопроса: плитка — его
+        // ярлыки, и жить дольше самого списка ей незачем.
+        case .commands: return settings.quickCommandsEnabled
         case .weather: return settings.weatherEnabled
         case .pinnedNotes: return settings.notesEnabled
         default: return hubEntry?.isEnabled(settings) ?? true
@@ -195,23 +233,43 @@ struct HomeWidget: Codable, Equatable, Identifiable {
     var id: Int
     var kind: HomeWidgetKind
     var size: HomeWidgetSize
+    /// Номера команд на плитке команд — по порядку слева направо.
+    ///
+    /// Номера, а не сами команды: команду переименовывают и правят
+    /// в настройках, и копия в раскладке разошлась бы с ней в тот же миг.
+    /// Команда, которой в наборе больше нет, просто не рисуется.
+    var commands: [Int]
 
-    private enum CodingKeys: String, CodingKey { case id, kind, size }
+    private enum CodingKeys: String, CodingKey { case id, kind, size, commands }
 
-    init(id: Int, kind: HomeWidgetKind, size: HomeWidgetSize) {
+    init(id: Int, kind: HomeWidgetKind, size: HomeWidgetSize, commands: [Int] = []) {
         self.id = id
         self.kind = kind
-        self.size = kind.allowedSizes.contains(size) ? size : kind.defaultSize
+        let resolved = kind.allowedSizes.contains(size) ? size : kind.defaultSize
+        self.size = resolved
+        // Лишнее отрезается здесь, а не в вёрстке: плитка, уменьшенная
+        // с 2×2 до 1×1, показывала бы одну команду, а хранила четыре — и та,
+        // что стоит первой, зависела бы от порядка, которого не видно.
+        self.commands = Array(commands.prefix(resolved.commandSlots))
     }
 
     /// Размер, которого у вида больше нет, заменяется размером по умолчанию,
     /// а не роняет всю раскладку: вёрстку виджета однажды поправят, и
     /// раскладка человека не должна пропасть из-за этого целиком.
+    ///
+    /// Команд может не быть вовсе — у плиток, сохранённых до того, как они
+    /// появились. Отсутствующий ключ читается как пустой список, а не как
+    /// ошибка разбора: иначе прежняя раскладка пропала бы целиком.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let kind = try container.decode(HomeWidgetKind.self, forKey: .kind)
         let size = (try? container.decode(HomeWidgetSize.self, forKey: .size)) ?? kind.defaultSize
-        self.init(id: try container.decode(Int.self, forKey: .id), kind: kind, size: size)
+        self.init(
+            id: try container.decode(Int.self, forKey: .id),
+            kind: kind,
+            size: size,
+            commands: (try? container.decode([Int].self, forKey: .commands)) ?? []
+        )
     }
 }
 

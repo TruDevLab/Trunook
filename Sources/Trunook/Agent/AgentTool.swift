@@ -23,6 +23,8 @@ enum AgentTool: String, CaseIterable, Identifiable {
     case weatherNow = "weather_now"
     case searchNotes = "notes_search"
     case createNote = "note_create"
+    /// Справка о самом приложении: что умеет и где настраивается.
+    case appHelp = "app_help"
 
     var id: String { rawValue }
 
@@ -49,7 +51,7 @@ enum AgentTool: String, CaseIterable, Identifiable {
 
     var kind: Kind {
         switch self {
-        case .upcoming, .dayAgenda, .weatherNow, .searchNotes: return .read
+        case .upcoming, .dayAgenda, .weatherNow, .searchNotes, .appHelp: return .read
         case .startTimer, .stopTimer, .startStopwatch: return .act
         case .createEvent, .moveEvent, .cancelEvent, .createReminder, .createNote: return .write
         }
@@ -74,6 +76,7 @@ enum AgentTool: String, CaseIterable, Identifiable {
         case .weatherNow: return t("Узнать погоду")
         case .searchNotes: return t("Поискать в заметках")
         case .createNote: return t("Создать заметку")
+        case .appHelp: return t("Рассказать о приложении")
         }
     }
 
@@ -90,6 +93,9 @@ enum AgentTool: String, CaseIterable, Identifiable {
         case .weatherNow: return "cloud.sun"
         case .searchNotes: return "text.magnifyingglass"
         case .createNote: return "square.and.pencil"
+        // Вопрос в кружке: это единственное действие, которое ничего
+        // не делает, а объясняет.
+        case .appHelp: return "questionmark.circle"
         }
     }
 
@@ -110,6 +116,10 @@ enum AgentTool: String, CaseIterable, Identifiable {
         case .startTimer, .stopTimer, .startStopwatch: return settings.timerEnabled
         case .weatherNow: return settings.weatherEnabled
         case .searchNotes, .createNote: return settings.notesEnabled
+        // Своей настройки нет и быть не должно: справка о приложении
+        // не зависит ни от одной его функции — про выключенную спросят
+        // как раз тогда, когда не могут её найти.
+        case .appHelp: return true
         }
     }
 
@@ -128,6 +138,7 @@ enum AgentTool: String, CaseIterable, Identifiable {
         case .startTimer, .stopTimer, .startStopwatch: return t("Таймер выключен в настройках.")
         case .weatherNow: return t("Погода выключена в настройках.")
         case .searchNotes, .createNote: return t("Заметки выключены в настройках.")
+        case .appHelp: return nil
         }
     }
 
@@ -170,6 +181,11 @@ enum AgentTool: String, CaseIterable, Identifiable {
             return t("Поискать в записях человека по смыслу. Бери его всякий раз, когда спрашивают о том, что человек когда-то записал или мог записать.")
         case .createNote:
             return t("Сохранить заметку. Текст пиши целиком — человек его потом не допишет.")
+        // Сказано прямо «своей памяти о приложении у тебя нет»: без этой
+        // фразы модель охотно отвечает про Trunook из головы — и выдумывает
+        // и функции, и разделы настроек, которых нет.
+        case .appHelp:
+            return t("Справка о самом приложении Trunook: что оно умеет, как этим пользоваться и в каком разделе настроек это включается. Бери его на любой вопрос про приложение, его возможности, настройки и сочетания клавиш: своей памяти о Trunook у тебя нет, а тут ответ точный.")
         }
     }
 
@@ -211,6 +227,10 @@ enum AgentTool: String, CaseIterable, Identifiable {
         case .searchNotes:
             return [
                 .init(name: "query", kind: .string, description: t("О чём искать. Своими словами, не дословно вопросом."), isRequired: true),
+            ]
+        case .appHelp:
+            return [
+                .init(name: "query", kind: .string, description: t("О чём спрашивают: «сводка новостей», «как настроить голос», «какие функции есть». Словами человека — справка сама найдёт нужное."), isRequired: true),
             ]
         case .createReminder:
             return [

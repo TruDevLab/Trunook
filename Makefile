@@ -1,5 +1,5 @@
 APP      := Trunook
-VERSION := 0.22.1
+VERSION := 0.23.0
 # Номер сборки растёт со временем: так две сборки одной версии различимы.
 BUILDNO  := $(shell date +%y%m%d%H%M)
 # Провал сборки в конвейере с grep иначе теряется: make видит код последней
@@ -193,9 +193,10 @@ critter:
 	@mkdir -p "$(HOME)/Library/Caches/TrunookBuild/critter"
 	@swiftc -O -o "$(HOME)/Library/Caches/TrunookBuild/critter/render" \
 		Sources/Trunook/Shell/CritterArt.swift Sources/Trunook/Shell/CritterHolidayArt.swift \
+		Sources/Trunook/Shell/CritterPlayArt.swift \
 		Sources/Trunook/Shell/WeatherArt.swift scripts/critter-sheet/main.swift
 	@"$(HOME)/Library/Caches/TrunookBuild/critter/render" "$(HOME)/Library/Logs/Trunook-critter"
-	@echo "кадры: ~/Library/Logs/Trunook-critter-0…8.png"
+	@echo "кадры: ~/Library/Logs/Trunook-critter-0…9.png"
 
 ## Собрать docs/demo.gif из снятых кадров.
 ## Кадры снимает само приложение — см. заголовок скрипта.

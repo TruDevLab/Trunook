@@ -114,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.calendar", #selector(showCalendar)),
             ("com.trunook.debug.calendarTimeline", #selector(showCalendarTimeline)),
             ("com.trunook.debug.homeTimeline", #selector(toggleHomeTimeline)),
+            ("com.trunook.debug.homeCommands", #selector(toggleHomeCommands)),
             ("com.trunook.debug.ring", #selector(showQuickRing)),
             ("com.trunook.debug.eventEdit", #selector(editEvent2)),
             ("com.trunook.debug.eventNew", #selector(composeEvent)),
@@ -169,6 +170,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.critterHunt", #selector(playCritterHunt)),
             ("com.trunook.debug.critterCool", #selector(playCritterCool)),
             ("com.trunook.debug.critterSmoke", #selector(playCritterSmoke)),
+            ("com.trunook.debug.critterMouse", #selector(playCritterMouse)),
+            ("com.trunook.debug.critterBeach", #selector(playCritterBeach)),
+            ("com.trunook.debug.critterBird", #selector(playCritterBird)),
+            ("com.trunook.debug.critterWatch", #selector(playCritterWatch)),
             ("com.trunook.debug.critterWinter", #selector(playCritterWinter)),
             ("com.trunook.debug.critterKittens", #selector(playCritterKittens)),
             ("com.trunook.debug.critterFlowers", #selector(playCritterFlowers)),
@@ -212,6 +217,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.agentCardNote", #selector(showAgentCardNote)),
             ("com.trunook.debug.agentRun", #selector(runAgentTimer)),
             ("com.trunook.debug.agentAsk", #selector(runAgentAgenda)),
+            ("com.trunook.debug.helpAsk", #selector(askAppHelp)),
+            ("com.trunook.debug.slash", #selector(showSlashList)),
+            ("com.trunook.debug.slashAsk", #selector(askWithSlash)),
+            ("com.trunook.debug.askStop", #selector(askAndStop)),
+            ("com.trunook.debug.helpSetting", #selector(askAppHelpSetting)),
             ("com.trunook.debug.shot", #selector(shotWelcome)),
             ("com.trunook.debug.shotDemo", #selector(shotDemo)),
             ("com.trunook.debug.shotSettings", #selector(shotSettings)),
@@ -234,6 +244,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.pasteRow", #selector(stepPasteRow)),
             ("com.trunook.debug.ollama", #selector(ollamaEcho)),
             ("com.trunook.debug.meetingButtons", #selector(dumpMeetingButtons)),
+            ("com.trunook.debug.meetingApps", #selector(dumpMeetingApps)),
+            ("com.trunook.debug.meetingProbe", #selector(probeMeetingPress)),
             ("com.trunook.debug.meetingHand", #selector(toggleMeetingHand)),
             ("com.trunook.debug.meetingLink", #selector(copyMeetingLink)),
             ("com.trunook.debug.audioProbe", #selector(audioProbe)),
@@ -396,6 +408,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .hunt: return "Охота на курсор"
         case .cool: return "Очки"
         case .smoke: return "Сигарета"
+        case .mouse: return "Погоня за мышью"
+        case .beach: return "Зонт и смузи"
+        case .bird: return "Птичка"
+        case .watch: return "Слежка за курсором"
         case .winter: return "Новый год"
         case .kittens: return "1 июня — котята"
         case .flowers: return "8 Марта — букет"
@@ -490,6 +506,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pages = HomeWidgets.showcasePages()
         let page = homePage % pages.count
         homePage += 1
+        // Открытая панель поверх главного экрана уносит снимок мимо цели:
+        // раскладка меняется, а видно команды. Уже стоило одного кадра.
+        controller.debugCloseOverlay()
         Settings.shared.homeWidgets = pages[page]
         DebugLog.write("главный экран: страница \(page + 1) из \(pages.count) — "
             + pages[page].map { "\($0.kind.rawValue) \($0.size.title)" }.joined(separator: ", "))
@@ -548,6 +567,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.debugExpand(seconds: 8)
     }
 
+    /// Раскладка человека на время показа плиток команд.
+    private var homeBeforeCommands: [HomeWidget]?
+
+    /// Плитка команд во всех размерах, с настоящими командами человека.
+    ///
+    /// Без них плитка показывала бы «Выберите команды в настройках» — то есть
+    /// ровно не то, что надо снять: как встают ярлыки по клеткам и обрезается
+    /// ли название в две строки. Повторный вызов возвращает прежнюю
+    /// раскладку: главный экран человека трогать насовсем нельзя.
+    @objc private func toggleHomeCommands() {
+        if let saved = homeBeforeCommands {
+            Settings.shared.homeWidgets = saved
+            homeBeforeCommands = nil
+            DebugLog.write("главный экран: раскладка возвращена")
+            return
+        }
+        let ids = Settings.shared.quickCommands.filter(\.isConfigured).map(\.id)
+        guard !ids.isEmpty else {
+            DebugLog.write("плитка команд: настроенных команд нет — нечего показывать")
+            return
+        }
+        homeBeforeCommands = Settings.shared.homeWidgets
+        controller.debugCloseOverlay()
+        // Порядок — от большой к маленькой: в четыре ряда влезают все пять
+        // размеров, и страницами обходиться не приходится.
+        Settings.shared.homeWidgets = [.large, .small, .wide, .threeWide, .full]
+            .enumerated()
+            .map { index, size in
+                HomeWidget(id: index, kind: .commands, size: size, commands: ids)
+            }
+        DebugLog.write("плитка команд: пять размеров, команд в наборе — \(ids.count)")
+        controller.debugExpand(seconds: 8)
+    }
+
     /// Закрепить или открепить последнюю заметку — нажать булавку из сессии нечем.
     @objc private func togglePinNewestNote() {
         controller.debugTogglePinNewestNote()
@@ -571,6 +624,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func playCritterHunt() { controller.debugCritter(.hunt) }
     @objc private func playCritterCool() { controller.debugCritter(.cool) }
     @objc private func playCritterSmoke() { controller.debugCritter(.smoke) }
+    @objc private func playCritterMouse() { controller.debugCritter(.mouse) }
+    @objc private func playCritterBeach() { controller.debugCritter(.beach) }
+    @objc private func playCritterBird() { controller.debugCritter(.bird) }
+    @objc private func playCritterWatch() { controller.debugCritter(.watch) }
     @objc private func playCritterWinter() { controller.debugCritter(.winter) }
     @objc private func playCritterKittens() { controller.debugCritter(.kittens) }
     @objc private func playCritterFlowers() { controller.debugCritter(.flowers) }
@@ -677,6 +734,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showAgentCardNote() { controller.debugAgentCard(kind: .createNote) }
     @objc private func runAgentTimer() { controller.debugAgentAsk("поставь таймер на 10 минут") }
     @objc private func runAgentAgenda() { controller.debugAgentAsk("что у меня сегодня по плану") }
+    /// Справка о приложении живьём: вопрос уходит модели, а она обязана
+    /// сходить за ответом в справочник, а не рассказать о Trunook из головы.
+    @objc private func askAppHelp() { controller.debugAgentAsk("какие функции есть в приложении?") }
+    @objc private func askAppHelpSetting() { controller.debugAgentAsk("а как настроить новостную сводку?") }
+
+    /// Список инструментов под полем — по нему снимается вёрстка.
+    @objc private func showSlashList() { controller.debugSlashList() }
+
+    /// Пример из задачи слово в слово: группа выбрана, вопрос уходит
+    /// с одними её инструментами.
+    @objc private func askWithSlash() {
+        controller.debugSlashAsk("/настройки как включить уведомления о воде?")
+    }
+
+    /// Длинный ответ, оборванный через четыре секунды: кнопку «Остановить»
+    /// из сессии не нажать.
+    @objc private func askAndStop() {
+        controller.debugStopAfter(4, question: "расскажи подробно, как устроен фотосинтез")
+    }
 
     /// Список заметок: поиск, строки, пустое состояние.
     @objc private func showNotes() {
@@ -968,6 +1044,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Снимает кнопки страницы встречи — по этому выводу калибруются подписи.
     @objc private func dumpMeetingButtons() {
         controller.meeting.dumpButtons()
+    }
+
+    /// Окна, кнопки и меню Zoom и Телемоста — по ним и пишется таблица
+    /// подписей для родных приложений.
+    @objc private func dumpMeetingApps() {
+        controller.meeting.dumpApps()
+    }
+
+    /// Доходит ли нажатие: подпись кнопки читается до и после.
+    ///
+    /// Успех самого нажатия ничего не значит — на веб-встрече `AXPress`
+    /// возвращал успех, а страница его не слышала. Меняется подпись —
+    /// значит, дошло. Рука выбрана нарочно: она не трогает ни звук,
+    /// ни камеру, и её видно в самом звонке.
+    @objc private func probeMeetingPress() {
+        // Рука — если она есть: она не трогает ни звук, ни камеру. У Zoom
+        // её нет вовсе (в меню её не держат), и там проверяем микрофон.
+        let action: MeetingAction = controller.meeting.availableActions.contains(.hand)
+            ? .hand
+            : .microphone
+        controller.meeting.probePress(action)
     }
 
     /// Поднимает и тут же опускает руку: единственное действие встречи,

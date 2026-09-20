@@ -11,7 +11,7 @@ import SwiftUI
 /// Настоящий идентификатор события в EventKit — строка в тридцать с лишним
 /// знаков, и маленькая модель, переписывая её в аргумент, ошибается
 /// на каждом втором вызове.
-struct Mention: Identifiable, Equatable {
+struct Mention: PickerRow {
     enum Kind: Equatable {
         case event
         case note

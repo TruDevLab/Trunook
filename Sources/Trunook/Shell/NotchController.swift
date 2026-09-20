@@ -411,6 +411,10 @@ final class NotchController {
             // Список «@» — про то, что набирают прямо сейчас, поэтому он
             // пересобирается на каждое изменение, включая опустевшее поле.
             self.refreshMentions(for: text)
+            // Список инструментов — там же и по тому же поводу. Одновременно
+            // им не бывать: «/» ловится только в начале вопроса, а «@» —
+            // в его хвосте.
+            self.refreshSlash(for: text)
             guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
             guard self.assistant.highlightedAnswerAction != nil else { return }
             self.assistant.highlightedAnswerAction = nil
@@ -794,6 +798,21 @@ final class NotchController {
         commands.run(command, selection: assistant.captured)
     }
 
+    /// Команда с плитки главного экрана.
+    ///
+    /// Тем же путём, что и по горячей клавише, а не как из панели: главный
+    /// экран фокус не отбирает, передним стоит чужое приложение, и выделение
+    /// в нём ещё живо — это последний момент, когда его можно взять.
+    /// Захваченного текста у панели здесь нет вовсе: её не открывали.
+    ///
+    /// Панель с ответом откроется сама: запрос к модели уходит через
+    /// `onAssistantPrompt`, и адресатом вставки запомнится то приложение,
+    /// из которого текст и взят.
+    private func runCommandFromHome(_ command: QuickCommand) {
+        DebugLog.write("плитка команд: «\(command.title)»")
+        run(command)
+    }
+
     // MARK: - Накладки
 
     /// Мониторинг опрашивает систему только пока он на экране: иначе
@@ -919,9 +938,14 @@ final class NotchController {
             assistantHasCapture: !assistant.captured.isEmpty,
             assistantCaptureExpanded: assistant.isCaptureExpanded,
             assistantCommandRows: visibleCommands.count,
-            assistantMentionRows: assistant.isPickingMention
-                ? max(1, min(assistant.mentionMatches.count, MentionRows.visibleRows))
-                : nil,
+            // Один слот на два списка — «@» и «/», — и высота у него одна.
+            // Порядок тот же, что в вёрстке: открыт список инструментов —
+            // считаем по нему.
+            assistantMentionRows: assistant.isPickingSlash
+                ? max(1, min(assistant.slashMatches.count, PickerRows<SlashTool>.visibleRows))
+                : (assistant.isPickingMention
+                    ? max(1, min(assistant.mentionMatches.count, PickerRows<Mention>.visibleRows))
+                    : nil),
             assistantModelEnabled: settings.ollamaEnabled,
             assistantPending: assistant.pending != nil,
             assistantHasAnswer: !assistant.answer.isEmpty,
@@ -1343,7 +1367,9 @@ final class NotchController {
             // у Ollama, у облачного провайдера спросить нечего вовсе.
             // Умалчиваем только про заведомо неумеющую.
             guard self.modelHandlesTools else { return [] }
-            return self.agent.tools()
+            // Выбранная через «/» группа сужает список до себя: человек
+            // уже сказал, куда идти, и думать за него модели незачем.
+            return self.agent.tools(only: self.assistant.toolFilter)
         }
         if AgentTool.searchNotes.isEnabled(settings) { assistant.usesNotes = false }
         assistant.runTool = { [weak self] call, done in
@@ -1355,8 +1381,15 @@ final class NotchController {
     ///
     /// Спрашивается в момент запроса, а не при снаряжении помощника: модель
     /// разговора назначается первым вопросом, и на снаряжении её ещё нет.
+    ///
+    /// Модель по умолчанию берётся из `defaultModel`, а не из `ollamaModel`:
+    /// второй — ключ тех времён, когда провайдер был один, и с разъездом
+    /// провайдеров он остался лежать со старым значением. Проверка читала
+    /// именно его и отвечала про модель, к которой запрос давно не уходит:
+    /// у пользователя там висела `gemma3:4b`, а разговор шёл с `qwen3:8b` —
+    /// инструменты не уходили вовсе, и список «/» не показывался.
     private var modelHandlesTools: Bool {
-        let stored = assistant.model ?? settings.ollamaModel
+        let stored = assistant.model ?? settings.defaultModel.stored
         guard let ref = ModelRef.parse(stored, fallback: settings.aiProvider) else { return true }
         return ModelList.shared.toolSupport(of: ref) != .no
     }
@@ -1793,6 +1826,37 @@ final class NotchController {
     /// Вопрос кладётся **с задержкой** после открытия панели, а не в том же
     /// такте. Подряд он бессмыслен: панель к этому мигу ещё не построена,
     /// и проверялся бы не тот путь, которым вопрос приходит от человека.
+    /// Отладочный вход: список инструментов под полем.
+    ///
+    /// Нажать «/» из сессии нечем — синтетические клавиши до приложения
+    /// не доходят, — а снять вёрстку списка надо.
+    func debugSlashList() {
+        askAssistant()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.draft.question = "/"
+        }
+    }
+
+    /// Весь круг живьём: выбранная группа и вопрос из задачи.
+    func debugSlashAsk(_ question: String) {
+        askAssistant()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            self.draft.question = question
+            DebugLog.write("инструмент: отладочный вопрос — \(question)")
+            self.sendDraft()
+        }
+    }
+
+    /// Ответ, оборванный на полуслове: кнопку «Остановить» из сессии
+    /// не нажать.
+    func debugStopAfter(_ seconds: TimeInterval, question: String) {
+        debugAgentAsk(question)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            self?.stopAnswer()
+        }
+    }
+
     func debugAgentAsk(_ question: String) {
         askAssistant()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
@@ -1843,6 +1907,66 @@ final class NotchController {
     /// не изменилось, список не всплывает снова.
     private var dismissedMention: String?
 
+    /// Группы инструментов, доступные прямо сейчас. Собираются на открытие
+    /// списка, а не на каждую букву: настройки между двумя нажатиями
+    /// не меняются, а обход всех инструментов стоит заметно дороже разбора
+    /// строки.
+    private var slashPool: [SlashTool] = []
+
+    /// Запрос, закрытый клавишей Esc, — как и у «@».
+    private var dismissedSlash: String?
+
+    /// Набранное изменилось: открыть, обновить или закрыть список
+    /// инструментов.
+    ///
+    /// Отдельно от «@», хотя правила и похожи: «/» ловится только в начале
+    /// вопроса, а список собирается из настроек, а не из календаря и заметок.
+    private func refreshSlash(for text: String) {
+        guard state.overlay == .assistant, draft.mode == .model,
+              settings.ollamaEnabled, settings.agentEnabled
+        else {
+            assistant.hideSlash()
+            return
+        }
+        guard let query = SlashQuery.query(in: text) else {
+            dismissedSlash = nil
+            slashPool = []
+            assistant.hideSlash()
+            return
+        }
+        guard dismissedSlash != query else { return }
+        dismissedSlash = nil
+        if slashPool.isEmpty { slashPool = SlashCatalogue.all(for: settings) }
+        // Инструментов у модели нет вовсе — предлагать выбор нечего:
+        // выбранная группа ничего не изменила бы. Причина пишется
+        // в журнал: молча пропавший список — это «/ не работает»,
+        // и разбираться в нём иначе не с чем.
+        guard !slashPool.isEmpty, modelHandlesTools else {
+            DebugLog.write("инструменты: список «/» не показан — "
+                + (slashPool.isEmpty ? "нет доступных групп" : "модель не умеет инструменты"))
+            assistant.hideSlash()
+            return
+        }
+        assistant.showSlash(SlashQuery.matches(
+            slashPool,
+            query: query,
+            limit: PickerRows<SlashTool>.visibleRows * 4
+        ))
+    }
+
+    /// Выбрали группу — она встаёт в начало вопроса словом.
+    ///
+    /// Словом, а не невидимой пометкой: человек должен видеть, куда уйдёт
+    /// вопрос, и уметь это стереть. Стёр — и выбора не было, разбор идёт
+    /// по самому тексту.
+    func pickSlash(_ tool: SlashTool) {
+        draft.question = SlashQuery.insert(tool, into: draft.question)
+        assistant.hideSlash()
+        dismissedSlash = nil
+        takeKeyboard()
+        DebugLog.write("инструмент: выбран «\(tool.title)» — \(tool.tools.map(\.name).joined(separator: ", "))")
+    }
+
     /// Набранное изменилось: открыть, обновить или закрыть список.
     private func refreshMentions(for text: String) {
         guard state.overlay == .assistant, draft.mode == .model, settings.ollamaEnabled else {
@@ -1861,7 +1985,7 @@ final class NotchController {
         assistant.showMentions(MentionQuery.matches(
             mentionPool,
             query: query,
-            limit: MentionRows.visibleRows * 4
+            limit: PickerRows<Mention>.visibleRows * 4
         ))
     }
 
@@ -1996,6 +2120,13 @@ final class NotchController {
 
         // Список «@» стоит в том же слоте и открыт ровно тогда, когда его
         // набрали: стрелки принадлежат ему, пока он на экране.
+        if assistant.isPickingSlash {
+            guard !assistant.slashMatches.isEmpty else { return false }
+            let last = assistant.slashMatches.count - 1
+            let current = assistant.highlightedSlash ?? 0
+            assistant.highlightedSlash = min(max(0, current + offset), last)
+            return true
+        }
         if assistant.isPickingMention {
             guard !assistant.mentionMatches.isEmpty else { return false }
             let last = assistant.mentionMatches.count - 1
@@ -2198,6 +2329,13 @@ final class NotchController {
             assistant.choosingModelFor = nil
             return true
         }
+        // Esc над списком инструментов — то же самое: закрывается список,
+        // а не панель.
+        if assistant.isPickingSlash {
+            dismissedSlash = SlashQuery.query(in: draft.question)
+            assistant.hideSlash()
+            return true
+        }
         // Esc над списком «@» закрывает список, а не панель. Набранное
         // остаётся как есть: человек передумал выбирать, а не передумал
         // писать. Снова список поднимется, когда он изменит запрос.
@@ -2268,6 +2406,19 @@ final class NotchController {
     ///
     /// Заметки в контекст кладутся только при включённом переключателе
     /// и только в первую реплику разговора: дальше они уже в переписке.
+    /// Оборвать ответ на полуслове — кнопкой «Остановить».
+    ///
+    /// Написанное до обрыва остаётся на экране: человек жмёт «стоп», когда
+    /// нужное уже прочитал, и стирать это значило бы отнимать у него ответ
+    /// вместо того чтобы прекратить его дописывать. Разговор при этом живой:
+    /// следующий вопрос уходит той же перепиской.
+    func stopAnswer() {
+        guard assistant.isStreaming else { return }
+        DebugLog.write("модель: ответ оборван человеком, \(assistant.answer.count) симв.")
+        assistant.cancel()
+        takeKeyboard()
+    }
+
     func sendDraft() {
         // Подсвеченное забирает Enter себе — что бы это ни было. Человек
         // довёл до него стрелками и ждёт именно его: иначе клавиша делала бы
@@ -2279,6 +2430,15 @@ final class NotchController {
         // а круг молча ждёт.
         if assistant.pending != nil {
             confirmPendingAction()
+            return
+        }
+        // Список «/» забирает Enter себе по той же причине, что и «@»:
+        // он открыт ровно тогда, когда человек набирает имя группы,
+        // и отправлять недописанное «/наст» модели незачем.
+        if assistant.isPickingSlash,
+           let index = assistant.highlightedSlash,
+           assistant.slashMatches.indices.contains(index) {
+            pickSlash(assistant.slashMatches[index])
             return
         }
         // Список «@» забирает Enter себе: он открыт ровно тогда, когда
@@ -2309,8 +2469,21 @@ final class NotchController {
             runCommandFromPanel(command)
             return
         }
-        let text = typed
+        // Выбранная через «/» группа разбирается из самого набранного,
+        // а не из памяти о нажатии: человек стирает ярлык, и уходить модели
+        // должно ровно то, что написано. Ярлык из вопроса при этом убирается —
+        // это указание приложению, а не часть вопроса.
+        let chosen = SlashQuery.chosen(in: typed, from: SlashCatalogue.all(for: settings))
+        assistant.toolFilter = chosen?.tool.tools
+        let text = chosen?.question ?? typed
+        // Вопрос из одного ярлыка — это не вопрос: человек выбрал группу
+        // и не дописал. Отправлять пустоту незачем, а ярлык пусть стоит
+        // в поле и ждёт.
         guard !text.isEmpty, settings.ollamaEnabled else { return }
+        if let chosen {
+            DebugLog.write("инструмент: вопрос уходит с «\(chosen.tool.title)» — "
+                + chosen.tool.tools.map(\.name).joined(separator: ", "))
+        }
 
         // Позванное через «@» сужается до того, что уцелело в наборе:
         // стёртое упоминание не должно оставаться в поле зрения помощника,
@@ -2322,10 +2495,18 @@ final class NotchController {
         let alive = MentionQuery.surviving(assistant.mentions, in: text)
         if !alive.isEmpty || assistant.isFirstQuestion { assistant.keepMentions(alive) }
         agent.setMentions(assistant.mentions)
-        let mentioned = mentionContext(for: assistant.mentions)
+        // Указание про выбранную группу идёт тем же путём, что и указанные
+        // через «@» записи: инструментов модель и так получит ровно столько,
+        // сколько в группе, но с одним инструментом в списке маленькая
+        // модель нет-нет да и отвечает из головы, не позвав его.
+        let mentioned = [chosen.map { SlashQuery.instruction(for: $0.tool) },
+                         mentionContext(for: assistant.mentions)]
+            .compactMap { $0 }
+            .joined(separator: "\n\n")
+        let hints: String? = mentioned.isEmpty ? nil : mentioned
 
         guard assistant.usesNotes, settings.notesEnabled else {
-            assistant.send(text, mentionContext: mentioned)
+            assistant.send(text, mentionContext: hints)
             draft.clearQuestion()
             return
         }
@@ -2342,7 +2523,7 @@ final class NotchController {
                 activities.present(.command(text: t("В заметках такого нет"), state: .failed))
                 return
             }
-            assistant.send(text, mentionContext: mentioned, notesContext: context)
+            assistant.send(text, mentionContext: hints, notesContext: context)
         }
     }
 
@@ -3115,7 +3296,9 @@ final class NotchController {
         if critter.act == .hunt {
             critter.pointer = CGPoint(x: dx, y: notch.maxY - cursor.y)
         }
-        critter.squints = critter.act == .eyes && hypot(dx, dy) < 70
+        // «Курсор совсем рядом» нужен двоим: мордочка от этого щурится,
+        // а лежащий котик в слежке пробует достать его лапкой.
+        critter.squints = (critter.act == .eyes || critter.act == .watch) && hypot(dx, dy) < 120
     }
 
     // MARK: - Проверка обновлений из меню
@@ -4516,12 +4699,14 @@ final class NotchController {
             onCopyAnswer: { [weak self] in self?.copyAnswer() },
             onPasteAnswer: { [weak self] in self?.pasteAnswer() },
             onSendDraft: { [weak self] in self?.sendDraft() },
+            onStopAnswer: { [weak self] in self?.stopAnswer() },
             onSaveDraft: { [weak self] in self?.saveNote() },
             onSelectMode: { [weak self] mode in self?.selectMode(mode) },
             onNewNote: { [weak self] seed in self?.openNoteComposer(seededWith: seed) },
             onSaveAnswer: { [weak self] in self?.saveAnswer() },
             onToggleNotesSearch: { [weak self] in self?.toggleNotesSearch() },
             onPickMention: { [weak self] mention in self?.pickMention(mention) },
+            onPickSlash: { [weak self] tool in self?.pickSlash(tool) },
             onCloseAssistant: { [weak self] in self?.closeAssistant() },
             onOpenNotes: { [weak self] in self?.openNotes() },
             onOpenCalendar: { [weak self] in self?.openCalendar() },
@@ -4566,6 +4751,12 @@ final class NotchController {
             onOpenHub: { [weak self] in self?.openRingMenu() },
             onOpenTeleprompter: { [weak self] in self?.openTeleprompter() },
             onEditCountdown: { [weak self] in
+                self?.router.close()
+                self?.collapsePanel()
+                self?.onOpenSettingsTab?(.home)
+            },
+            onRunCommandFromHome: { [weak self] command in self?.runCommandFromHome(command) },
+            onChooseCommands: { [weak self] in
                 self?.router.close()
                 self?.collapsePanel()
                 self?.onOpenSettingsTab?(.home)

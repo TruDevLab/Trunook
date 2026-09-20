@@ -214,6 +214,48 @@ enum CritterArt {
         Sprite(loafRows(eyes: [8])),
     ]
 
+    /// Буханка, которая смотрит по сторонам. `look` — сдвиг зрачков
+    /// в пикселях, от −2 до 2; `blink` — глаза прикрыты.
+    ///
+    /// Двигаются зрачки, а не голова: голова у буханки — часть общего
+    /// силуэта, и повернуть её значило бы перерисовать половину кота.
+    /// Ровно так же следит за курсором мордочка из-под кромки (`peek`).
+    /// `reaching` — котик тянет к курсору переднюю лапку. Лапка часть
+    /// того же спрайта, а не отдельный кусок рядом: нарисованная отдельно,
+    /// она отрывалась от тела и жила сама по себе. Ростом она с лапки
+    /// бегущего котика — большая перед буханкой читалась чужой.
+    static func loafLooking(look: Int, blink: Bool, reaching: Bool = false) -> Sprite {
+        let shift = max(-2, min(2, look))
+        var rows = loafRows(eyes: blink ? [8] : [7, 8])
+        if reaching {
+            // Поля с обеих сторон: без них середина спрайта уехала бы вместе
+            // с лапкой, и котик дёргался бы вбок на каждом взмахе.
+            rows = rows.map { "..." + $0 + "..." }
+            // Лапка выходит из-под груди вперёд, на два ряда ниже глаз.
+            var chest = Array(rows[11])
+            var floor = Array(rows[12])
+            for column in 25...27 { chest[column] = "#" }
+            for column in 25...26 { floor[column] = "#" }
+            rows[11] = String(chest)
+            rows[12] = String(floor)
+        }
+        guard !blink, shift != 0 else { return Sprite(rows) }
+        let pad = reaching ? 3 : 0
+        for row in [7, 8] {
+            var chars = Array(rows[row])
+            // Прежние зрачки закрашиваются телом, новые ставятся со сдвигом:
+            // белого в буханке больше нигде нет, и затирать нечего.
+            for column in [12, 18] { chars[column + pad] = "#" }
+            for column in [12, 18] {
+                let moved = column + pad + shift
+                guard moved >= 0, moved < chars.count else { continue }
+                chars[moved] = "W"
+            }
+            rows[row] = String(chars)
+        }
+        return Sprite(rows)
+    }
+
     /// Буханка. `tail` — 0 хвост крючком вверх, 1 — опущен: на бегу хвост
     /// подпрыгивает вместе с шагом.
     private static func loafRows(eyes: [Int], tail: Int = 0) -> [String] {

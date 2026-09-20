@@ -90,6 +90,15 @@ struct HomeGridTests {
         #expect(HomeWidget(id: 0, kind: .battery, size: .fullTall).size == .small)
     }
 
+    @Test("Вопрос к ИИ встаёт и в клетку, но добавляется полосой")
+    func вопросВКлетку() {
+        #expect(HomeWidgetKind.ask.allowedSizes.contains(.small))
+        // Ярлык 1×1 — выбор человека, а не то, что достаётся по умолчанию:
+        // ради строки набора плитку и берут.
+        #expect(HomeWidgetKind.ask.defaultSize == .full)
+        #expect(HomeWidget(id: 0, kind: .ask, size: .small).size == .small)
+    }
+
     @Test("Сетка ровно заполняет ширину содержимого")
     func ширина() {
         let full = HomeGrid.size(of: .full)

@@ -1,21 +1,45 @@
 import SwiftUI
 
-/// Список того, на что можно показать через «@»: встречи и заметки.
+/// Строка списка выбора под полем вопроса.
 ///
-/// Занимает тот же слот под полем, что список команд и действия с ответом,
-/// и живёт по тем же меркам — `CommandRows.rowHeight` и `spacing`. Своя
-/// высота строки развела бы два списка, стоящих в одном месте по очереди:
-/// панель прыгала бы на каждое «@».
+/// Общий вид на два списка: записи по «@» и инструменты по «/». Порознь они
+/// разъехались бы высотой строки, а стоят в одном и том же месте по очереди —
+/// панель прыгала бы при переходе от одного к другому.
+protocol PickerRow: Identifiable, Equatable {
+    var id: String { get }
+    var symbol: String { get }
+    var tint: Color { get }
+    var title: String { get }
+    /// Вторая колонка, приглушённая: «завтра, 10:00» у встречи, «встречи
+    /// и дела дня» у инструмента. Выбирают по названию, а подпись отвечает
+    /// на «которое из двух».
+    var detail: String { get }
+    /// С какой стороны резать подпись, если она не влезла.
+    ///
+    /// У встречи и заметки — с начала: там дата, и важен её хвост, ближайшее
+    /// время. У инструмента подпись читается слева направо, как обычная
+    /// фраза, и обрезанное начало превращало её в «…ении и его настройках».
+    var truncatesDetailFromHead: Bool { get }
+}
+
+extension PickerRow {
+    var truncatesDetailFromHead: Bool { true }
+}
+
+/// Список выбора под полем: записи по «@» или инструменты по «/».
+///
+/// Занимает тот же слот, что список команд и действия с ответом, и живёт
+/// по тем же меркам — `CommandRows.rowHeight` и `spacing`.
 ///
 /// Строки только выбирают. Ни модели, ни сочетания у записи нет — правая
-/// часть строки отдана времени встречи и дате заметки, то есть тому,
-/// чем две одинаково названные записи и различаются.
-struct MentionRows: View {
-    let mentions: [Mention]
+/// часть строки отдана подписи, то есть тому, чем две одинаково названные
+/// записи и различаются.
+struct PickerRows<Item: PickerRow>: View {
+    let mentions: [Item]
     /// Какая строка подсвечена с клавиатуры. Ведёт её `NotchController`
     /// теми же стрелками, что и список команд.
     let highlighted: Int?
-    let onPick: (Mention) -> Void
+    let onPick: (Item) -> Void
 
     /// Сколько строк видно разом. Столько же, сколько у команд: список
     /// стоит на их месте, и разная длина читалась бы как разная важность.
@@ -72,10 +96,10 @@ struct MentionRows: View {
         .frame(height: CommandRows.rowHeight)
     }
 
-    private func row(_ mention: Mention, at index: Int) -> some View {
+    private func row(_ mention: Item, at index: Int) -> some View {
         let isHighlighted = index == highlighted
         return NotchTile(
-            id: "mention-\(mention.id)",
+            id: "picker-\(mention.id)",
             radius: NotchStyle.rowRadius,
             isHighlighted: isHighlighted
         ) {
@@ -101,7 +125,7 @@ struct MentionRows: View {
                         .font(.system(size: NotchStyle.font(10.5)))
                         .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
                         .lineLimit(1)
-                        .truncationMode(.head)
+                        .truncationMode(mention.truncatesDetailFromHead ? .head : .tail)
                         .frame(maxWidth: CommandRows.modelWidth, alignment: .trailing)
                 }
                 .padding(.horizontal, 8)

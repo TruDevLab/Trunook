@@ -122,6 +122,9 @@ final class MeetingService: ObservableObject {
     private var meetingApp: pid_t?
     private var meetingWindow: AXUIElement?
     private var meetingTabTitle: String?
+    /// Откуда взялась встреча: вкладка, окно приложения или его меню.
+    /// От этого зависит, где искать кнопку и как её нажимать.
+    private var meetingSource: Source = .web
 
     /// Обход дерева идёт здесь и только здесь.
     ///
@@ -165,6 +168,13 @@ final class MeetingService: ObservableObject {
         "teams.microsoft.com", "teams.live.com",
     ]
 
+    /// Приложения встреч, которые ставят на компьютер: у них нет ни вкладки,
+    /// ни адреса, и встреча ищется в их собственном окне.
+    static let appBundleIDs = [
+        "us.zoom.xos",
+        "ru.yandex.desktop.telemost",
+    ]
+
     /// Браузеры, в которых может идти встреча.
     private static let browserBundleIDs = [
         "ru.yandex.desktop.yandex-browser",
@@ -204,17 +214,18 @@ final class MeetingService: ObservableObject {
         let url: URL?
         let states: [MeetingAction: Bool]
         let available: [MeetingAction]
+        /// Откуда взялись кнопки. От этого зависит и как их нажимать:
+        /// странице нужен фокус и пробел, родному окну и меню — само
+        /// действие доступности.
+        let source: Source
     }
 
     /// Обход дерева. Ни одного обращения к состоянию службы — только чтение
     /// чужих окон и разбор прочитанного.
     private static func scan() -> Scan? {
-        guard let found = findMeeting(), let area = AXTree.webArea(in: found.window) else {
-            return nil
-        }
+        guard let found = findMeeting() else { return nil }
 
-        let buttons = AXTree.buttons(of: area, maxDepth: 40)
-        let address = AXTree.url(of: area)
+        let address = found.area.flatMap { AXTree.url(of: $0) }
 
         var states: [MeetingAction: Bool] = [:]
         var available: [MeetingAction] = []
@@ -230,9 +241,9 @@ final class MeetingService: ObservableObject {
                 if address != nil { available.append(action) }
                 continue
             }
-            guard let match = match(action, in: buttons) else { continue }
+            guard let labels = control(action, of: found)?.labels else { continue }
             available.append(action)
-            states[action] = isOn(labels: match.labels)
+            states[action] = isOn(labels: labels)
         }
 
         // Встреча считается найденной по кнопкам самой страницы. Свои две
@@ -242,8 +253,35 @@ final class MeetingService: ObservableObject {
 
         return Scan(
             pid: found.pid, window: found.window, tabTitle: found.tabTitle,
-            url: address, states: states, available: available
+            url: address, states: states, available: available, source: found.source
         )
+    }
+
+    /// Орган управления действием и его нынешняя подпись.
+    ///
+    /// Одно место на три источника: обход и нажатие обязаны находить одно
+    /// и то же. Порознь они однажды уже разошлись — вёрстка рисовала панель,
+    /// а нажатия принимались в другом прямоугольнике.
+    private static func control(
+        _ action: MeetingAction, of found: Found
+    ) -> (element: AXUIElement, labels: [String])? {
+        switch found.source {
+        case .web:
+            guard let area = found.area else { return nil }
+            return match(action, in: AXTree.buttons(of: area, maxDepth: 40))
+        case .appButtons:
+            let buttons = AXTree.buttons(of: found.window, maxDepth: windowDepth)
+            return match(action, in: buttons, preferLargest: true)
+        case let .appMenu(app):
+            let titles = app.menuTitles(for: action)
+            guard !titles.isEmpty else { return nil }
+            let items = AXTree.menuItems(of: AXTree.application(pid: found.pid))
+            // Подпись сверяется целиком: в меню Zoom рядом с «Выключить
+            // звук» стоит «Выключить звук для всех».
+            guard let item = items.first(where: { titles.contains($0.title.lowercased()) })
+            else { return nil }
+            return (item.element, [item.title])
+        }
     }
 
     /// Прочитанное — в состояние службы. Только на главном потоке.
@@ -253,13 +291,23 @@ final class MeetingService: ObservableObject {
             return
         }
 
-        if !isActive {
-            DebugLog.write("встреча: «\(scan.tabTitle)», кнопок — \(scan.available.count)")
+        // Не только на появлении: встреча переезжает из вкладки в приложение
+        // и обратно, и молчаливая подмена читалась бы как «ничего
+        // не происходит» — а управляем мы уже другим окном.
+        if !isActive || meetingTabTitle != scan.tabTitle {
+            let source: String
+            switch scan.source {
+            case .web: source = "вкладка"
+            case .appButtons: source = "окно приложения"
+            case let .appMenu(app): source = "меню \(app.bundleID)"
+            }
+            DebugLog.write("встреча: «\(scan.tabTitle)» (\(source)), кнопок — \(scan.available.count)")
         }
 
         meetingApp = scan.pid
         meetingWindow = scan.window
         meetingTabTitle = scan.tabTitle
+        meetingSource = scan.source
         url = scan.url
         title = scan.tabTitle
         states = scan.states
@@ -280,13 +328,36 @@ final class MeetingService: ObservableObject {
         url = nil
     }
 
+    /// Откуда берутся органы управления встречей.
+    ///
+    /// Три места, а не два: у страницы кнопки в веб-области, у Телемоста —
+    /// в самом окне, у Zoom их нет вовсе, и остаётся строка меню.
+    enum Source: Equatable {
+        case web
+        case appButtons
+        case appMenu(MeetingApp)
+    }
+
     private struct Found {
         let pid: pid_t
         let window: AXUIElement
         let tabTitle: String
+        /// Веб-область страницы. `nil` — встреча идёт в родном приложении.
+        let area: AXUIElement?
+        let source: Source
     }
 
+    /// Сперва браузеры, потом свои приложения.
+    ///
+    /// Порядок не случаен: одна и та же встреча бывает открыта и вкладкой,
+    /// и приложением — Телемост предлагает перейти в приложение прямо
+    /// со страницы, — а у вкладки есть адрес, то есть работает и «скопировать
+    /// ссылку». У окна приложения адреса нет вовсе.
     private static func findMeeting() -> Found? {
+        findInBrowsers() ?? findInApps()
+    }
+
+    private static func findInBrowsers() -> Found? {
         let apps = NSWorkspace.shared.runningApplications.filter {
             guard let id = $0.bundleIdentifier else { return false }
             return Self.browserBundleIDs.contains(id)
@@ -304,13 +375,60 @@ final class MeetingService: ObservableObject {
                     let windowTitle = AXTree.string(window, kAXTitleAttribute) ?? ""
                     return Found(
                         pid: app.processIdentifier, window: window,
-                        tabTitle: windowTitle
+                        tabTitle: windowTitle, area: area, source: .web
                     )
                 }
             }
         }
         return nil
     }
+
+    /// Встреча в своём окне Zoom или Телемоста.
+    ///
+    /// Признак — кнопка выхода: она есть только в звонке. По остальным
+    /// кнопкам различить нельзя — «Демонстрация экрана» и «Микрофон» стоят
+    /// и в главном окне Zoom, и в его настройках, а главное окно Телемоста
+    /// показывает «Новую встречу» ровно теми же кнопками.
+    private static func findInApps() -> Found? {
+        for running in NSWorkspace.shared.runningApplications {
+            guard let app = MeetingApp.named(running.bundleIdentifier) else { continue }
+            let element = AXTree.application(pid: running.processIdentifier)
+            let name = running.localizedName ?? ""
+
+            for window in AXTree.windows(of: element) {
+                let title = AXTree.string(window, kAXTitleAttribute) ?? name
+                switch app.controls {
+                case .windowButtons:
+                    // Признак — кнопка выхода: она есть только в звонке.
+                    // По остальным различить нельзя — «Демонстрация экрана»
+                    // и «Микрофон» стоят и в главном окне, и в настройках.
+                    let buttons = AXTree.buttons(of: window, maxDepth: windowDepth)
+                    guard match(.leave, in: buttons, preferLargest: true) != nil else { continue }
+                    return Found(
+                        pid: running.processIdentifier, window: window,
+                        tabTitle: title.isEmpty ? name : title, area: nil, source: .appButtons
+                    )
+                case .menu:
+                    // Признак — само окно звонка: пункты меню конференции
+                    // стоят в строке и до звонка, просто недоступные.
+                    guard app.isMeetingWindow(title: title) else { continue }
+                    return Found(
+                        pid: running.processIdentifier, window: window,
+                        tabTitle: title, area: nil, source: .appMenu(app)
+                    )
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Насколько глубоко идём по окну приложения.
+    ///
+    /// Меньше, чем по веб-странице: у родного окна кнопки лежат близко
+    /// к корню — у Телемоста на шестом уровне, — а каждый лишний уровень
+    /// это тысячи узлов и обход в минуты. Опрос идёт каждые две секунды,
+    /// и платить за него столько нельзя.
+    private static let windowDepth = 12
 
     /// Похож ли адрес на идущий звонок, а не на страницу сервиса.
     ///
@@ -342,11 +460,15 @@ final class MeetingService: ObservableObject {
         }
 
         guard let pid = meetingApp, let window = meetingWindow else { return }
+        let found = Found(
+            pid: pid, window: window, tabTitle: meetingTabTitle ?? "",
+            area: nil, source: meetingSource
+        )
         // Кнопку ещё надо найти, а это тот же обход дерева, что и у опроса,
         // и на главном потоке ему так же не место: вырез замирал бы ровно
         // в тот момент, когда человек по нему нажал.
         scanQueue.async { [weak self] in
-            Self.pressButton(action, pid: pid, window: window)
+            Self.pressButton(action, of: found)
             // Подпись кнопки меняется не мгновенно: странице нужно мгновение
             // на обработку, и опрос раньше времени прочитал бы прежнее.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -393,19 +515,42 @@ final class MeetingService: ObservableObject {
         objectWillChange.send()
     }
 
-    /// Действие на открытой вкладке — без переключений. Только обход и нажатие,
-    /// без обращений к состоянию службы: идёт в стороне от главного потока.
+    /// Действие на открытой вкладке или в окне приложения — без переключений.
+    /// Только обход и нажатие, без обращений к состоянию службы: идёт
+    /// в стороне от главного потока.
+    ///
+    /// Способа два, и это не перестраховка. Страница действие доступности
+    /// не слышит вовсе — веб-приложение слушает указатель, — и ей нужен фокус
+    /// с пробелом. Родное окно, наоборот, живёт по правилам AppKit и Qt:
+    /// `AXPress` у него настоящий, а вот фокуса у кнопки в панели звонка
+    /// может не быть вовсе, и пробел тогда уйдёт в никуда.
     @discardableResult
-    private static func pressButton(_ action: MeetingAction, pid: pid_t, window: AXUIElement) -> Bool {
-        guard let area = AXTree.webArea(in: window),
-              let match = match(action, in: AXTree.buttons(of: area, maxDepth: 40))
-        else {
+    private static func pressButton(_ action: MeetingAction, of found: Found) -> Bool {
+        // Веб-область ищется здесь заново: между обходом и нажатием человек
+        // мог сменить вкладку, а хранить элемент страницы дольше одного
+        // обхода нельзя — он живёт в чужом процессе.
+        let target = found.source == .web
+            ? Found(
+                pid: found.pid, window: found.window, tabTitle: found.tabTitle,
+                area: AXTree.webArea(in: found.window), source: .web
+            )
+            : found
+        guard let control = control(action, of: target) else {
             DebugLog.write("встреча: кнопка «\(action.title)» не найдена")
             return false
         }
 
-        // 49 — пробел.
-        let pressed = AXTree.focusAndKey(match.element, pid: pid, keyCode: 49)
+        // 49 — пробел. Странице действие доступности не слышно вовсе,
+        // и ей нужен фокус с пробелом; у родного окна и меню `AXPress`
+        // настоящий, а фокуса у кнопки панели звонка может не быть.
+        let pressed: Bool
+        switch target.source {
+        case .web:
+            pressed = AXTree.focusAndKey(control.element, pid: target.pid, keyCode: 49)
+        case .appButtons, .appMenu:
+            pressed = AXTree.press(control.element)
+                || AXTree.focusAndKey(control.element, pid: target.pid, keyCode: 49)
+        }
         DebugLog.write("встреча: \(action.title) — \(pressed ? "нажато" : "не удалось")")
         return pressed
     }
@@ -414,15 +559,31 @@ final class MeetingService: ObservableObject {
 
     private static func match(
         _ action: MeetingAction,
-        in buttons: [(element: AXUIElement, labels: [String])]
+        in buttons: [(element: AXUIElement, labels: [String])],
+        preferLargest: Bool = false
     ) -> (element: AXUIElement, labels: [String])? {
-        buttons.first { button in
+        let matches = buttons.filter { button in
             let joined = button.labels.joined(separator: " ").lowercased()
             return action.labels.contains { joined.contains($0) }
         }
+        guard preferLargest else { return matches.first }
+        // В родном окне одна и та же подпись висит на двух элементах сразу:
+        // у Телемоста «Включить микрофон» — и кнопка панели 48×48, и значок
+        // состояния 16×16 в плитке участника. Первый в обходе — как раз
+        // значок, и нажатие уходило бы в него.
+        return matches.max { left, right in
+            area(of: left.element) < area(of: right.element)
+        } ?? matches.first
     }
 
-    private static func isOn(labels: [String]) -> Bool {
+    private static func area(of element: AXUIElement) -> CGFloat {
+        AXTree.frame(of: element).map { $0.width * $0.height } ?? 0
+    }
+
+    /// Не `private`: по этому правилу читается состояние всех трёх
+    /// источников сразу, и проверяется оно тестом на подписях, снятых
+    /// с живых звонков Телемоста и Zoom.
+    static func isOn(labels: [String]) -> Bool {
         let joined = labels.joined(separator: " ").lowercased()
         // Подпись описывает будущее действие: «Включить микрофон» — значит
         // сейчас выключен.
@@ -454,10 +615,15 @@ final class MeetingService: ObservableObject {
         guard let pid = meetingApp else { return nil }
         let element = AXTree.application(pid: pid)
         for window in AXTree.windows(of: element) {
-            guard let area = AXTree.webArea(in: window) else { continue }
-            let buttons = AXTree.buttons(of: area, maxDepth: 40)
-            if let match = Self.match(action, in: buttons) {
-                return match.labels.first
+            // Тем же путём, каким кнопка и нажимается: одно место расчёта
+            // на обход, нажатие и пробу.
+            let found = Found(
+                pid: pid, window: window, tabTitle: "",
+                area: meetingSource == .web ? AXTree.webArea(in: window) : nil,
+                source: meetingSource
+            )
+            if let control = Self.control(action, of: found) {
+                return control.labels.first
             }
         }
         return nil
@@ -493,6 +659,32 @@ final class MeetingService: ObservableObject {
                     DebugLog.write("    \(address) — кнопок \(count)")
                 }
             }
+        }
+    }
+
+    /// Печатает окна, кнопки и меню Zoom и Телемоста.
+    ///
+    /// Разведка перед тем, как писать таблицу подписей: у родных приложений
+    /// подписи свои, и взять их неоткуда, кроме живого звонка. Вне встречи
+    /// вывод почти пуст — это тоже ответ.
+    func dumpApps() {
+        guard AXTree.isTrusted else {
+            DebugLog.write("встреча: нет Универсального доступа")
+            return
+        }
+        let apps = NSWorkspace.shared.runningApplications.filter {
+            guard let id = $0.bundleIdentifier else { return false }
+            return Self.appBundleIDs.contains(id)
+        }
+        guard !apps.isEmpty else {
+            DebugLog.write("встреча: ни Zoom, ни Телемост не запущены")
+            return
+        }
+        for app in apps {
+            AXTree.dumpApp(
+                pid: app.processIdentifier,
+                name: app.localizedName ?? app.bundleIdentifier ?? "?"
+            )
         }
     }
 

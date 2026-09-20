@@ -249,6 +249,72 @@ enum AXTree {
         firstDescendant(of: window, maxDepth: 12) { role(of: $0) == "AXWebArea" }
     }
 
+    // MARK: - Меню приложения
+
+    /// Строка меню приложения. У родных приложений она — второй способ
+    /// добраться до тех же действий: у Zoom микрофон, камера и выход лежат
+    /// в меню «Meeting» и, в отличие от кнопок окна, подписаны словами,
+    /// по которым видно и состояние — «Mute Audio» против «Unmute Audio».
+    static func menuBar(of app: AXUIElement) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute as CFString, &value) == .success
+        else { return nil }
+        return element(value)
+    }
+
+    /// Пункты меню приложения: имя пункта и сам элемент.
+    ///
+    /// Разделители и безымянные пропускаются. Вглубь идём на несколько
+    /// уровней подменю — дальше у приложений встреч нужного нет, а дерево
+    /// растёт быстро.
+    static func menuItems(of app: AXUIElement, maxDepth: Int = 4) -> [(element: AXUIElement, title: String)] {
+        guard let bar = menuBar(of: app) else { return [] }
+        var result: [(AXUIElement, String)] = []
+        var budget = nodeBudget
+
+        func walk(_ node: AXUIElement, depth: Int) {
+            guard depth <= maxDepth, budget > 0 else { return }
+            budget -= 1
+            if role(of: node) == kAXMenuItemRole,
+               let title = string(node, kAXTitleAttribute), !title.isEmpty {
+                result.append((node, title))
+            }
+            for child in children(of: node) { walk(child, depth: depth + 1) }
+        }
+
+        walk(bar, depth: 0)
+        return result
+    }
+
+    /// Печатает окна, кнопки и меню чужого приложения.
+    ///
+    /// Для родных приложений встреч: у них нет ни веб-области, ни адреса,
+    /// и подписи кнопок иначе неоткуда взять. Живая встреча обязательна —
+    /// вне звонка ни кнопок, ни половины меню просто нет.
+    static func dumpApp(pid: pid_t, name: String) {
+        let app = application(pid: pid)
+        let list = windows(of: app)
+        DebugLog.write("— приложение «\(name)»: окон \(list.count) —")
+
+        for window in list {
+            let title = string(window, kAXTitleAttribute) ?? "без заголовка"
+            let box = frame(of: window).map { String(format: "%.0f×%.0f", $0.width, $0.height) } ?? "?"
+            let found = buttons(of: window, maxDepth: 30)
+            DebugLog.write("    окно «\(title)» \(box): кнопок \(found.count)")
+            for (element, labels) in found.prefix(60) {
+                let size = frame(of: element).map { String(format: "%.0f×%.0f", $0.width, $0.height) } ?? "?"
+                DebugLog.write("        [\(role(of: element))] \(labels.joined(separator: " | "))"
+                    + " — \(size), доступна=\(isEnabled(element))")
+            }
+        }
+
+        let items = menuItems(of: app)
+        DebugLog.write("    меню: пунктов \(items.count)")
+        for (element, title) in items.prefix(120) {
+            DebugLog.write("        меню: \(title)\(isEnabled(element) ? "" : " (недоступен)")")
+        }
+    }
+
     /// Печатает кнопки окна — калибровка подписей без живой встречи невозможна.
     static func dumpButtons(of window: AXUIElement, title: String) {
         guard let area = webArea(in: window) else {
