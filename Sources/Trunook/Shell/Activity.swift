@@ -55,6 +55,19 @@ struct Activity: Identifiable, Equatable {
         /// Записан заход воды. Итог дня плашка берёт у журнала живьём:
         /// в случае она несёт только что записанное.
         case waterLogged(portion: Int)
+        /// Модель просит разрешения записать: встречу, напоминание, заметку.
+        ///
+        /// Предложением целиком, а не парой строк: нажатие уходит в тот же
+        /// `confirmPendingAction`, что и у карточки в панели, и два описания
+        /// одного предложения разошлись бы на первой же правке.
+        case agentConfirm(PendingAction)
+        /// Пора сделать то, о чём просили напомнить. Отдельно от встречи:
+        /// у напоминания есть «готово», а у встречи его нет.
+        case reminderDue(item: CalendarItem)
+        /// Входящий звонок в чужом приложении.
+        case incomingCall(CallInvite)
+        /// Уведомление, присланное снаружи — скриптом, хуком, автоматикой.
+        case external(ExternalNotice)
     }
 
     /// Чем важнее событие, тем выше приоритет. Событие с приоритетом ниже
@@ -63,9 +76,21 @@ struct Activity: Identifiable, Equatable {
     /// после смены трека, только сбивает с толку.
     var priority: Int {
         switch kind {
-        // Отклик на нажатие клавиши важнее всего: пользователь ждёт его
-        // прямо сейчас и связывает со своим действием.
+        // Выше всего то, что **ждёт ответа прямо сейчас** и ждать не может:
+        // звонок звонит двадцать секунд, и смена трека, перебившая его,
+        // стоит пропущенного разговора.
+        case .incomingCall: return 7
+        // Следом — то, что ждёт ответа, но дождётся: предложение модели
+        // и присланное снаружи висят без срока, и перебить их нельзя,
+        // иначе вопрос исчезнет неотвеченным.
+        case .agentConfirm: return 6
+        case .external: return 6
+        // Отклик на нажатие клавиши важнее всего остального: пользователь
+        // ждёт его прямо сейчас и связывает со своим действием.
         case .command: return 5
+        // Вровень со встречей: о напоминании просили сами, и его пропуск
+        // так же необратим.
+        case .reminderDue: return 4
         // Вровень со встречей: вышедшее время — то, ради чего таймер
         // и заводили, и пропустить его значит обессмыслить всю затею.
         case .timer: return 4
@@ -146,6 +171,24 @@ struct Activity: Identifiable, Equatable {
         // Коротко: человек уже знает, что записал, — плашка лишь называет
         // итог дня.
         case .waterLogged: return 3.5
+        // Полминуты — и вопрос уходит с глаз, но не пропадает: пока ответа
+        // нет, плашка возвращается, как только вырез освободится
+        // (`keepWaitingActivities`). Вечная плашка заняла бы вырез насмерть:
+        // у неё высший приоритет, и ни встреча, ни таймер под ней
+        // не показались бы вовсе — поймано на своём же снимке, где
+        // напоминание «отброшено: показывается более важное».
+        case .agentConfirm: return 30
+        // Столько же и по той же причине, но возвращать нечего: присланное
+        // ждёт ответа, и возврат им занимается сам `NotifyInbox`.
+        case let .external(notice): return notice.waitsForAnswer ? 30 : notice.hold
+        // Дольше обычного звонка: плашку снимает сам звонок — ответом,
+        // отбоем или тишиной на том конце, — а срок тут страховка на случай,
+        // если окно закрылось молча и наблюдатель об этом не сказал.
+        case .incomingCall: return 45
+        // Напоминание не возвращается: оно и так стоит в «Напоминаниях»
+        // и позвонит само. Плашка — способ ответить не отвлекаясь, а не
+        // единственное место, где о нём знают.
+        case .reminderDue: return 30
         // Долго: наступившее событие не пропускают, отвернувшись на минуту.
         // Убирает крестик.
         case .countdownReached: return 60
@@ -164,7 +207,8 @@ struct Activity: Identifiable, Equatable {
         // было бы не дотянуться.
         // Напоминание и наступившее событие — из-за кнопок: не держись они
         // при наведении, до «готово» и крестика было бы не дотянуться.
-        case .clipboard, .shelf, .update, .digestReady, .siteChanged, .breakReminder, .countdownReached: return true
+        case .clipboard, .shelf, .update, .digestReady, .siteChanged, .breakReminder, .countdownReached,
+             .agentConfirm, .reminderDue, .incomingCall, .external: return true
         default: return false
         }
     }
@@ -214,6 +258,10 @@ extension Activity.Kind {
         case .breakReminder: return "перерыв"
         case .waterLogged: return "вода записана"
         case .countdownReached: return "событие наступило"
+        case .agentConfirm: return "предложение модели"
+        case .reminderDue: return "напоминание"
+        case .incomingCall: return "входящий звонок"
+        case .external: return "присланное уведомление"
         }
     }
 }
@@ -286,9 +334,64 @@ final class ActivityCenter: ObservableObject {
         show(activity)
     }
 
+    /// Показать событие вместо своего же, даже если то важнее.
+    ///
+    /// Нужна одному случаю, но случай настоящий: ручная проверка обновлений
+    /// показывает «Проверяю…» плашкой команды (приоритет 5, висит до пяти
+    /// минут), а готовое обновление — своей плашкой с приоритетом 2. Обычное
+    /// правило отбрасывало готовое как менее важное, и человек пять минут
+    /// смотрел на «скачиваю…» над давно скачанным — в журнале так и стояло:
+    /// «событие обновление отброшено: показывается более важное».
+    ///
+    /// Заменяется только то, что узнаёт `replacing`: чужую плашку этим путём
+    /// перебить нельзя.
+    func present(_ kind: Activity.Kind, replacing: (Activity.Kind) -> Bool) {
+        if let current, replacing(current.kind) {
+            show(Activity(kind: kind))
+            return
+        }
+        present(kind)
+    }
+
+    // MARK: - Пауза под курсором
+
+    /// Сколько плашка висит после того, как курсор ушёл, если своего срока
+    /// у неё оставалось меньше.
+    ///
+    /// Без запаса плашка пропадала от случайного движения: навёл, чтобы
+    /// прочитать или нажать, чуть промахнулся краем — и её уже нет.
+    static let graceAfterHover: TimeInterval = 5
+
+    /// Сколько оставалось плашке, когда её поставили на паузу.
+    private var remainingWhilePaused: TimeInterval?
+    /// Когда сработает таймер — чтобы знать остаток при паузе.
+    private var expiresAt: Date?
+
+    /// Остановить или продолжить отсчёт плашки.
+    ///
+    /// Пока курсор над чёлкой или над самой плашкой, срок стоит: под рукой
+    /// событие не истекает. Отпустили — отсчёт идёт дальше, но не меньше
+    /// `graceAfterHover`.
+    func hold(_ paused: Bool) {
+        guard let current else { return }
+        if paused {
+            guard remainingWhilePaused == nil, let expiresAt else { return }
+            remainingWhilePaused = max(0, expiresAt.timeIntervalSinceNow)
+            dismissTimer?.invalidate()
+            dismissTimer = nil
+            self.expiresAt = nil
+        } else {
+            guard let left = remainingWhilePaused else { return }
+            remainingWhilePaused = nil
+            schedule(current, after: max(left, Self.graceAfterHover))
+        }
+    }
+
     func dismiss() {
         dismissTimer?.invalidate()
         dismissTimer = nil
+        remainingWhilePaused = nil
+        expiresAt = nil
         guard let current else { return }
         DebugLog.write("событие \(current.kind.label) убрано досрочно")
         self.current = nil
@@ -297,6 +400,8 @@ final class ActivityCenter: ObservableObject {
     private func show(_ activity: Activity) {
         dismissTimer?.invalidate()
         dismissTimer = nil
+        remainingWhilePaused = nil
+        expiresAt = nil
         current = activity
         announce(activity)
 
@@ -310,10 +415,17 @@ final class ActivityCenter: ObservableObject {
         }
         DebugLog.write("событие \(activity.kind.label) показано на \(hold) с")
 
-        let timer = Timer(timeInterval: hold, repeats: false) { [weak self] _ in
+        schedule(activity, after: hold)
+    }
+
+    private func schedule(_ activity: Activity, after seconds: TimeInterval) {
+        dismissTimer?.invalidate()
+        expiresAt = Date().addingTimeInterval(seconds)
+        let timer = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
             guard let self, self.current == activity else { return }
             DebugLog.write("событие \(activity.kind.label) истекло")
             self.current = nil
+            self.expiresAt = nil
         }
         // .common, иначе таймер замирает, пока пользователь тянет ползунок
         // или держит открытым меню.

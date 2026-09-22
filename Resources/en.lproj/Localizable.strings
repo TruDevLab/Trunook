@@ -1535,3 +1535,44 @@
 "/ — инструмент" = "/ for a tool";
 "@ — событие" = "@ for an event";
 "@ — заметка" = "@ for a note";
+
+/* Уведомления с ответом: присланное снаружи, звонки, напоминания */
+"Входящий звонок · %@" = "Incoming call · %@";
+"%@ · %@" = "%@ · %@";
+"Уведомление" = "Notification";
+"Принять" = "Accept";
+"Отклонить" = "Decline";
+"Входящие звонки" = "Incoming calls";
+"Показывать звонок в вырезе" = "Show calls in the notch";
+"Telephone, Zoiper, Linphone, Bria, 3CX, Telegram. Ответить и отклонить прямо из выреза." = "Telephone, Zoiper, Linphone, Bria, 3CX, Telegram. Answer and decline right from the notch.";
+"Нужен Универсальный доступ: кнопки нажимаются в самом приложении." = "Accessibility access is required: the buttons are pressed in the app itself.";
+"Открыть папку" = "Open the folder";
+"Через 15 минут" = "In 15 minutes";
+"Ещё 5 минут" = "5 more minutes";
+"Ответить" = "Answer";
+"Записать файл в проект?" = "Write a file into the project?";
+"Позвонить в сервис" = "Call the repair shop";
+"Напоминание выполнено" = "Reminder completed";
+"Отложено на 15 минут" = "Snoozed for 15 minutes";
+"Не вышло изменить напоминание" = "Could not change the reminder";
+"Ответ отправлен: %@" = "Answer sent: %@";
+"Не вышло нажать в приложении" = "Could not press it in the app";
+"Таймер заново: %d мин" = "Timer restarted: %d min";
+
+/* Раздел «Уведомления» */
+"Уведомления с ответом" = "Notifications you can answer";
+"Часть плашек под чёлкой спрашивает и отвечает кнопками прямо там: напоминание отмечается выполненным или откладывается на 15 минут, вышедший таймер продлевается на 5 минут или заводится заново, а то, что помощник хочет записать, подтверждается или отменяется. Там же — сколько держать плашки, смена трека, копирование, заряд, погода и предупреждения о встречах." = "Some pills under the notch ask a question and take the answer with buttons right there: a reminder is completed or snoozed for 15 minutes, a finished timer is extended by 5 minutes or restarted, and what the assistant wants to write is confirmed or cancelled. The same section holds how long pills stay, track changes, copying, battery, weather and meeting alerts.";
+"уведомление плашка ответ кнопка напоминание отложить таймер продлить подтвердить встреча предупреждение" = "notification pill answer button reminder snooze timer extend confirm meeting alert";
+"Звонок в Telephone, Zoiper, Linphone, Bria, 3CX или Telegram показывается плашкой с кнопками «Ответить» и «Отклонить» — нажатие уходит в сам телефон. Включается выключателем «Показывать звонок в вырезе», нужен Универсальный доступ." = "A call in Telephone, Zoiper, Linphone, Bria, 3CX or Telegram shows up as a pill with Answer and Decline buttons — the press goes to the phone app itself. Turn it on with “Show calls in the notch”; Accessibility access is required.";
+"звонок входящий телефон sip ответить отклонить сбросить telephone zoiper telegram" = "call incoming phone sip answer decline hang up telephone zoiper telegram";
+"Вопросы от программ" = "Questions from apps";
+"Другие программы — сборка, помощник в терминале, свой скрипт — могут спросить вас через вырез: появляется плашка с вопросом и кнопками, а ваш ответ программа получает обратно. Указывать папку не нужно, программы знают её сами. Кнопка «Показать пример» показывает, как это выглядит." = "Other programs — a build, an assistant in the terminal, your own script — can ask you through the notch: a pill appears with the question and buttons, and the program gets your answer back. You don’t need to set any folder; the programs know it. The “Show an example” button shows what it looks like.";
+"вопрос программа скрипт хук терминал сборка разрешить спросить уведомление снаружи папка" = "question program script hook terminal build allow ask notification outside folder";
+"Разрешить программам спрашивать через вырез" = "Let programs ask through the notch";
+"Сборка, помощник в терминале или свой скрипт показывают вопрос с двумя кнопками и узнают, какую вы нажали." = "A build, an assistant in the terminal or your own script shows a question with two buttons and learns which one you pressed.";
+"Указывать ничего не нужно: программы кладут вопрос в папку приложения сами." = "Nothing to set up: programs drop the question into the app’s folder themselves.";
+"Как это выглядит" = "What it looks like";
+"Показать пример" = "Show an example";
+"Уведомления" = "Notifications";
+"Сборка" = "Build";
+"Выкатить новую версию?" = "Ship the new version?";

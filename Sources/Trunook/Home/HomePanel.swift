@@ -174,10 +174,17 @@ struct HomeTile<Content: View>: View {
 
     var body: some View {
         let size = HomeGrid.size(of: widget.size)
+        // Плотность у всех плиток экрана одна — плиточная, а отзывается
+        // на курсор только та, что нажимается целиком. Раньше роль решала
+        // и то и другое, и плитка без нажатия по телу — команды, музыка,
+        // погода, батарея — получала подложку карточки: под стеклом
+        // затемнение 0.24 против 0.42, то есть заметно светлее соседей.
+        // Пользователь спросил, почему команды другого стиля, — вот почему.
         NotchTile(
             id: "home-\(widget.id)",
             radius: NotchStyle.cardRadius,
-            role: onTap == nil ? .card : .tile
+            role: .tile,
+            respondsToCursor: onTap != nil
         ) {
             content()
                 .padding(.horizontal, Self.inset)

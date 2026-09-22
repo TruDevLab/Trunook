@@ -137,7 +137,7 @@ struct BreakTrackerTests {
         let activity = Activity(kind: .breakReminder(.stretch))
         #expect(activity.duration == .infinity)
         #expect(activity.isInteractive)
-        #expect(ActivityView.isBreakReminder(.breakReminder(.rest)))
+        #expect(ActivityView.answer(for: .breakReminder(.rest))?.count == 2)
         #expect(ActivityView.isDismissable(.countdownReached(title: "Отпуск")))
     }
 

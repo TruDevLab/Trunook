@@ -52,7 +52,8 @@ final class SettingsWindowController {
         onOpenWelcome: @escaping () -> Void,
         onOpenReleaseNotes: @escaping () -> Void,
         onPreviewVoice: @escaping () -> Void,
-        onPreviewNotch: @escaping (TimeInterval) -> Void
+        onPreviewNotch: @escaping (TimeInterval) -> Void,
+        onPreviewNotice: @escaping () -> Void
     ) {
         // Всё, что приходит извне, перечитывается при каждом открытии, а не
         // только при первом: пользователь мог поменять автозапуск в Системных
@@ -101,7 +102,8 @@ final class SettingsWindowController {
             onOpenWelcome: onOpenWelcome,
             onOpenReleaseNotes: onOpenReleaseNotes,
             onPreviewVoice: onPreviewVoice,
-            onPreviewNotch: onPreviewNotch
+            onPreviewNotch: onPreviewNotch,
+            onPreviewNotice: onPreviewNotice
         )
         let window = NSWindow(
             contentRect: CGRect(origin: .zero, size: SettingsView.size),

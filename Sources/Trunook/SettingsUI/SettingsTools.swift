@@ -2,7 +2,8 @@ import AVFoundation
 import AppKit
 import SwiftUI
 
-/// Раздел настроек «Инструменты»: буфер, полка, окна, таймер, перерывы, нагрузка, телесуфлер, чашка.
+/// Раздел настроек «Инструменты»: буфер, полка, окна, таймер, нагрузка, телесуфлер, чашка.
+/// Перерывы переехали в «Уведомления».
 extension SettingsView {
     /// Очистка истории буфера — с подтверждением, как у заметок: вернуть
     /// записи нельзя, а мимо кнопки попадают так же, как везде.
@@ -332,7 +333,6 @@ extension SettingsView {
             shelfSection
             windowSnapCard
             timerSection
-            breaksCard
             monitorSection
             teleprompterSection
             caffeineCard

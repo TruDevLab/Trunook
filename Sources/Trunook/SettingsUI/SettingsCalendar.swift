@@ -53,30 +53,6 @@ extension SettingsView {
         
 }
 
-        section(t("Встречи"), icon: "bell") {
-
-            Picker(t("Предупреждать за"), selection: settings.binding(\.eventLeadMinutes)) {
-                Text(t("в момент начала")).tag(0)
-                Text(t("5 минут")).tag(5)
-                Text(t("10 минут")).tag(10)
-                Text(t("15 минут")).tag(15)
-            }
-            .pickerStyle(.menu)
-
-            Toggle(t("Ещё раз в момент начала"), isOn: settings.binding(\.alertAtEventStart))
-                .disabled(settings.eventLeadMinutes == 0)
-
-            Toggle(t("Обратный отсчёт рядом с вырезом"), isOn: settings.binding(\.showCountdown))
-
-            Picker(t("Отсчёт появляется за"), selection: settings.binding(\.countdownWindowMinutes)) {
-                ForEach([5, 10, 15, 30], id: \.self) { value in
-                    Text(tf("%d минут", value)).tag(value)
-                }
-            }
-            .pickerStyle(.menu)
-            .disabled(!settings.showCountdown)
-        }
-
         section(t("Управление встречей"), icon: "video") {
             VStack(alignment: .leading, spacing: 4) {
                 Toggle(t("Кнопки встречи в вырезе"), isOn: settings.binding(\.meetingControlsEnabled))

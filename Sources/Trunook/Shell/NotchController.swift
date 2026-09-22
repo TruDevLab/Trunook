@@ -29,6 +29,10 @@ final class NotchController {
     let timer = TimerService()
     let monitor = MonitorService()
     let updates = UpdateService()
+    /// Уведомления, присланные снаружи — скриптами и хуками.
+    let inbox = NotifyInbox()
+    /// Входящие звонки чужих телефонов.
+    let calls = CallService()
     /// Надиктовать текст в поле — своим слушателем, не тем, которым
     /// слушает голосовой заход: диктовать в заметку и спрашивать голосом
     /// одновременно нельзя, но гасить друг друга они не должны.
@@ -137,6 +141,11 @@ final class NotchController {
     /// Раз в несколько часов записи сверяются со сроком хранения.
     private var retentionTimer: Timer?
     private var retentionObservation: AnyCancellable?
+    /// Выключатели входящих и звонков — чтобы службы включались
+    /// из настроек сразу, а не со следующего запуска приложения.
+    private var sourcesObservation: AnyCancellable?
+    private var inboxWasEnabled = false
+    private var callsWereEnabled = false
     /// Срок, по которому чистили последний раз: настройки меняются часто,
     /// а чистить по каждой смене незачем.
     private var lastRetentionDays: Int?
@@ -286,6 +295,7 @@ final class NotchController {
             // зона приёма ждёт его на каждом движении.
             if let self, self.input.isDragging { self.shelfDrop.isArmed = self.input.isDraggingData }
             self?.updateWindowInteractivity()
+            self?.holdActivityUnderCursor()
             self?.updateCritterGaze()
             self?.updateWindowSlot()
         }
@@ -300,7 +310,7 @@ final class NotchController {
         // То, что пересчитывается по времени, а не по событию.
         input.onTick = { [weak self] in
             self?.updateWindowSnap()
-            self?.keepBreakReminder()
+            self?.keepWaitingActivities()
             self?.checkCountdownReached()
             self?.placeScreens()
             self?.interruptCritterIfBusy()
@@ -378,7 +388,18 @@ final class NotchController {
         installVoice()
 
         alerts.onAlert = { [weak self] item, minutes in
-            self?.activities.present(.meeting(item: item, minutesBefore: minutes))
+            // Напоминание и встреча приходят одной дорогой, а плашки у них
+            // разные: у напоминания есть «готово» и «через 15 минут», а
+            // у встречи — «подключиться». Отмечать выполненной встречу
+            // нечем, откладывать её — тем более.
+            //
+            // Отвечать можно только напоминаниям из «Напоминаний»: дела
+            // Things приходят из их базы и правятся только в самом Things.
+            if item.source == .reminder {
+                self?.activities.present(.reminderDue(item: item))
+            } else {
+                self?.activities.present(.meeting(item: item, minutesBefore: minutes))
+            }
         }
         alerts.start()
 
@@ -440,6 +461,10 @@ final class NotchController {
             // человек смотрит в другое окно.
             Haptics.tap(.levelChange)
             if self.settings.timerSoundEnabled { self.chime.play() }
+            // Сколько минут отзвонило — запоминаем **здесь**: следом служба
+            // сама переведёт таймер в следующую фазу помидора, и к моменту
+            // нажатия «Повторить» прежней длительности уже не узнать.
+            self.finishedTimerMinutes = max(1, Int(self.timer.duration / 60))
             self.activities.present(.timer(
                 text: phase == .rest ? t("Перерыв окончен") : t("Время вышло")
             ))
@@ -477,6 +502,34 @@ final class NotchController {
             self.weatherSceneCheckedAt = .distantPast
         }
         weather.start()
+
+        // Присланное снаружи и входящий звонок — два новых источника плашек,
+        // и оба выключены по умолчанию: один пускает в вырез чужое
+        // содержимое, второму нужен Универсальный доступ.
+        inbox.onNotice = { [weak self] notice in self?.present(notice) }
+        inbox.start()
+
+        calls.onCall = { [weak self] invite in
+            self?.activities.present(.incomingCall(invite))
+        }
+        calls.onEnded = { [weak self] in
+            guard case .incomingCall? = self?.activities.current?.kind else { return }
+            self?.activities.dismiss()
+        }
+        calls.start()
+        inboxWasEnabled = settings.inboxEnabled
+        callsWereEnabled = settings.callsEnabled
+        // Службы запускаются при старте, а выключатель в настройках без этой
+        // подписки не делал ничего до перезапуска приложения. Поймано на
+        // живом звонке: человек позвонил себе — плашка не вышла, потому что
+        // «Входящие звонки» включались уже после запуска.
+        //
+        // Сравнение с прошлым значением, а не с состоянием службы: без
+        // Универсального доступа звонки не стартуют, и на каждую правку
+        // любой настройки служба пыталась бы снова и писала бы отказ в журнал.
+        sourcesObservation = settings.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncSources() }
 
         // Плашка показывается один раз за запуск и только на готовом
         // к установке: загрузка тихая по замыслу, а отказы человек увидит
@@ -1038,6 +1091,18 @@ final class NotchController {
 
     // MARK: - Наведение и раскрытие
 
+    /// Плашка под курсором не истекает.
+    ///
+    /// Под курсором — это и чёлка (там в это время мини-вид), и сама плашка:
+    /// в её кнопку целятся, и пропасть на полпути она не должна.
+    /// Курсор ушёл — отсчёт идёт дальше, но не меньше
+    /// `ActivityCenter.graceAfterHover`.
+    private func holdActivityUnderCursor() {
+        guard activities.current != nil else { return }
+        let overActivity = notchSnapshot.presentation == .activity && host.visibleRectContainsCursor
+        activities.hold(state.isHovered || overActivity)
+    }
+
     private func setHovered(_ hovered: Bool) {
         DebugLog.write("вырез \(hovered ? "показан мини-вид" : "свёрнут")")
         state.isHovered = hovered
@@ -1052,16 +1117,18 @@ final class NotchController {
             // Задачу заводят и тут же открывают вырез посмотреть, появилась ли
             // она: опроса раз в минуту для такого сценария мало.
             things.refresh()
-            // Мини-вид важнее досматривания всплывшего события — но плашку,
-            // по которой нажимают, наведение убирать не смеет: до неё тогда
-            // было бы физически не дотянуться курсором.
-            if activities.current?.isInteractive != true {
-                activities.dismiss()
-            }
+            // Мини-вид важнее досматривания всплывшего события, но убирать
+            // плашку наведение больше не смеет — только ставит на паузу.
+            // Раньше обычная плашка пропадала от первого же касания чёлки,
+            // а «нажимаемая» дотикивала свой срок под мини-видом: навёл
+            // курсор, чуть промахнулся краем — и её нет. Теперь, когда
+            // курсор уйдёт, она вернётся и провисит ещё несколько секунд.
+            holdActivityUnderCursor()
         } else {
             // Курсор ушёл — фиксация раскрытия снимается.
             state.isPinnedOpen = false
             state.swipe = nil
+            holdActivityUnderCursor()
         }
         host.updateInteractiveRect()
     }
@@ -1409,17 +1476,16 @@ final class NotchController {
             // ровно столько, сколько тот думает. Оборвать это можно только
             // закрытием панели.
             pendingAnswer = done
-            // Спрошенное голосом панели не раскрывает — а карточку надо
-            // где-то показать и чем-то нажать. Раскрываем её сами: это
-            // единственный случай, когда голос выходит на экран, и он же
-            // единственный, где он что-то меняет в чужих данных.
-            if state.overlay != .assistant {
-                draft.setMode(.model)
-                router.set(.assistant)
-                takeKeyboard()
-                DebugLog.write("помощник: панель раскрыта под карточку")
-            }
             assistant.propose(action)
+            // Панель раскрывается только если она и так открыта: карточка
+            // в ней — на своём месте. Спрошенное голосом или командой
+            // раскрывать панель не имеет права — она отбирает клавиатуру
+            // и закрывает чужую работу ради вопроса, на который отвечают
+            // одним нажатием. Такому вопросу хватает плашки.
+            if state.overlay != .assistant {
+                activities.present(.agentConfirm(action))
+                DebugLog.write("помощник: предложение показано плашкой")
+            }
             // Панель подросла на карточку — окно обязано узнать, иначе
             // нажатия будут приниматься по прежней высоте.
             host.updateInteractiveRect()
@@ -1430,6 +1496,7 @@ final class NotchController {
     func confirmPendingAction() {
         guard let action = assistant.pending, let done = pendingAnswer else { return }
         pendingAnswer = nil
+        dismissConfirmActivity()
         assistant.clearPending()
         let result = agent.commit(action)
         DebugLog.write("помощник: \(result.label)")
@@ -1445,6 +1512,7 @@ final class NotchController {
     func declinePendingAction() {
         guard let action = assistant.pending, let done = pendingAnswer else { return }
         pendingAnswer = nil
+        dismissConfirmActivity()
         assistant.clearPending()
         DebugLog.write("помощник: отменено человеком — \(action.tool.name)")
         host.updateInteractiveRect()
@@ -1812,6 +1880,117 @@ final class NotchController {
         takeKeyboard()
     }
 
+    /// То же предложение, но плашкой: так оно приходит, когда панель закрыта.
+    ///
+    /// Отдельным заходом, а не «открыть и свернуть»: проверять надо ровно
+    /// тот путь, которым предложение доходит до человека, занятого своей
+    /// работой, — без раскрытия панели и без отнятой клавиатуры.
+    func debugAgentPlashka() {
+        armAgent()
+        let call = ToolCall(
+            id: "debug",
+            name: AgentTool.createEvent.name,
+            arguments: #"{"title":"Созвон с командой","start":"\#(Self.debugStart())","duration_minutes":60}"#
+        )
+        guard case let .confirm(action) = agent.prepare(call) else {
+            DebugLog.write("помощник: образец не собрался в предложение")
+            return
+        }
+        pendingAnswer = { result in DebugLog.write("помощник: образец — \(result.label)") }
+        assistant.propose(action)
+        activities.present(.agentConfirm(action))
+    }
+
+    /// Образец вопроса от программы — кнопка «Показать пример» в настройках.
+    ///
+    /// Без файла ответа: отвечать тут некому, а показать надо ровно то,
+    /// что человек увидит, когда спросит настоящая программа.
+    func previewExternalNotice() {
+        present(ExternalNotice(
+            id: "preview",
+            source: t("Сборка"),
+            title: t("Выкатить новую версию?"),
+            symbol: "hammer.fill",
+            actions: [.yes, .no]
+        ))
+    }
+
+    /// Образец присланного снаружи вопроса — как от хука или сборки.
+    func debugExternalNotice() {
+        let reply = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trunook-notify-reply.txt")
+        present(ExternalNotice(
+            id: "debug",
+            source: "Помощник",
+            title: t("Записать файл в проект?"),
+            symbol: "chevron.left.forwardslash.chevron.right",
+            actions: [.yes, .no],
+            replyPath: reply.path
+        ))
+        DebugLog.write("входящие: образец показан, ответ ляжет в \(reply.path)")
+    }
+
+    /// Образец наступившего напоминания — с «готово» и «через 15 минут».
+    func debugReminderDue() {
+        let item = CalendarItem(
+            id: "debug-reminder",
+            title: t("Позвонить в сервис"),
+            start: Date(),
+            end: nil,
+            isAllDay: false,
+            source: .reminder,
+            link: nil,
+            colorComponents: nil
+        )
+        activities.present(.reminderDue(item: item))
+    }
+
+    /// Окна и кнопки знакомых телефонов — в журнал.
+    func debugCallDump() { calls.dump() }
+
+    /// Мини-вид с ближайшей встречей со ссылкой — как при наведении на чёлку.
+    ///
+    /// Наведение из сессии не сделать, а кнопка «Подключиться» в мини-виде
+    /// видна только при нём. Держится восемь секунд — хватает на снимок.
+    func debugHoverMeeting() {
+        calendar.debugPrepend(CalendarItem(
+            id: "debug-hover",
+            title: "Разбор задач недели",
+            start: Date().addingTimeInterval(3 * 60),
+            end: Date().addingTimeInterval(33 * 60),
+            isAllDay: false,
+            source: .event,
+            link: MeetingLink.extract(
+                url: URL(string: "https://telemost.yandex.ru/j/12345678901234"),
+                location: nil,
+                notes: nil
+            ),
+            colorComponents: [0.35, 0.55, 1.0]
+        ))
+        // Опрос курсора идёт десять раз в секунду и снял бы наведение
+        // на первом тике — как и у отладочного раскрытия, держим вопреки ему.
+        input.hold(seconds: 8)
+        setHovered(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self, self.state.isHovered else { return }
+            self.setHovered(false)
+        }
+    }
+
+    /// Ответить на плашку, которая ждёт ответа, — без мыши.
+    ///
+    /// Нажатия из сессии проверяющего не сделать, а путь от кнопки
+    /// до последствия — самое важное во всей затее: в нём пишется ответ
+    /// чужому скрипту, отмечается напоминание, заводится встреча.
+    func debugAnswerActivity(yes: Bool) {
+        guard let kind = activities.current?.kind else {
+            DebugLog.write("плашка: отвечать нечему — на экране пусто")
+            return
+        }
+        DebugLog.write("плашка: отладочный ответ \(yes ? "да" : "нет")")
+        answerActivity(kind, yes: yes)
+    }
+
     /// Завтрашние три часа дня — строкой того вида, который просят у модели.
     private static func debugStart() -> String {
         let formatter = DateFormatter()
@@ -1872,8 +2051,19 @@ final class NotchController {
     ///
     /// Работает и с выключенной Ollama — тогда это просто поле для заметки.
     /// Панель прячет у себя всё, что без модели не имеет смысла.
+    /// Убрать плашку предложения, если она висит.
+    ///
+    /// Нужна в трёх местах: ответ с самой плашки, ответ из карточки в панели
+    /// и открытие панели — в ней карточка покажет то же самое, и два
+    /// одинаковых вопроса на экране читались бы как два разных.
+    private func dismissConfirmActivity() {
+        guard case .agentConfirm? = activities.current?.kind else { return }
+        activities.dismiss()
+    }
+
     func askAssistant() {
         guard settings.ollamaEnabled || settings.notesEnabled else { return }
+        dismissConfirmActivity()
         // Без модели разговаривать не с кем — панель открывается сразу
         // заметкой, иначе человек упёрся бы в пустую область ответа.
         if !settings.ollamaEnabled { draft.setMode(.note) }
@@ -3307,28 +3497,52 @@ final class NotchController {
     /// шла, но итог «новее нет» не показывался нигде, а готовое обновление
     /// сообщает о себе один раз за запуск. Теперь чёлка ведёт от «проверяю»
     /// до итога.
+    /// Текст последней «идущей» плашки ручной проверки — чтобы итог
+    /// заменял именно её, а не любую команду на экране.
+    private var updateReportText: String?
+
+    /// Показать ход ручной проверки обновлений.
+    ///
+    /// Каждая следующая плашка заменяет предыдущую, **даже если та важнее**:
+    /// «Проверяю…» — это команда с приоритетом 5, а готовое обновление —
+    /// плашка с приоритетом 2, и обычное правило её отбрасывало. Человек
+    /// нажимал «Проверить обновления» в строке меню и пять минут смотрел
+    /// на «скачиваю…» над давно скачанной версией.
+    private func reportUpdate(_ kind: Activity.Kind) {
+        let previous = updateReportText
+        if case let .command(text, .running) = kind {
+            updateReportText = text
+        } else {
+            updateReportText = nil
+        }
+        activities.present(kind) { current in
+            guard let previous, case let .command(text, .running) = current else { return false }
+            return text == previous
+        }
+    }
+
     func checkForUpdatesManually() {
         switch updates.state {
         case let .ready(release, _):
             // Уже скачано — показываем плашку с кнопкой ещё раз.
-            activities.present(.update(version: release.version.text))
+            reportUpdate(.update(version: release.version.text))
             return
         case let .downloading(release, progress):
             isReportingUpdate = true
-            activities.present(.command(
+            reportUpdate(.command(
                 text: tf("Скачиваю версию %@ — %d%%", release.version.text, Int(progress * 100)),
                 state: .running
             ))
             return
         case .checking, .installing:
             isReportingUpdate = true
-            activities.present(.command(text: t("Проверяю обновления…"), state: .running))
+            reportUpdate(.command(text: t("Проверяю обновления…"), state: .running))
             return
         default:
             break
         }
         isReportingUpdate = true
-        activities.present(.command(text: t("Проверяю обновления…"), state: .running))
+        reportUpdate(.command(text: t("Проверяю обновления…"), state: .running))
         updates.check(manual: true)
     }
 
@@ -3338,20 +3552,20 @@ final class NotchController {
         case .idle, .checking, .installing:
             break
         case let .found(release):
-            activities.present(.command(text: tf("Найдена версия %@", release.version.text), state: .running))
+            reportUpdate(.command(text: tf("Найдена версия %@", release.version.text), state: .running))
         case let .downloading(release, progress):
             // Плашка обновляется по каждому проценту незачем — хватит начала.
             guard progress == 0 else { return }
-            activities.present(.command(text: tf("Найдена версия %@ — скачиваю…", release.version.text), state: .running))
+            reportUpdate(.command(text: tf("Найдена версия %@ — скачиваю…", release.version.text), state: .running))
         case let .ready(release, _):
             isReportingUpdate = false
-            activities.present(.update(version: release.version.text))
+            reportUpdate(.update(version: release.version.text))
         case .upToDate:
             isReportingUpdate = false
-            activities.present(.command(text: tf("У вас последняя версия %@", AppInfo.shortVersion), state: .done))
+            reportUpdate(.command(text: tf("У вас последняя версия %@", AppInfo.shortVersion), state: .done))
         case let .failed(failure):
             isReportingUpdate = false
-            activities.present(.command(text: failure.message, state: .failed))
+            reportUpdate(.command(text: failure.message, state: .failed))
         }
     }
 
@@ -3582,19 +3796,164 @@ final class NotchController {
         openWater()
     }
 
-    /// Когда последний раз проверяли, на месте ли плашка напоминания.
+    /// Нажали кнопку ответа на плашке: `yes` — главное действие, иначе второе.
+    ///
+    /// Одной точкой на все ждущие плашки: вид события приходит из вёрстки,
+    /// и разбирать его здесь дешевле, чем заводить по замыканию на случай —
+    /// службы и так все под рукой именно тут.
+    func answerActivity(_ kind: Activity.Kind, yes: Bool) {
+        switch kind {
+        case let .breakReminder(breakKind):
+            answerBreak(breakKind, done: yes)
+        case .agentConfirm:
+            activities.dismiss()
+            Haptics.tap(.levelChange)
+            yes ? confirmPendingAction() : declinePendingAction()
+        case let .reminderDue(item):
+            answerReminder(item, done: yes)
+        case .timer:
+            answerTimer(more: yes)
+        case let .incomingCall(invite):
+            answerCall(invite, accept: yes)
+        case let .external(notice):
+            answerExternal(notice, yes: yes)
+        default:
+            break
+        }
+    }
+
+    /// «Готово» и «Через 15 минут» у наступившего напоминания.
+    ///
+    /// Отложенное переносится в самом хранилище, а не запоминается у нас:
+    /// приложение живёт не круглые сутки, а напоминание, отложенное только
+    /// в памяти выреза, исчезло бы вместе с перезапуском.
+    private func answerReminder(_ item: CalendarItem, done: Bool) {
+        activities.dismiss()
+        Haptics.tap(.levelChange)
+        let ok = done
+            ? calendar.completeReminder(id: item.id)
+            : calendar.snoozeReminder(id: item.id, byMinutes: 15)
+        if ok {
+            flash.show(done ? t("Напоминание выполнено") : t("Отложено на 15 минут"))
+            calendar.refresh()
+        } else {
+            flash.show(t("Не вышло изменить напоминание"))
+        }
+    }
+
+    /// Включить или выключить входящие и звонки вслед за настройками.
+    private func syncSources() {
+        if settings.inboxEnabled != inboxWasEnabled {
+            inboxWasEnabled = settings.inboxEnabled
+            inboxWasEnabled ? inbox.start() : inbox.stop()
+        }
+        if settings.callsEnabled != callsWereEnabled {
+            callsWereEnabled = settings.callsEnabled
+            callsWereEnabled ? calls.start() : calls.stop()
+        }
+    }
+
+    /// Показать присланное снаружи.
+    ///
+    /// Плашкой, а не системным баннером: у баннера свои кнопки, свой звук
+    /// и своя очередь, а смысл затеи в том, чтобы вопрос стоял там же,
+    /// где человек и так следит за временем и встречами.
+    private func present(_ notice: ExternalNotice) {
+        if notice.waitsForAnswer { waitingNotice = notice }
+        activities.present(.external(notice))
+    }
+
+    /// Нажали кнопку присланного уведомления.
+    ///
+    /// Ответ уходит строкой в файл, который назвал приславший, — и это
+    /// всё, что вырез делает по чужой указке. Ни ссылок, ни команд
+    /// из уведомления он не исполняет: за кнопку нажимает человек,
+    /// но содержимое кнопки пришло снаружи.
+    private func answerExternal(_ notice: ExternalNotice, yes: Bool) {
+        activities.dismiss()
+        Haptics.tap(.levelChange)
+        waitingNotice = nil
+        let action = yes ? notice.actions.first : notice.actions.dropFirst().first
+        guard let action else { return }
+        let written = inbox.reply(to: notice, answer: action.id)
+        flash.show(written ? tf("Ответ отправлен: %@", action.title) : action.title)
+    }
+
+    /// Нажали «Ответить» или «Отклонить» на входящем звонке.
+    private func answerCall(_ invite: CallInvite, accept: Bool) {
+        activities.dismiss()
+        Haptics.tap(.levelChange)
+        guard calls.answer(invite, accept: accept) else {
+            flash.show(t("Не вышло нажать в приложении"))
+            return
+        }
+        // Ответивший человек идёт разговаривать, а не смотреть в вырез:
+        // само приложение выводим вперёд — трубку сняли в нём.
+        if accept {
+            NSRunningApplication.runningApplications(withBundleIdentifier: invite.app.bundleID)
+                .first?.activate()
+        }
+    }
+
+    /// Сколько минут было на таймере, который только что отзвонил.
+    private var finishedTimerMinutes = 5
+
+    /// «Ещё 5 минут» и «Повторить» у вышедшего времени.
+    ///
+    /// Оба завода идут через `select`, а не через `extend`: помидор после
+    /// звонка сам готовит следующую фазу, и прибавка легла бы к ней —
+    /// «ещё пять минут» после работы превращалось в десятиминутный
+    /// перерыв. Поймано живьём на журнале: «таймер: продлён до 10 мин».
+    private func answerTimer(more: Bool) {
+        activities.dismiss()
+        Haptics.tap(.levelChange)
+        let minutes = more ? 5 : finishedTimerMinutes
+        timer.select(minutes: minutes)
+        timer.start()
+        flash.show(more ? t("Ещё 5 минут") : tf("Таймер заново: %d мин", minutes))
+    }
+
+    /// Когда последний раз проверяли, на месте ли ждущая плашка.
     private var breakCheckedAt = Date.distantPast
 
-    /// Напоминание, которому не ответили, возвращается, как только вырез
+    /// Вопрос, на который не ответили, возвращается, как только вырез
     /// освободится: его убирает любая открытая панель и перебивает важная
-    /// плашка, а пропасть без ответа оно не должно.
-    private func keepBreakReminder() {
-        guard let kind = breaks.awaiting, Date().timeIntervalSince(breakCheckedAt) >= 1 else { return }
+    /// плашка, а пропасть без ответа он не должен.
+    ///
+    /// Одна проверка на всех ждущих — перерыв, предложение модели,
+    /// присланное снаружи. Вечных плашек ради этого не нужно: вечная
+    /// занимает вырез насмерть и своим высоким приоритетом отбрасывает
+    /// встречу и вышедшее время.
+    private func keepWaitingActivities() {
+        guard Date().timeIntervalSince(breakCheckedAt) >= 1 else { return }
         breakCheckedAt = Date()
-        guard activities.current == nil, state.overlay == nil, !state.isHovered, !state.isPinnedOpen,
-              !ring.isOpen, voice.phase == nil else { return }
-        activities.present(.breakReminder(kind))
+        guard notchIsFree else { return }
+
+        // Порядок — по тому, кто кого дольше ждёт. Предложение модели держит
+        // разговор: пока на него не ответили, круг помощника стоит.
+        // Присланное снаружи держит чужой скрипт. Перерыв не держит никого,
+        // поэтому идёт последним.
+        if let action = assistant.pending, pendingAnswer != nil {
+            activities.present(.agentConfirm(action))
+        } else if let notice = waitingNotice {
+            activities.present(.external(notice))
+        } else if let kind = breaks.awaiting {
+            activities.present(.breakReminder(kind))
+        }
     }
+
+    /// Вырез ничем не занят и никому не мешает.
+    private var notchIsFree: Bool {
+        activities.current == nil && state.overlay == nil && !state.isHovered
+            && !state.isPinnedOpen && !ring.isOpen && voice.phase == nil
+    }
+
+    /// Присланный вопрос, на который ещё не ответили.
+    ///
+    /// Держится здесь, а не в самой службе: служба читает папку и про
+    /// показ ничего не знает, а вернуть вопрос на экран надо ровно тому,
+    /// кто следит за тем, свободен ли вырез.
+    private var waitingNotice: ExternalNotice?
 
     /// Крестик на плашке: у полки он прячет напоминание до следующего файла,
     /// у остальных просто убирает плашку.
@@ -4747,7 +5106,7 @@ final class NotchController {
             onOpenMonitor: { [weak self] in self?.openMonitor() },
             onOpenActivityMonitor: { [weak self] in self?.openActivityMonitor() },
             onDismissActivity: { [weak self] in self?.dismissActivity() },
-            onBreakAnswer: { [weak self] kind, done in self?.answerBreak(kind, done: done) },
+            onAnswer: { [weak self] kind, yes in self?.answerActivity(kind, yes: yes) },
             onOpenHub: { [weak self] in self?.openRingMenu() },
             onOpenTeleprompter: { [weak self] in self?.openTeleprompter() },
             onEditCountdown: { [weak self] in

@@ -2,7 +2,8 @@ import AVFoundation
 import AppKit
 import SwiftUI
 
-/// Раздел настроек «Вырез»: поведение, вид, плашки событий, живой вырез.
+/// Раздел настроек «Вырез»: поведение, вид, живой вырез. Плашки событий
+/// переехали в «Уведомления».
 extension SettingsView {
     /// Поведение и вид самого выреза, плашки событий и то, что оживляет его
     /// само: кот, мурчание, погода. Собрано из «Основных», «В вырезе»
@@ -87,74 +88,6 @@ extension SettingsView {
                     .accessibilityLabel(t("Прозрачность выреза"))
                     .accessibilityValue(Surface.DensityScale.title(for: settings.notchDensity))
                     hint(t("До упора вправо — сплошной чёрный вырез, как было."))
-                }
-            }
-            section(t("Плашки событий"), icon: "bell.badge") {
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Picker(t("Держать плашки событий"), selection: settings.binding(\.activityHold)) {
-                        ForEach(Settings.activityHolds, id: \.self) { scale in
-                            Text(Self.activityHoldTitle(scale)).tag(scale)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    hint(t("Как долго держатся плашки событий."))
-                    hint(t("Наведение на вырез убирает плашку в любом случае."))
-                }
-                .accessibilityElement(children: .combine)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle(t("Показывать смену трека"), isOn: settings.binding(\.showTrackChanges))
-                        .disabled(!settings.musicEnabled)
-                    hint(t("Работает с любым плеером: сведения читаются из системы."))
-                }
-                .accessibilityElement(children: .combine)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle(t("Показывать плашку при копировании"),
-                           isOn: settings.binding(\.clipboardShowsChip))
-                        .disabled(!settings.clipboardEnabled)
-                    hint(t("По плашке можно нажать — откроется история."))
-                }
-                .accessibilityElement(children: .combine)
-
-                Toggle(t("Состояние питания"), isOn: settings.binding(\.batteryEnabled))
-                Toggle(t("Предупреждать о низком заряде"), isOn: settings.binding(\.warnOnLowBattery))
-                    .disabled(!settings.batteryEnabled)
-                Picker(t("Порог предупреждения"), selection: settings.binding(\.lowBatteryThreshold)) {
-                    ForEach([10, 15, 20, 25, 30], id: \.self) { value in
-                        Text("\(value)%").tag(value)
-                    }
-                }
-                .pickerStyle(.menu)
-                .disabled(!settings.batteryEnabled || !settings.warnOnLowBattery)
-
-                // Пояснение — в одной строке со списком: отдельной строкой
-                // под линией оно читалось как ещё одна настройка.
-                VStack(alignment: .leading, spacing: 4) {
-                    Picker(t("Сообщать"), selection: Binding(
-                        get: { settings.weatherAlertMode },
-                        set: { settings.weatherAlertMode = $0 }
-                    )) {
-                        ForEach(WeatherAlertMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .disabled(!settings.weatherEnabled)
-                    if settings.weatherAlertMode != .periodic {
-                        hint(t("Один раз на явление, а не каждую проверку."))
-                    }
-                }
-
-                if settings.weatherAlertMode == .periodic {
-                    Picker(t("Как часто сообщать"), selection: settings.binding(\.weatherPeriodHours)) {
-                        ForEach([1, 3, 6, 12], id: \.self) { value in
-                            Text(tf("%d ч", value)).tag(value)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .disabled(!settings.weatherEnabled)
                 }
             }
             section(t("Живой вырез"), icon: "cat") {

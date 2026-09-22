@@ -100,4 +100,61 @@ extension CalendarService {
         }
         return writable.first
     }
+
+    // MARK: - Ответ на наступившее напоминание
+
+    /// Отметить выполненным.
+    ///
+    /// По идентификатору записи, а не по названию: одинаково названных
+    /// напоминаний у человека бывает сколько угодно — «позвонить маме»
+    /// стоит в списке каждую неделю.
+    func completeReminder(id: String) -> Bool {
+        guard let reminder = reminder(id: id) else { return false }
+        reminder.isCompleted = true
+        return save(reminder, what: "выполнено")
+    }
+
+    /// Отложить на столько-то минут.
+    ///
+    /// Срок сдвигается **от сейчас**, а не от прежнего времени: «через
+    /// пятнадцать минут» человек говорит в тот миг, когда нажимает, —
+    /// а прежний срок к этому мигу уже прошёл, и сдвиг от него вернул бы
+    /// напоминание в прошлое, то есть прямо сейчас.
+    ///
+    /// Вместе со сроком переставляется и звонок: оставшийся на прежнем
+    /// времени, он прозвонил бы отложенное напоминание ещё раз.
+    func snoozeReminder(id: String, byMinutes minutes: Int, now: Date = Date()) -> Bool {
+        guard let reminder = reminder(id: id) else { return false }
+        let due = now.addingTimeInterval(TimeInterval(minutes * 60))
+        reminder.dueDateComponents = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute], from: due
+        )
+        reminder.alarms?.forEach(reminder.removeAlarm)
+        reminder.addAlarm(EKAlarm(absoluteDate: due))
+        return save(reminder, what: "отложено на \(minutes) мин")
+    }
+
+    private func reminder(id: String) -> EKReminder? {
+        guard remindersAccess == .fullAccess else {
+            DebugLog.write("напоминание: нет полного доступа")
+            return nil
+        }
+        guard let item = store.calendarItem(withIdentifier: id) as? EKReminder else {
+            DebugLog.write("напоминание: не найдено в хранилище")
+            return nil
+        }
+        return item
+    }
+
+    private func save(_ reminder: EKReminder, what: String) -> Bool {
+        do {
+            try store.save(reminder, commit: true)
+            DebugLog.write("напоминание «\(reminder.title ?? "")»: \(what)")
+            refresh()
+            return true
+        } catch {
+            DebugLog.write("напоминание: не сохранилось — \(error.localizedDescription)")
+            return false
+        }
+    }
 }

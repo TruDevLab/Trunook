@@ -352,9 +352,12 @@ extension View {
         in shape: S,
         tint: Color? = nil,
         lit: Bool = false,
-        glass: Bool
+        glass: Bool,
+        interactive: Bool? = nil
     ) -> some View {
-        modifier(SurfaceStyle(role: role, shape: shape, tint: tint, lit: lit, glass: glass))
+        modifier(SurfaceStyle(
+            role: role, shape: shape, tint: tint, lit: lit, glass: glass, interactive: interactive
+        ))
     }
 
     /// Поверхность главного действия: цветное стекло вместо ровной заливки.
@@ -402,6 +405,10 @@ private struct SurfaceStyle<S: Shape>: ViewModifier {
     let tint: Color?
     let lit: Bool
     let glass: Bool
+    /// Отклик стекла на курсор. По умолчанию — от роли; задаётся отдельно,
+    /// когда плотность нужна плиточная, а нажимается не сама поверхность,
+    /// а кнопки на ней — как у плитки быстрых команд.
+    var interactive: Bool?
 
     /// Под стеклом заливка гаснет — остаётся только подсветка под курсором.
     /// Гаснет, а не убирается: убрать значило бы завести ветку.
@@ -434,7 +441,7 @@ private struct SurfaceStyle<S: Shape>: ViewModifier {
         // Цвет подмешивается вполсилы: взятый целиком, он высветлял стекло
         // до того, что подпись на нём пропадала.
         if let tint { value = value.tint(tint.opacity(Surface.Role.tintStrength)) }
-        return value.interactive(role.isInteractive)
+        return value.interactive(interactive ?? role.isInteractive)
     }
 }
 

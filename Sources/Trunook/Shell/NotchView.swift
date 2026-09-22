@@ -349,7 +349,9 @@ struct NotchView: View {
     let onOpenActivityMonitor: () -> Void
     let onDismissActivity: () -> Void
     /// Ответ на напоминание о перерыве: «готово» или «пропустить».
-    let onBreakAnswer: (BreakKind, Bool) -> Void
+    /// Ответ на плашку, которая его ждёт: перерыв, предложение модели,
+    /// напоминание, таймер, звонок, присланный вопрос.
+    let onAnswer: (Activity.Kind, Bool) -> Void
     let onOpenHub: () -> Void
     /// Телесуфлер живёт в своём окне, а не накладкой в вырезе: в него печатают
     /// и смотрят подолгу, а вырез фокуса не отбирает и прибит к кромке.
@@ -1132,7 +1134,7 @@ struct NotchView: View {
                     onJoin: onJoin,
                     onInstallUpdate: onInstallUpdate,
                     onDismiss: onDismissActivity,
-                    onBreakAnswer: onBreakAnswer,
+                    onAnswer: onAnswer,
                     onOpen: { openInteractive(activity) },
                     onSaveToNotes: onSaveClipboardToNotes,
                     notesEnabled: settings.notesEnabled
@@ -1165,7 +1167,8 @@ struct NotchView: View {
                 event: events.first,
                 metrics: metrics,
                 startDate: state.hoverStartedAt,
-                onTogglePlayback: { music.send(.togglePlayPause) }
+                onTogglePlayback: { music.send(.togglePlayPause) },
+                onJoin: onJoin
             )
             .frame(width: PreviewPanel.layout(track: music.nowPlaying, event: events.first, metrics: metrics).panelWidth)
         case .expanded:

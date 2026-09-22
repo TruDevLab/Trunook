@@ -214,6 +214,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.followUp", #selector(askFollowUp)),
             ("com.trunook.debug.monday", #selector(askMonday)),
             ("com.trunook.debug.agentCard", #selector(showAgentCard)),
+            ("com.trunook.debug.agentPlashka", #selector(showAgentPlashka)),
+            ("com.trunook.debug.notifyAsk", #selector(showExternalNotice)),
+            ("com.trunook.debug.reminderDue", #selector(showReminderDue)),
+            ("com.trunook.debug.callDump", #selector(dumpCalls)),
+            ("com.trunook.debug.hoverMeeting", #selector(hoverMeeting)),
+            ("com.trunook.debug.answerYes", #selector(answerActivityYes)),
+            ("com.trunook.debug.answerNo", #selector(answerActivityNo)),
             ("com.trunook.debug.agentCardNote", #selector(showAgentCardNote)),
             ("com.trunook.debug.agentRun", #selector(runAgentTimer)),
             ("com.trunook.debug.agentAsk", #selector(runAgentAgenda)),
@@ -731,6 +738,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func askMonday() { controller.debugAskByVoice("а какие дела на понедельник?") }
     @objc private func showAgentCard() { controller.debugAgentCard(kind: .createEvent) }
+    /// То же предложение плашкой — путь при закрытой панели.
+    @objc private func showAgentPlashka() { controller.debugAgentPlashka() }
+    /// Образец уведомления, присланного снаружи: с двумя кнопками и ответом.
+    @objc private func showExternalNotice() { controller.debugExternalNotice() }
+    /// Наступившее напоминание: «готово» и «через 15 минут».
+    @objc private func showReminderDue() { controller.debugReminderDue() }
+    /// Окна и кнопки знакомых телефонов — по ним пишется карта подписей.
+    @objc private func dumpCalls() { controller.debugCallDump() }
+    /// Мини-вид с встречей со ссылкой — проверить кнопку «Подключиться».
+    @objc private func hoverMeeting() { controller.debugHoverMeeting() }
+    /// Ответ на ждущую плашку без мыши: проверяется не кнопка, а то,
+    /// что за ней стоит.
+    @objc private func answerActivityYes() { controller.debugAnswerActivity(yes: true) }
+    @objc private func answerActivityNo() { controller.debugAnswerActivity(yes: false) }
     @objc private func showAgentCardNote() { controller.debugAgentCard(kind: .createNote) }
     @objc private func runAgentTimer() { controller.debugAgentAsk("поставь таймер на 10 минут") }
     @objc private func runAgentAgenda() { controller.debugAgentAsk("что у меня сегодня по плану") }
@@ -1350,7 +1371,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // и держит его раскрытым, пока человек смотрит.
             onPreviewNotch: { [weak self] seconds in
                 self?.controller.holdOpen(seconds: seconds)
-            }
+            },
+            onPreviewNotice: { [weak self] in self?.controller.previewExternalNotice() }
         )
     }
 

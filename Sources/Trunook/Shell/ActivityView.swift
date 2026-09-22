@@ -24,6 +24,14 @@ struct ActivityLayout {
     static let spacing: CGFloat = 8
     static let iconSize: CGFloat = 24
     static let maxWidth: CGFloat = 360
+    /// Потолок для плашек, которые ждут ответа.
+    ///
+    /// Шире обычного нарочно: обычная плашка сообщает, и недочитанное
+    /// можно дочитать бегущей строкой, а у вопроса другой срок годности —
+    /// отвечают на него одним нажатием и сразу. Поймано снимком: «Встреча
+    /// «Созвон с командой» · Пн, 21 сент., 15:00» уезжала за оба края,
+    /// и в кадре стояло «…озвон с командой» · Пн, 21 сент., 1…».
+    static let maxAskWidth: CGFloat = 470
     /// Насколько плашка должна выступать за края свёрнутой формы, чтобы
     /// читаться как раскрытие, а не как случайный обрубок.
     static let overhangBeyondNotch: CGFloat = 32
@@ -48,7 +56,8 @@ struct ActivityLayout {
         trailing: String?,
         minimumWidth: CGFloat,
         trailingIsButton: Bool = false,
-        trailingExtra: CGFloat = 0
+        trailingExtra: CGFloat = 0,
+        maxWidth: CGFloat = ActivityLayout.maxWidth
     ) {
         let trailingWidth = trailing.map {
             TextMeasure.width($0, font: Self.trailingFont)
@@ -62,7 +71,7 @@ struct ActivityLayout {
         let natural = fixed + TextMeasure.width(text, font: Self.textFont)
         let floorWidth = minimumWidth + Self.overhangBeyondNotch
 
-        panelWidth = min(Self.maxWidth, max(floorWidth, natural))
+        panelWidth = min(maxWidth, max(floorWidth, natural))
         textWidth = panelWidth - fixed
     }
 }
@@ -74,6 +83,35 @@ enum ActivityButton: Equatable {
     case installUpdate
 }
 
+/// Пара круглых кнопок в плашке: сделать и не делать.
+///
+/// Одним типом на все события, которые чего-то ждут, — перерыв, предложение
+/// модели, напоминание, вышедшее время, звонок, присланный вопрос. Пока это
+/// был частный случай перерыва, каждое новое «ответьте» тянуло за собой свою
+/// вёрстку, свой расчёт ширины и свой обработчик; расходятся такие тройки
+/// на первой же правке.
+struct ActivityAnswer: Equatable {
+    struct Key: Equatable {
+        let symbol: String
+        /// Подпись под чёлкой при наведении: круглый значок сам по себе
+        /// не говорит, что случится.
+        let hint: String
+        /// Зелёная ли кнопка. Согласие красят, отказ оставляют белым:
+        /// две одинаковые кнопки заставляли бы читать подпись каждый раз.
+        var isPositive: Bool = false
+        /// Красная — только у отбоя: отказ и сброс звонка это разные вещи,
+        /// и «положить трубку» обязано выглядеть опасным.
+        var isDangerous: Bool = false
+    }
+
+    /// Главное действие — левая кнопка.
+    let yes: Key
+    /// Второе. Может не быть вовсе: «Открыть» в плашке стоит и одно.
+    let no: Key?
+
+    var count: Int { no == nil ? 1 : 2 }
+}
+
 struct ActivityView: View {
     let activity: Activity
     let track: NowPlaying?
@@ -83,8 +121,11 @@ struct ActivityView: View {
     let onInstallUpdate: () -> Void
     /// Убрать плашку крестиком. Есть только у тех, что не уходят сами.
     let onDismiss: () -> Void
-    /// Ответ на напоминание о перерыве: `true` — «готово», `false` — «пропустить».
-    let onBreakAnswer: (BreakKind, Bool) -> Void
+    /// Ответ на плашку, которая его ждёт: `true` — главное действие,
+    /// `false` — второе. Один путь на перерыв, предложение модели,
+    /// напоминание, таймер, звонок и присланный вопрос: разбирает случай
+    /// контроллер, у которого и так все службы под рукой.
+    let onAnswer: (Activity.Kind, Bool) -> Void
     /// Нажатие по самой плашке. У неинтерактивных не вызывается.
     let onOpen: () -> Void
     /// Отложить скопированное в заметки, не открывая ничего.
@@ -105,7 +146,9 @@ struct ActivityView: View {
             minimumWidth: metrics.closed.width,
             trailingIsButton: button(for: kind) != nil,
             trailingExtra: sideButtonCount(kind, notesEnabled: notesEnabled) * sideButtonWidth
-                + (isBreakReminder(kind) ? answerButtonsRoom : 0)
+                + answerRoom(for: kind),
+            maxWidth: answer(for: kind) == nil
+                ? ActivityLayout.maxWidth : ActivityLayout.maxAskWidth
         )
     }
 
@@ -204,10 +247,10 @@ struct ActivityView: View {
                 ) { onSaveToNotes(entry) }
             }
 
-            // Напоминание не уходит само: ответ — круглыми кнопками, подпись
-            // всплывает под чёлкой при наведении.
-            if case let .breakReminder(kind) = activity.kind {
-                answerButtons(kind)
+            // Ждущая плашка не уходит сама: ответ — круглыми кнопками,
+            // подпись всплывает под чёлкой при наведении.
+            if let answer = Self.answer(for: activity.kind) {
+                answerButtons(answer)
             }
 
             if Self.isDismissable(activity.kind) {
@@ -220,19 +263,66 @@ struct ActivityView: View {
             }
         }
         .padding(.leading, ActivityLayout.leadingPadding)
-        // У напоминания справа кнопки ростом со значок слева — и поле такое же,
-        // как слева: иначе плашка читалась кривой.
-        .padding(.trailing, Self.isBreakReminder(activity.kind)
-                 ? ActivityLayout.leadingPadding : ActivityLayout.trailingPadding)
+        // У ждущей плашки справа кнопки ростом со значок слева — и поле
+        // такое же, как слева: иначе плашка читалась кривой.
+        .padding(.trailing, Self.answer(for: activity.kind) == nil
+                 ? ActivityLayout.trailingPadding : ActivityLayout.leadingPadding)
         // Содержимое начинается ровно под аппаратным вырезом.
         .padding(.top, metrics.notchHeight + 6)
         .padding(.bottom, 12)
         .foregroundStyle(.white)
     }
 
-    static func isBreakReminder(_ kind: Activity.Kind) -> Bool {
-        if case .breakReminder = kind { return true }
-        return false
+    /// Чего ждёт эта плашка и какими кнопками на это отвечают.
+    ///
+    /// Одной функцией и для расчёта ширины, и для вёрстки — по той же
+    /// причине, что и `button(for:)`: двум проверкам полагалось бы молча
+    /// совпадать, а это ровно тот уговор, который однажды нарушают.
+    static func answer(for kind: Activity.Kind) -> ActivityAnswer? {
+        switch kind {
+        case .breakReminder:
+            return ActivityAnswer(
+                yes: .init(symbol: "checkmark", hint: t("Готово"), isPositive: true),
+                no: .init(symbol: "xmark", hint: t("Пропустить"))
+            )
+        case let .agentConfirm(action):
+            // Подпись согласия — та же, что на кнопке карточки в панели:
+            // «Создать», «Напомнить», «Записать». Человек должен узнавать
+            // одно и то же действие, откуда бы он его ни подтверждал.
+            return ActivityAnswer(
+                yes: .init(symbol: "checkmark", hint: action.confirm, isPositive: true),
+                no: .init(symbol: "xmark", hint: t("Отмена"))
+            )
+        case .reminderDue:
+            return ActivityAnswer(
+                yes: .init(symbol: "checkmark", hint: t("Готово"), isPositive: true),
+                no: .init(symbol: "clock.arrow.circlepath", hint: t("Через 15 минут"))
+            )
+        case .timer:
+            // У вышедшего времени ответа «да/нет» нет, но движение после
+            // звонка всегда одно из двух: продлить или завести заново.
+            return ActivityAnswer(
+                yes: .init(symbol: "plus", hint: t("Ещё 5 минут"), isPositive: true),
+                no: .init(symbol: "arrow.clockwise", hint: t("Повторить"))
+            )
+        case let .incomingCall(invite):
+            return ActivityAnswer(
+                yes: .init(symbol: "phone.fill", hint: t("Ответить"), isPositive: true),
+                no: invite.canDecline
+                    ? .init(symbol: "phone.down.fill", hint: t("Отклонить"), isDangerous: true)
+                    : nil
+            )
+        case let .external(notice):
+            guard let first = notice.actions.first else { return nil }
+            return ActivityAnswer(
+                yes: .init(symbol: first.symbol, hint: first.title, isPositive: first.isPositive),
+                no: notice.actions.dropFirst().first.map {
+                    .init(symbol: $0.symbol, hint: $0.title, isPositive: $0.isPositive)
+                }
+            )
+        default:
+            return nil
+        }
     }
 
     /// Поперечник кнопок ответа — ровно значок слева: плашка симметрична.
@@ -240,39 +330,49 @@ struct ActivityView: View {
     static let answerSpacing: CGFloat = 8
 
     /// Сколько кнопки ответа прибавляют к ширине: промежуток от текста,
-    /// две кнопки с промежутком и разница полей справа и слева.
-    static var answerButtonsRoom: CGFloat {
-        ActivityLayout.spacing + 2 * answerDiameter + answerSpacing
+    /// сами кнопки с промежутками и разница полей справа и слева.
+    static func answerRoom(for kind: Activity.Kind) -> CGFloat {
+        guard let answer = answer(for: kind) else { return 0 }
+        let count = CGFloat(answer.count)
+        return ActivityLayout.spacing + count * answerDiameter
+            + (count - 1) * answerSpacing
             + (ActivityLayout.leadingPadding - ActivityLayout.trailingPadding)
     }
 
     /// «Готово» и «Пропустить» — круглыми кнопками с подложкой, как везде
     /// в вырезе: голые значки кнопками не читались.
-    private func answerButtons(_ kind: BreakKind) -> some View {
+    private func answerButtons(_ answer: ActivityAnswer) -> some View {
         HStack(spacing: Self.answerSpacing) {
-            Button { onBreakAnswer(kind, true) } label: {
-                Image(systemName: "checkmark")
-                    .font(.system(size: NotchStyle.font(11), weight: .bold))
-                    .foregroundStyle(Palette.positive)
-                    .frame(width: Self.answerDiameter, height: Self.answerDiameter)
-                    .background(Circle().fill(Palette.positive.opacity(0.18)))
+            answerButton(answer.yes) { onAnswer(activity.kind, true) }
+            if let no = answer.no {
+                answerButton(no) { onAnswer(activity.kind, false) }
             }
-            .buttonStyle(NotchButtonStyle(diameter: Self.answerDiameter))
-            .notchHint(t("Готово"))
-
-            Button { onBreakAnswer(kind, false) } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: NotchStyle.font(10), weight: .bold))
-                    .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
-                    .frame(width: Self.answerDiameter, height: Self.answerDiameter)
-                    // Своя подложка поверх общей: на чёрном теле плашки
-                    // общая почти не видна, и крестик снова читался значком.
-                    .background(Circle().fill(.white.opacity(0.14)))
-            }
-            .buttonStyle(NotchButtonStyle(diameter: Self.answerDiameter))
-            .notchHint(t("Пропустить"))
         }
         .fixedSize()
+    }
+
+    /// Одна круглая кнопка ответа.
+    ///
+    /// Своя подложка поверх общей: на чёрном теле плашки общая почти
+    /// не видна, и голый значок кнопкой не читался.
+    private func answerButton(
+        _ key: ActivityAnswer.Key,
+        action: @escaping () -> Void
+    ) -> some View {
+        let tint: Color = key.isDangerous
+            ? Palette.negative
+            : (key.isPositive ? Palette.positive : .white.opacity(NotchStyle.primaryOpacity))
+        return Button(action: action) {
+            Image(systemName: key.symbol)
+                .font(.system(size: NotchStyle.font(key.isPositive ? 11 : 10), weight: .bold))
+                .foregroundStyle(tint)
+                .frame(width: Self.answerDiameter, height: Self.answerDiameter)
+                .background(Circle().fill(
+                    key.isPositive || key.isDangerous ? tint.opacity(0.18) : .white.opacity(0.14)
+                ))
+        }
+        .buttonStyle(NotchButtonStyle(diameter: Self.answerDiameter))
+        .notchHint(key.hint)
     }
 
     /// Кнопка сбоку от плашки — за пределами её нажимаемой части.
@@ -397,6 +497,14 @@ struct ActivityView: View {
             iconTile("party.popper.fill")
         case .waterLogged:
             iconTile("drop.fill")
+        case let .agentConfirm(action):
+            iconTile(action.tool.symbol)
+        case let .reminderDue(item):
+            iconTile(item.symbol)
+        case .incomingCall:
+            iconTile("phone.arrow.down.left.fill")
+        case let .external(notice):
+            iconTile(notice.symbol)
         }
     }
 
@@ -446,6 +554,24 @@ struct ActivityView: View {
             return title.isEmpty ? t("Событие наступило") : tf("Наступило: %@", title)
         case let .waterLogged(portion):
             return tf("Выпито %@", WaterVolume.label(portion))
+        case let .agentConfirm(action):
+            // Название и **начало** подробности: у плашки одна строка,
+            // а длинная строка в ней бежит — и вопрос, на который отвечают
+            // одним нажатием, пришлось бы дочитывать, дожидаясь прокрутки.
+            // Поймано снимком: «Встреча «Созвон с командой» · Пн, 21 сент.,
+            // 15:00 · 1 ч» уезжала за край с обеих сторон.
+            //
+            // Режется по «·», потому что подробность им и собрана: первым
+            // стоит время, а за ним длительность и место — то, что в вырезе
+            // и не спрашивают.
+            let head = action.detail.components(separatedBy: " · ").first ?? ""
+            return head.isEmpty ? action.title : "\(action.title) · \(head)"
+        case let .reminderDue(item):
+            return item.title
+        case let .incomingCall(invite):
+            return invite.text
+        case let .external(notice):
+            return "\(notice.source): \(notice.title)"
         }
     }
 
@@ -486,6 +612,10 @@ struct ActivityView: View {
             let total = WaterLog.shared.day.total
             return total > 0 ? WaterVolume.label(total) : nil
         case .breakReminder, .countdownReached:
+            return nil
+        // У ждущих плашек значения справа нет: место там занято кнопками
+        // ответа, и слово рядом с ними спорило бы с ними за смысл.
+        case .agentConfirm, .reminderDue, .incomingCall, .external:
             return nil
         }
     }
@@ -532,6 +662,14 @@ struct ActivityView: View {
             case .stretch: return Palette.positive
             }
         case .powerDisconnected, .trackChanged: return Palette.panel
+        // Цветом той функции, о которой речь: предложение модели — цветом
+        // помощника, напоминание — цветом календаря.
+        case .agentConfirm: return Palette.assistant
+        case let .reminderDue(item): return item.color
+        // Зелёный у звонка — не «всё хорошо», а «снимай трубку»: тем же
+        // цветом звонок подписан везде, где его вообще рисуют.
+        case .incomingCall: return Palette.positive
+        case .external: return Palette.assistant
         }
     }
 
@@ -543,7 +681,10 @@ struct ActivityView: View {
     ///
     /// Порог 0.55, а не 0.5: подпись жирная и мелкая, и на середине шкалы
     /// ей лучше уйти в чёрное.
-    private var actionLabelColor: Color {
+    private var actionLabelColor: Color { Self.labelColor(on: tint) }
+
+    /// То же правило для всякой цветной капсулы — у мини-вида она своя.
+    static func labelColor(on tint: Color) -> Color {
         let color = NSColor(tint).usingColorSpace(.sRGB) ?? .white
         let luminance = 0.2126 * color.redComponent
             + 0.7152 * color.greenComponent

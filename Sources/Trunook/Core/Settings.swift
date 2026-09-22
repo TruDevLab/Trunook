@@ -1548,6 +1548,27 @@ final class Settings: ObservableObject {
         defaults.set(value.flatMap { try? JSONEncoder().encode($0) }, forKey: key)
     }
 
+    /// Принимать ли уведомления, присланные снаружи — скриптами и хуками.
+    ///
+    /// По умолчанию выключено. Это единственная дверь, через которую
+    /// в вырез попадает чужое содержимое, и открывать её надо руками,
+    /// понимая зачем: у того, кто пишет в папку, уже есть права человека,
+    /// но спрашивать от его имени — отдельное решение.
+    var inboxEnabled: Bool {
+        get { flag("inboxEnabled", default: false) }
+        set { store(newValue, "inboxEnabled") }
+    }
+
+    /// Показывать ли входящие звонки чужих приложений.
+    ///
+    /// Выключено по умолчанию и по другой причине: для этого нужен
+    /// Универсальный доступ, и просить его у того, кто звонками
+    /// не пользуется, незачем.
+    var callsEnabled: Bool {
+        get { flag("callsEnabled", default: false) }
+        set { store(newValue, "callsEnabled") }
+    }
+
     /// Связывает настройку с элементом управления SwiftUI.
     /// Вычисляемые свойства не дают проекции `$`, поэтому делаем вручную.
     func binding<Value>(_ keyPath: ReferenceWritableKeyPath<Settings, Value>) -> Binding<Value> {

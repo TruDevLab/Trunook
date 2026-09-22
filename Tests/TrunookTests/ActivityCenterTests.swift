@@ -97,6 +97,50 @@ struct ActivityCenterTests {
         #expect(!Activity(kind: .trackChanged).isInteractive)
     }
 
+    @Test("Готовое обновление заменяет свою «Проверяю…», хоть та и важнее")
+    func заменаСвоейПлашки() {
+        let center = ActivityCenter()
+        center.present(.command(text: "Найдена версия 0.23.0 — скачиваю…", state: .running))
+        // Обычным путём обновление (приоритет 2) под командой (5) отбрасывалось.
+        center.present(.update(version: "0.23.0"))
+        if case .update = center.current?.kind {
+            Issue.record("обычный путь не должен перебивать более важное")
+        }
+        center.present(.update(version: "0.23.0")) { kind in
+            if case .command(_, .running) = kind { return true }
+            return false
+        }
+        if case .update = center.current?.kind {} else {
+            Issue.record("готовое обновление не заменило свою плашку «скачиваю…»")
+        }
+    }
+
+    @Test("Чужую плашку путь замены не перебивает")
+    func чужуюНеЗаменяет() {
+        let center = ActivityCenter()
+        center.present(.command(text: "Перевести на русский", state: .running))
+        center.present(.update(version: "0.23.0")) { _ in false }
+        if case .command = center.current?.kind {} else {
+            Issue.record("чужая команда вытеснена")
+        }
+    }
+
+    @Test("Под курсором плашка не истекает, после ухода висит не меньше запаса")
+    func паузаПодКурсором() async throws {
+        let center = center()
+        center.present(.trackChanged)   // 4 секунды
+        center.hold(true)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(center.current != nil)
+        // Повторная пауза не сбрасывает остаток, а отпускание без паузы
+        // ничего не ломает.
+        center.hold(true)
+        center.hold(false)
+        center.hold(false)
+        #expect(center.current != nil)
+        #expect(ActivityCenter.graceAfterHover >= 3)
+    }
+
     @Test("Досрочное снятие очищает плашку")
     func снятие() {
         let center = ActivityCenter()
@@ -137,5 +181,33 @@ struct ActivityLayoutPaddingTests {
         let fixed = ActivityLayout.leadingPadding + ActivityLayout.trailingPadding
             + ActivityLayout.iconSize + ActivityLayout.spacing
         #expect(layout.panelWidth - layout.textWidth >= fixed)
+    }
+}
+
+@Suite("Мини-вид при наведении")
+struct PreviewJoinTests {
+    private static func event(link: URL?) -> CalendarItem {
+        CalendarItem(
+            id: "1", title: "Созвон", start: Date(), end: nil, isAllDay: false,
+            source: .event, link: link.map { MeetingLink(url: $0, provider: .telemost) },
+            colorComponents: nil
+        )
+    }
+
+    @Test("У встречи со ссылкой в мини-виде есть «Подключиться»")
+    func кнопкаЕсть() {
+        let url = URL(string: "https://telemost.yandex.ru/j/123")!
+        #expect(PreviewPanel.joinLink(track: nil, event: Self.event(link: url)) == url)
+        // Место под капсулу отмеряется: иначе она обрезала бы название.
+        let metrics = NotchMetrics(notchWidth: 185, notchHeight: 32)
+        let with = PreviewPanel.layout(track: nil, event: Self.event(link: url), metrics: metrics)
+        let without = PreviewPanel.layout(track: nil, event: Self.event(link: nil), metrics: metrics)
+        #expect(with.textWidth < without.textWidth || with.panelWidth > without.panelWidth)
+    }
+
+    @Test("Без ссылки кнопки нет")
+    func кнопкиНет() {
+        #expect(PreviewPanel.joinLink(track: nil, event: Self.event(link: nil)) == nil)
+        #expect(PreviewPanel.joinLink(track: nil, event: nil) == nil)
     }
 }

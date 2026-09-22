@@ -13,13 +13,20 @@ final class SettingsSelection: ObservableObject {
         // что на ней держится, — команды, голос, заметки, сводки, — и в конце
         // инструменты и справка. Музыка и календарь стояли девятым и восьмым
         // разделами, хотя это главное, ради чего вырез открывают.
-        case general, notch, inNotch, calendar, home, model, commands, voice, notes, feeds, tools, info
+        //
+        // «Уведомления» — сразу за вырезом: всё, что всплывает под чёлкой,
+        // собрано в одном месте. Раньше плашки жили в «Вырезе», предупреждения
+        // о встречах — в «Календаре», перерывы — в «Инструментах», а звонок
+        // попал в «Календарь» просто потому, что рядом стояли встречи, —
+        // пользователь сразу сказал, что звонки к календарю отношения не имеют.
+        case general, notch, notifications, inNotch, calendar, home, model, commands, voice, notes, feeds, tools, info
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .general: return t("Основные")
             case .notch: return t("Вырез")
+            case .notifications: return t("Уведомления")
             case .home: return t("Главный экран")
             case .commands: return t("Команды")
             case .model: return t("ИИ")
@@ -38,6 +45,7 @@ final class SettingsSelection: ObservableObject {
             case .general: return "gearshape.fill"
             // Вырез своей формой: раздел про него самого.
             case .notch: return "macbook.gen2"
+            case .notifications: return "bell.badge.fill"
             case .home: return "square.grid.3x2.fill"
             case .commands: return "square.grid.2x2.fill"
             case .model: return "sparkles"
@@ -58,6 +66,7 @@ final class SettingsSelection: ObservableObject {
             switch self {
             case .general: return Palette.neutral
             case .notch: return Palette.clipboard
+            case .notifications: return Palette.warning
             case .home: return Palette.welcome
             case .commands: return Palette.commands
             case .model: return Palette.assistant
@@ -166,6 +175,9 @@ struct SettingsView: View {
     /// раскрывается по наведению, и курсор в этот миг держит ползунок —
     /// настройку крутили бы вслепую.
     let onPreviewNotch: (TimeInterval) -> Void
+    /// Показать образец вопроса от программы — чтобы было видно, о чём
+    /// вообще настройка, до того как её включать.
+    let onPreviewNotice: () -> Void
 
     static var sidebarWidth: CGFloat { SettingsStyle.sidebarWidth }
     static var size: CGSize { SettingsStyle.windowSize }
@@ -267,6 +279,7 @@ struct SettingsView: View {
                 switch selection.tab {
                 case .general: generalSection
                 case .notch: notchSection
+                case .notifications: notificationsSection
                 case .home: homeSection
                 case .model: modelSection
                 case .commands: commandsSection

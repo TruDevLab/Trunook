@@ -12,6 +12,14 @@ import SwiftUI
 final class CalendarService: ObservableObject {
     /// Ближайшие события, отсортированные по времени начала.
     @Published private(set) var upcoming: [CalendarItem] = []
+
+    /// Поставить отладочную встречу первой — до следующего чтения календаря.
+    ///
+    /// Для снимков мини-вида: встречи со ссылкой у человека в ближайших
+    /// может не оказаться, а писать ради снимка в его календарь нельзя.
+    func debugPrepend(_ item: CalendarItem) {
+        upcoming = [item] + upcoming.filter { $0.id != item.id }
+    }
     @Published private(set) var eventsAccess: EKAuthorizationStatus = .notDetermined
     @Published private(set) var remindersAccess: EKAuthorizationStatus = .notDetermined
     /// Календари и списки напоминаний, доступные для выбора в настройках.

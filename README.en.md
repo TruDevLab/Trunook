@@ -89,6 +89,15 @@ commands — one in the 1×1 size. Select text in another window, click
   both you and the others, speech is turned into text on your own Mac and
   becomes a note — a title, a summary and the tasks as a separate list, with
   the recording attached. Recording needs macOS 26 and is off by default.
+- **Notifications you can answer.** The pill under the notch no longer only
+  tells you things — it asks: a reminder that has come due can be completed
+  or snoozed for fifteen minutes, a finished timer extended or restarted,
+  and whatever the model is about to write is confirmed or cancelled without
+  opening a panel. Incoming calls arrive there too — answer or decline right
+  from the notch (Telephone, Zoiper, Linphone, Bria, 3CX, Telegram). And any
+  script can ask you through the notch itself: it drops a question file into
+  the app's folder and waits to see which button you pressed. Calls and
+  script questions are off by default.
 - **Timer and stopwatch.** Time is chosen on a dial with tick marks; there
   is a 25-minute pomodoro with a break queued after it. While it runs the
   notch widens into a strip with the count; the count runs from the moment

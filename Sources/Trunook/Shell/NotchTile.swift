@@ -47,6 +47,11 @@ struct NotchTile<Content: View>: View {
     /// полторы точки контура рядом с залитой строкой читаются как «ничего
     /// не выбрано».
     var isHighlighted = false
+    /// Отзывается ли плитка целиком на курсор — подсветкой и откликом стекла.
+    ///
+    /// Нет — когда нажимается не плитка, а кнопки на ней. Плотность при этом
+    /// остаётся плиточной: иначе плитка выходила светлее соседних.
+    var respondsToCursor = true
     @ViewBuilder var content: () -> Content
 
     @ObservedObject private var hover = HoverTracker.shared
@@ -55,7 +60,9 @@ struct NotchTile<Content: View>: View {
     /// за ним не следит.
     @ObservedObject private var settings = Settings.shared
 
-    private var isLit: Bool { isEnabled && (hover.isHovered(id) || isHighlighted) }
+    private var isLit: Bool {
+        isEnabled && respondsToCursor && (hover.isHovered(id) || isHighlighted)
+    }
 
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -63,7 +70,10 @@ struct NotchTile<Content: View>: View {
 
     var body: some View {
         content()
-            .surface(role, in: shape, tint: tint, lit: isLit, glass: Surface.inNotch)
+            .surface(
+                role, in: shape, tint: tint, lit: isLit, glass: Surface.inNotch,
+                interactive: respondsToCursor ? nil : false
+            )
             .contentShape(shape)
             .onHover { inside in hover.set(id, isInside: inside) }
             .animation(.easeOut(duration: 0.12), value: isLit)

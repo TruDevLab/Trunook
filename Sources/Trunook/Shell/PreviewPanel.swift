@@ -14,6 +14,8 @@ struct PreviewPanel: View {
     /// Точка отсчёта бегущей строки — момент наведения.
     let startDate: Date
     let onTogglePlayback: () -> Void
+    /// Подключиться к встрече по её ссылке.
+    let onJoin: (URL) -> Void
 
     /// Есть ли что показывать про музыку.
     ///
@@ -38,11 +40,25 @@ struct PreviewPanel: View {
         return t("Ближайших встреч нет")
     }
 
+    /// Ссылка на видеозвонок, если строка сейчас про встречу и ссылка у неё есть.
+    ///
+    /// Та же кнопка, что у плашки в момент начала встречи: навёл на чёлку,
+    /// увидел, что созвон через минуту, — и подключаешься оттуда же, а не
+    /// ждёшь, пока всплывёт плашка, и не ищешь ссылку в календаре. Одной
+    /// функцией на расчёт ширины и на вёрстку — по тому же правилу, что
+    /// `ActivityView.button(for:)`: две проверки однажды разошлись бы.
+    static func joinLink(track: NowPlaying?, event: CalendarItem?) -> URL? {
+        guard !hasTrack(track) else { return nil }
+        return event?.link?.url
+    }
+
     static func layout(track: NowPlaying?, event: CalendarItem?, metrics: NotchMetrics) -> ActivityLayout {
-        ActivityLayout(
+        let join = joinLink(track: track, event: event) != nil
+        return ActivityLayout(
             text: text(track: track, event: event),
-            trailing: nil,
-            minimumWidth: metrics.closed.width
+            trailing: join ? t("Подключиться") : nil,
+            minimumWidth: metrics.closed.width,
+            trailingIsButton: join
         )
     }
 
@@ -60,6 +76,10 @@ struct PreviewPanel: View {
                 availableWidth: layout.textWidth,
                 startDate: startDate
             )
+
+            if let link = Self.joinLink(track: track, event: event) {
+                joinButton(link)
+            }
         }
         .padding(.leading, ActivityLayout.leadingPadding)
         .padding(.trailing, ActivityLayout.trailingPadding)
@@ -83,6 +103,21 @@ struct PreviewPanel: View {
                         .foregroundStyle(event?.color ?? .white.opacity(0.5))
                 )
         }
+    }
+
+    /// Капсула «Подключиться» — цветом встречи, как у плашки события.
+    private func joinButton(_ link: URL) -> some View {
+        let tint = event?.color ?? Palette.calendar
+        return Button { onJoin(link) } label: {
+            Text(t("Подключиться"))
+                .font(Font(ActivityLayout.trailingFont))
+                .foregroundStyle(ActivityView.labelColor(on: tint))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .accentSurface(in: Capsule(), tint: tint, glass: Surface.inNotch)
+        }
+        .buttonStyle(PressableStyle())
+        .fixedSize()
     }
 
     /// Обложка работает кнопкой воспроизведения.

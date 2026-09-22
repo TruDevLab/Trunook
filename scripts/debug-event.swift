@@ -22,6 +22,7 @@ let known = ["powerConnected", "powerDisconnected", "lowBattery", "trackChanged"
              "voice", "voiceAsk", "dictate", "voiceGlow", "voiceSpeak", "voiceAnswer",
              "update", "updatePill", "updateVerify", "updateInstall",
              "releaseNotes", "confetti", "shotConfetti",
+             "agentPlashka", "notifyAsk", "reminderDue", "callDump", "answerYes", "answerNo", "hoverMeeting",
              "obsidianScan", "obsidianSync", "obsidianLinks",
              "audioProbe", "devices", "recordStart", "recordStop", "recordNote", "installLanguage", "transcribeLast"]
 
