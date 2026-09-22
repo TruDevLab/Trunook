@@ -49,7 +49,7 @@ final class WeatherService: NSObject, ObservableObject {
     private let manager = CLLocationManager()
     private let session: URLSession
 
-    private var refreshTimer: Timer?
+    private var refreshTimer: PowerAwareTimer?
     private var location: CLLocation?
     /// На что мы уже реагировали: без этой памяти плашка о дожде всплывала бы
     /// каждые четверть часа, пока дождь остаётся в прогнозе.
@@ -86,11 +86,9 @@ final class WeatherService: NSObject, ObservableObject {
         // и диалога человек не видит.
         if settings.weatherSource == .location { requestAccessIfNeeded() }
 
-        let timer = Timer(timeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
+        refreshTimer = PowerAwareTimer(every: Self.refreshInterval, whenSaving: 60 * 60) { [weak self] in
             self?.refresh()
         }
-        RunLoop.main.add(timer, forMode: .common)
-        refreshTimer = timer
         refresh()
     }
 

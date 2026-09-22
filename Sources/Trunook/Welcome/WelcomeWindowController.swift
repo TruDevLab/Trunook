@@ -107,6 +107,14 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         WindowSnapshot.write(window, named: "welcome")
     }
 
+    /// Закрыть окно. Для отладочного события: `performClose` из фона
+    /// молча не срабатывает, а `close` проходит тот же `windowWillClose`.
+    func close() {
+        guard let window else { return }
+        DebugLog.write("окно «\(window.title)» закрыто событием")
+        window.close()
+    }
+
     /// Кадры демонстрации выреза для `docs/demo.gif`. Число и шаг подобраны
     /// под петлю в двадцать две секунды: семьдесят кадров — тот же счёт,
     /// что и у прежней картинки.
@@ -122,9 +130,30 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         model?.stop()
+        release()
         guard !settings.hasSeenWelcome else { return }
         settings.hasSeenWelcome = true
         DebugLog.write("знакомство пройдено")
+    }
+
+    /// Закрытое окно отдаёт содержимое, а не прячет его.
+    ///
+    /// Спрятанное окно продолжало жить: фон и демонстрация выреза шли
+    /// тридцать кадров в секунду до перезапуска приложения — одиннадцать
+    /// процентов процессора в покое после каждого обновления, когда окно
+    /// открывается само. Следующий показ строит окно заново: всё, что должно
+    /// пережить закрытие, живёт в контроллере, а не в виде.
+    ///
+    /// Следующим оборотом цикла, а не прямо здесь: окно ещё закрывается,
+    /// и отпускать его посреди собственного закрытия нельзя.
+    private func release() {
+        guard let window else { return }
+        self.window = nil
+        model = nil
+        DispatchQueue.main.async {
+            window.delegate = nil
+            window.contentView = nil
+        }
     }
 
     /// То же, что у окна настроек: новое окно создаётся в начале координат,

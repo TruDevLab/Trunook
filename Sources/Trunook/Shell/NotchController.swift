@@ -203,9 +203,12 @@ final class NotchController {
             name: NSApplication.didChangeScreenParametersNotification,
             object: nil
         )
+        installDormancy()
+        installPowerSaving()
     }
 
     func stop() {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         input.stop()
         swipeResetTimer?.invalidate()
         swipeResetTimer = nil
@@ -246,6 +249,86 @@ final class NotchController {
 
     @objc private func screensChanged() {
         placeScreens(force: true)
+    }
+
+    // MARK: - Энергосбережение
+
+    private var powerObservation: AnyCancellable?
+    /// Плашка о включении показана в этом сеансе: второй раз она уже
+    /// не новость, а назойливость — режим от аккумулятора включается
+    /// с каждым выдернутым проводом.
+    private var powerNoticeShown = false
+
+    /// Вход в энергосбережение виден плашкой: иначе замерший кот
+    /// и отложенная сводка выглядели бы поломкой. Выход — отложенное
+    /// (сводка, слежка, связи заметок) идёт сразу, а не ждёт следующего
+    /// тика (`ENERGY.md`, раздел 2).
+    private func installPowerSaving() {
+        powerObservation = PowerPreference.shared.$saving
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] saving in
+                guard let self else { return }
+                if saving {
+                    guard !powerNoticeShown else { return }
+                    powerNoticeShown = true
+                    activities.present(.command(text: t("Включено энергосбережение"), state: .done))
+                } else {
+                    digest.tick()
+                    siteWatch.tick()
+                    linker.resume()
+                }
+            }
+    }
+
+    // MARK: - Сон экранов и неактивный сеанс
+
+    /// Экраны спят или сеанс ушёл другому пользователю: вырез никто
+    /// не видит, и опросы, которые служат только глазу и руке, стоят
+    /// (`ENERGY.md`, О7). Напоминания, таймер, звонки и перерывы не трогаем —
+    /// их срок идёт и во сне.
+    private var screensAsleep = false
+    private var sessionInactive = false
+    private var isDormant = false
+
+    private func installDormancy() {
+        let center = NSWorkspace.shared.notificationCenter
+        let names: [(Notification.Name, Selector)] = [
+            (NSWorkspace.screensDidSleepNotification, #selector(screensSlept)),
+            (NSWorkspace.screensDidWakeNotification, #selector(screensWoke)),
+            (NSWorkspace.sessionDidResignActiveNotification, #selector(sessionResigned)),
+            (NSWorkspace.sessionDidBecomeActiveNotification, #selector(sessionReturned)),
+        ]
+        for (name, selector) in names {
+            center.addObserver(self, selector: selector, name: name, object: nil)
+        }
+    }
+
+    @objc private func screensSlept() { screensAsleep = true; updateDormancy() }
+    @objc private func screensWoke() { screensAsleep = false; updateDormancy() }
+    @objc private func sessionResigned() { sessionInactive = true; updateDormancy() }
+    @objc private func sessionReturned() { sessionInactive = false; updateDormancy() }
+
+    /// Отладка: сон экранов без того, чтобы гасить их по-настоящему.
+    func debugScreensSleep(_ asleep: Bool) {
+        asleep ? screensSlept() : screensWoke()
+    }
+
+    private func updateDormancy() {
+        let dormant = screensAsleep || sessionInactive
+        guard dormant != isDormant else { return }
+        isDormant = dormant
+        if dormant {
+            input.pausePolling()
+            clipboard.pause()
+            meeting.stop()
+        } else {
+            input.resumePolling()
+            clipboard.resume()
+            meeting.start()
+        }
+        DebugLog.write(dormant ? "сон: опросы остановлены" : "сон: опросы возобновлены")
     }
 
     /// Поставить остров на нужный экран — по режиму из настроек.
@@ -294,8 +377,10 @@ final class NotchController {
             // Сеанс перетаскивания заводится чуть позже, чем курсор тронулся:
             // зона приёма ждёт его на каждом движении.
             if let self, self.input.isDragging { self.shelfDrop.isArmed = self.input.isDraggingData }
-            self?.updateWindowInteractivity()
-            self?.holdActivityUnderCursor()
+            self?.withFrozenSnapshot {
+                self?.updateWindowInteractivity()
+                self?.holdActivityUnderCursor()
+            }
             self?.updateCritterGaze()
             self?.updateWindowSlot()
         }
@@ -316,11 +401,15 @@ final class NotchController {
             self?.interruptCritterIfBusy()
             self?.updateWeatherScene()
             self?.updateCountdown()
-            self?.host.updateInteractiveRect()
-            // Проверка нажатий тоже пересчитывается по времени: таймер
-            // запускают из панели, а гаснет он сам, и ловить оба края
-            // отдельными вызовами — верный способ однажды забыть.
-            self?.updateWindowInteractivity()
+            // Обе проверки только читают снимок — после всех правок
+            // состояния выше, поэтому один снимок на двоих.
+            self?.withFrozenSnapshot {
+                self?.host.updateInteractiveRect()
+                // Проверка нажатий тоже пересчитывается по времени: таймер
+                // запускают из панели, а гаснет он сам, и ловить оба края
+                // отдельными вызовами — верный способ однажды забыть.
+                self?.updateWindowInteractivity()
+            }
         }
         input.onPettingStart = { [weak self] in
             DebugLog.write("вырез гладят — мурчим")
@@ -960,7 +1049,24 @@ final class NotchController {
     ///
     /// Урок записан в `NotchResolver`: свести расчёт в один **тип** мало,
     /// тип не мешает построить его дважды. Сводить надо в одно место вызова.
-    private var notchSnapshot: NotchSnapshot { notchInputs.resolve() }
+    private var notchSnapshot: NotchSnapshot { frozenSnapshot ?? notchInputs.resolve() }
+
+    /// Снимок, закреплённый на время нескольких проверок подряд.
+    ///
+    /// Зона нажатий и прозрачность окна спрашивают снимок до четырёх раз
+    /// за тик опроса мыши, и каждый раз он собирался заново из тридцати
+    /// служб (`ENERGY.md`, О3). Между этими вопросами состояние не меняется —
+    /// они только читают, — поэтому снимок считается один раз и раздаётся.
+    /// Закрепляется строго на время `withFrozenSnapshot`: вне её любое
+    /// изменение состояния видно сразу, как и раньше.
+    private var frozenSnapshot: NotchSnapshot?
+
+    private func withFrozenSnapshot(_ body: () -> Void) {
+        guard frozenSnapshot == nil else { return body() }
+        frozenSnapshot = notchInputs.resolve()
+        defer { frozenSnapshot = nil }
+        body()
+    }
 
     private var notchInputs: NotchInputs {
         NotchInputs(
@@ -3421,7 +3527,7 @@ final class NotchController {
             isIdle: notchSnapshot.presentation == .collapsed,
             hasNotch: host.metrics?.hasNotch == true,
             reduceMotion: MotionPreference.shared.reduceMotion,
-            lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            lowPower: PowerPreference.shared.saving,
             idleSeconds: CritterGate.secondsSinceInput,
             fullScreen: CritterGate.isFullScreen(on: host.geometry?.screen)
         )
@@ -4013,7 +4119,7 @@ final class NotchController {
             isIdle: Self.allowsWeatherScene(notchSnapshot) && critter.act == nil,
             hasNotch: host.metrics?.hasNotch == true,
             reduceMotion: MotionPreference.shared.reduceMotion,
-            lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            lowPower: PowerPreference.shared.saving,
             idleSeconds: weatherScenes.pendingIsDebug ? 0 : CritterGate.secondsSinceInput,
             fullScreen: CritterGate.isFullScreen(on: host.geometry?.screen)
         )
@@ -4091,6 +4197,7 @@ final class NotchController {
         retentionTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
             self?.purgeExpiredAudio()
         }
+        retentionTimer?.allowCoalescing()
         // `objectWillChange` приходит до записи значения — поэтому через
         // очередь главного потока: к этому мигу настройка уже новая.
         retentionObservation = settings.objectWillChange

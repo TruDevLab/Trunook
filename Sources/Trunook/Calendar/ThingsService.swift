@@ -68,6 +68,7 @@ final class ThingsService: ObservableObject {
         let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
             self?.refresh()
         }
+        timer.allowCoalescing()
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }

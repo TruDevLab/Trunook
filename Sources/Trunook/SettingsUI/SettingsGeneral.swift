@@ -104,8 +104,33 @@ extension SettingsView {
                     .accessibilityElement(children: .combine)
                 }
 
+                powerSavingCard
                 permissionsCard
                 hotKeysCard
+        }
+    }
+
+    /// Когда включать режим энергосбережения и включён ли он сейчас.
+    /// Что он отключает — `ENERGY.md`, раздел 2.
+    var powerSavingCard: some View {
+        section(t("Энергосбережение"), icon: "leaf") {
+            VStack(alignment: .leading, spacing: 4) {
+                Picker(t("Включать"), selection: settings.binding(\.powerSavingMode)) {
+                    ForEach(PowerSavingMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+                hint(t("Замирают анимации, реже опросы, сводки ждут зарядки."))
+            }
+            .accessibilityElement(children: .combine)
+            HStack {
+                Text(t("Сейчас"))
+                Spacer()
+                Text(power.reason.map { tf("включён: %@", $0) } ?? t("выключен"))
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
         }
     }
 

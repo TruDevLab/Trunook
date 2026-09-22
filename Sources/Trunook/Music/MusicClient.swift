@@ -35,7 +35,7 @@ final class MusicClient: NSObject, ObservableObject, TrunookHelperClientProtocol
     private var appliedRequest: UInt64 = 0
 
     private var connection: NSXPCConnection?
-    private var pollTimer: Timer?
+    private var pollTimer: PowerAwareTimer?
     private var burstTimers: [Timer] = []
 
     private let decoder: JSONDecoder = {
@@ -49,7 +49,9 @@ final class MusicClient: NSObject, ObservableObject, TrunookHelperClientProtocol
         refresh()
         // Уведомления MediaRemote приходят не про всё — например, движение
         // ползунка внутри трека молчит. Подстраховываемся редким опросом.
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+        // В энергосбережении — раз в полминуты: уведомления MediaRemote
+        // приходят и так, опрос лишь подстраховка (`ENERGY.md`, Р3).
+        pollTimer = PowerAwareTimer(every: 5, whenSaving: 30) { [weak self] in
             self?.refresh()
         }
     }
@@ -178,8 +180,13 @@ final class MusicClient: NSObject, ObservableObject, TrunookHelperClientProtocol
                 Self.carryOver(from: previous, into: &merged)
             }
 
-            self.nowPlaying = merged
-            self.status = merged == nil ? "ничего не играет" : "подключён"
+            // Сравнение перед записью: `@Published` шлёт изменение и при том же
+            // значении, а опрос раз в пять секунд почти всегда приносит то же
+            // самое — и каждый раз пересобирал вырез на всех экранах
+            // (`ENERGY.md`, О4).
+            if merged != previous { self.nowPlaying = merged }
+            let status = merged == nil ? "ничего не играет" : "подключён"
+            if status != self.status { self.status = status }
             self.updateTint(for: merged, isNewTrack: isNewTrack)
 
             if let merged, isNewTrack, self.hasLoadedOnce, !merged.isEmpty {

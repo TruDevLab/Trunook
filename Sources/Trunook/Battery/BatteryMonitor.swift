@@ -58,10 +58,13 @@ final class BatteryMonitor: ObservableObject {
                 + "заряжается \(snapshot.isCharging)"
             )
         }
-        percentage = snapshot.percentage
-        isCharging = snapshot.isCharging
-        isPluggedIn = snapshot.isPluggedIn
-        isPresent = true
+        // Уведомления IOKit приходят и без перемен в этих четырёх полях,
+        // а `@Published` шлёт изменение и при том же значении: вырез
+        // пересобирался впустую (`ENERGY.md`, О4).
+        if percentage != snapshot.percentage { percentage = snapshot.percentage }
+        if isCharging != snapshot.isCharging { isCharging = snapshot.isCharging }
+        if isPluggedIn != snapshot.isPluggedIn { isPluggedIn = snapshot.isPluggedIn }
+        if !isPresent { isPresent = true }
         lastPluggedIn = snapshot.isPluggedIn
 
         guard settings.batteryEnabled else { return }

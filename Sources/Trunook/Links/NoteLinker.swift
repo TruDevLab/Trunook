@@ -117,7 +117,15 @@ final class NoteLinker {
         for note in store.all() { vectors.replace(from: note.id, with: []) }
     }
 
+    /// Разобрать очередь, накопленную за время энергосбережения.
+    func resume() {
+        runNext()
+    }
+
     private func runNext() {
+        // В энергосбережении очередь копится: вектор и связи — запросы
+        // к модели на каждую заметку (`ENERGY.md`, Р2). Разбирает её `resume`.
+        guard !PowerPreference.shared.saving else { return }
         guard !isBusy, computesVectors, let model, let id = pending.first else { return }
         pending.removeFirst()
         guard let note = store.note(id: id) else {

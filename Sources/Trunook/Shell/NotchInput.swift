@@ -158,6 +158,26 @@ final class NotchInput {
         // Для оверлея, живущего под самой кромкой экрана, это заметные дыры.
         // Десять опросов в секунду сводятся к сравнению точки с двумя
         // прямоугольниками — на энергопотреблении не сказывается.
+        startPolling()
+
+        // Мониторы оставляем ради мгновенной реакции между тиками опроса.
+        installEventMonitors()
+    }
+
+    /// Остановить опрос позиции, пока экраны спят или сеанс неактивен:
+    /// курсора не видно, и десять тиков в секунду шли бы впустую
+    /// (`ENERGY.md`, О7). Мониторы событий остаются — они и так молчат.
+    func pausePolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    func resumePolling() {
+        guard pollTimer == nil else { return }
+        startPolling()
+    }
+
+    private func startPolling() {
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.handleMouse(at: NSEvent.mouseLocation)
@@ -180,8 +200,9 @@ final class NotchInput {
         }
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
+    }
 
-        // Мониторы оставляем ради мгновенной реакции между тиками опроса.
+    private func installEventMonitors() {
         let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
 
         if let global = NSEvent.addGlobalMonitorForEvents(matching: events, handler: { [weak self] event in

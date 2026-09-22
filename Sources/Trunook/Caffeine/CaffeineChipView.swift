@@ -63,11 +63,14 @@ struct CaffeineChipView: View {
         metrics.notchWidth + 2 * sideWidth(chip: chip)
     }
 
+    @ObservedObject private var power = PowerPreference.shared
+
     var body: some View {
         // Раз в полсекунды, как у таймера: цифры идут по секундам,
         // и обновление раз в секунду отставало бы на полсекунды —
         // было бы видно, что счёт запаздывает.
-        TimelineView(.periodic(from: .now, by: 0.5)) { context in
+        // В энергосбережении — раз в секунду (`ENERGY.md`, Р3).
+        TimelineView(.periodic(from: .now, by: power.saving ? 1 : 0.5)) { context in
             let chip = wake.chip ?? CaffeineChip(showsHours: false, isEndless: true)
             HStack(spacing: 0) {
                 side(chip) {

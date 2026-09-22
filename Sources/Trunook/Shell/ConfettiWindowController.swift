@@ -20,6 +20,10 @@ final class ConfettiWindowController {
             DebugLog.write("конфетти: движение уменьшено, залпа нет")
             return
         }
+        guard !PowerPreference.shared.saving else {
+            DebugLog.write("конфетти: энергосбережение, залпа нет")
+            return
+        }
         // Из-под того выреза, где остров стоит сейчас: он мог переехать
         // на внешний экран.
         guard let geometry = screen.map(NotchGeometry.init(screen:)) ?? NotchGeometry.current() else { return }

@@ -145,6 +145,7 @@ final class BreakReminders {
     func start() {
         lastTick = Date()
         let timer = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in self?.step() }
+        timer.allowCoalescing()
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }

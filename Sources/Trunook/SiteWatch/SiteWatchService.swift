@@ -61,6 +61,7 @@ final class SiteWatchService: ObservableObject {
         let timer = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
             self?.tick()
         }
+        timer.allowCoalescing()
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -82,6 +83,9 @@ final class SiteWatchService: ObservableObject {
 
     func tick(now: Date = Date()) {
         guard settings.siteWatchEnabled else { return }
+        // Проверка по расписанию ждёт выхода из энергосбережения: каждая —
+        // загрузка страницы в WebKit (`ENERGY.md`, Р2). Проверка рукой не ждёт.
+        guard !PowerPreference.shared.saving else { return }
         // Состояние от прежней цели — всё равно что его нет: такую слежку
         // проверяем сразу, а не через час.
         let due = settings.siteWatches.filter {

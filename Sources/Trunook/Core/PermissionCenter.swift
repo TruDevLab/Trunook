@@ -116,6 +116,7 @@ final class PermissionCenter: ObservableObject {
         refresh()
         guard pollTimer == nil else { return }
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
+        timer.allowCoalescing()
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
     }

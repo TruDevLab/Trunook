@@ -117,7 +117,7 @@ final class MeetingService: ObservableObject {
     var onCopiedLink: ((URL) -> Void)?
 
     private let settings: Settings
-    private var timer: Timer?
+    private var timer: PowerAwareTimer?
     /// Приложение и окно встречи — чтобы не искать их заново на каждое нажатие.
     private var meetingApp: pid_t?
     private var meetingWindow: AXUIElement?
@@ -138,27 +138,60 @@ final class MeetingService: ObservableObject {
     /// каждый из которых бывает дольше периода опроса.
     private var isScanning = false
 
+    /// Запущенные браузеры и приложения встреч — где вообще искать.
+    ///
+    /// Список держится здесь и обновляется по запуску и выходу приложений,
+    /// а не собирается на каждом опросе: `runningApplications` с чтением
+    /// `bundleIdentifier` — это обращения к LaunchServices, и раз в две
+    /// секунды они стоили заметную долю всего обхода (`ENERGY.md`, О5).
+    private var targets: [Target] = []
+
     init(settings: Settings = .shared) {
         self.settings = settings
     }
 
     func start() {
+        collectTargets()
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            workspace.addObserver(self, selector: #selector(appsChanged), name: name, object: nil)
+        }
         refresh()
         // Две секунды: встреча начинается и заканчивается не мгновенно,
         // а обход дерева страницы стоит заметно дороже сравнения точек.
-        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+        timer = PowerAwareTimer(every: 2, whenSaving: 10) { [weak self] in
             self?.refresh()
         }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
     // MARK: - Обнаружение
+
+    /// Где искать встречу: процесс и то, что он такое.
+    private struct Target {
+        let pid: pid_t
+        let bundleID: String
+        /// Имя приложения — заголовок встречи, если у окна своего нет.
+        let name: String
+    }
+
+    @objc private func appsChanged() {
+        collectTargets()
+    }
+
+    private func collectTargets() {
+        targets = NSWorkspace.shared.runningApplications.compactMap { app in
+            guard let id = app.bundleIdentifier,
+                  Self.browserBundleIDs.contains(id) || MeetingApp.named(id) != nil
+            else { return nil }
+            return Target(pid: app.processIdentifier, bundleID: id, name: app.localizedName ?? "")
+        }
+    }
 
     /// Узлы площадок видеовстреч.
     private static let meetingHosts = [
@@ -192,8 +225,9 @@ final class MeetingService: ObservableObject {
         guard !isScanning else { return }
         isScanning = true
 
+        let targets = self.targets
         scanQueue.async { [weak self] in
-            let scan = Self.scan()
+            let scan = Self.scan(targets)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.isScanning = false
@@ -222,8 +256,8 @@ final class MeetingService: ObservableObject {
 
     /// Обход дерева. Ни одного обращения к состоянию службы — только чтение
     /// чужих окон и разбор прочитанного.
-    private static func scan() -> Scan? {
-        guard let found = findMeeting() else { return nil }
+    private static func scan(_ targets: [Target]) -> Scan? {
+        guard let found = findMeeting(targets) else { return nil }
 
         let address = found.area.flatMap { AXTree.url(of: $0) }
 
@@ -353,28 +387,44 @@ final class MeetingService: ObservableObject {
     /// и приложением — Телемост предлагает перейти в приложение прямо
     /// со страницы, — а у вкладки есть адрес, то есть работает и «скопировать
     /// ссылку». У окна приложения адреса нет вовсе.
-    private static func findMeeting() -> Found? {
-        findInBrowsers() ?? findInApps()
+    private static func findMeeting(_ targets: [Target]) -> Found? {
+        findInBrowsers(targets) ?? findInApps(targets)
     }
 
-    private static func findInBrowsers() -> Found? {
-        let apps = NSWorkspace.shared.runningApplications.filter {
-            guard let id = $0.bundleIdentifier else { return false }
-            return Self.browserBundleIDs.contains(id)
-        }
+    /// Веб-области окон браузеров с прошлого обхода.
+    ///
+    /// Поиск веб-области — спуск по дереву окна на десяток уровней, и раз
+    /// в две секунды для каждого окна он был самой дорогой частью опроса.
+    /// Заголовок окна — это заголовок открытой вкладки: пока он тот же,
+    /// та же и вкладка, и достаточно прочитать адрес уже найденной области.
+    /// Сменился заголовок или область перестала отвечать — ищем заново.
+    ///
+    /// Живёт только на `scanQueue`: обход и нажатие идут там же.
+    private static var areaCache: [(window: AXUIElement, title: String, area: AXUIElement)] = []
 
-        for app in apps {
-            let element = AXTree.application(pid: app.processIdentifier)
+    private static func findInBrowsers(_ targets: [Target]) -> Found? {
+        var seen: [(window: AXUIElement, title: String, area: AXUIElement)] = []
+        defer { areaCache = seen }
+
+        for app in targets where browserBundleIDs.contains(app.bundleID) {
+            let element = AXTree.application(pid: app.pid)
             for window in AXTree.windows(of: element) {
+                let windowTitle = AXTree.string(window, kAXTitleAttribute) ?? ""
+                let cached = areaCache.first { CFEqual($0.window, window) && $0.title == windowTitle }?.area
+                var area = cached
+                var address = area.flatMap { AXTree.url(of: $0) }
+                if address == nil {
+                    area = AXTree.webArea(in: window)
+                    address = area.flatMap { AXTree.url(of: $0) }
+                }
+                guard let area else { continue }
+                seen.append((window, windowTitle, area))
                 // Открытая вкладка опознаётся по адресу, а не по заголовку:
                 // главная страница Телемоста называется почти так же, как
                 // сам звонок, и по названию их не различить.
-                if let area = AXTree.webArea(in: window),
-                   let address = AXTree.url(of: area),
-                   Self.isCallURL(address) {
-                    let windowTitle = AXTree.string(window, kAXTitleAttribute) ?? ""
+                if let address, Self.isCallURL(address) {
                     return Found(
-                        pid: app.processIdentifier, window: window,
+                        pid: app.pid, window: window,
                         tabTitle: windowTitle, area: area, source: .web
                     )
                 }
@@ -389,11 +439,11 @@ final class MeetingService: ObservableObject {
     /// кнопкам различить нельзя — «Демонстрация экрана» и «Микрофон» стоят
     /// и в главном окне Zoom, и в его настройках, а главное окно Телемоста
     /// показывает «Новую встречу» ровно теми же кнопками.
-    private static func findInApps() -> Found? {
-        for running in NSWorkspace.shared.runningApplications {
-            guard let app = MeetingApp.named(running.bundleIdentifier) else { continue }
-            let element = AXTree.application(pid: running.processIdentifier)
-            let name = running.localizedName ?? ""
+    private static func findInApps(_ targets: [Target]) -> Found? {
+        for running in targets {
+            guard let app = MeetingApp.named(running.bundleID) else { continue }
+            let element = AXTree.application(pid: running.pid)
+            let name = running.name
 
             for window in AXTree.windows(of: element) {
                 let title = AXTree.string(window, kAXTitleAttribute) ?? name
@@ -405,7 +455,7 @@ final class MeetingService: ObservableObject {
                     let buttons = AXTree.buttons(of: window, maxDepth: windowDepth)
                     guard match(.leave, in: buttons, preferLargest: true) != nil else { continue }
                     return Found(
-                        pid: running.processIdentifier, window: window,
+                        pid: running.pid, window: window,
                         tabTitle: title.isEmpty ? name : title, area: nil, source: .appButtons
                     )
                 case .menu:
@@ -413,7 +463,7 @@ final class MeetingService: ObservableObject {
                     // стоят в строке и до звонка, просто недоступные.
                     guard app.isMeetingWindow(title: title) else { continue }
                     return Found(
-                        pid: running.processIdentifier, window: window,
+                        pid: running.pid, window: window,
                         tabTitle: title, area: nil, source: .appMenu(app)
                     )
                 }

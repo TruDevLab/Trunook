@@ -41,7 +41,7 @@ final class ObsidianService: ObservableObject {
     private let settings: Settings
     private let watcher = VaultWatcher()
 
-    private var timer: Timer?
+    private var timer: PowerAwareTimer?
     private let queue = DispatchQueue(label: "com.trunook.obsidian.sync")
     private var isSyncing = false
     /// Подписаны ли на пробуждение. Флаг, а не безусловный отзыв подписки:
@@ -103,12 +103,10 @@ final class ObsidianService: ObservableObject {
             self?.sync(manual: false)
         }
 
-        let timer = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
+        // `.common`, иначе таймер встаёт, пока человек водит мышью по вырезу.
+        timer = PowerAwareTimer(every: Self.tick, whenSaving: 60 * 60) { [weak self] in
             self?.sync(manual: false)
         }
-        // `.common`, иначе таймер встаёт, пока человек водит мышью по вырезу.
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
 
         watcher.onChange = { [weak self] in self?.sync(manual: false) }
         watcher.start(url: vault.url)

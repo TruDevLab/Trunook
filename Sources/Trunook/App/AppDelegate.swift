@@ -232,6 +232,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.shot", #selector(shotWelcome)),
             ("com.trunook.debug.shotDemo", #selector(shotDemo)),
             ("com.trunook.debug.shotSettings", #selector(shotSettings)),
+            ("com.trunook.debug.closeWindows", #selector(closeWindows)),
+            ("com.trunook.debug.screensSleep", #selector(screensSleep)),
+            ("com.trunook.debug.screensWake", #selector(screensWake)),
+            ("com.trunook.debug.powerSaveOn", #selector(powerSaveOn)),
+            ("com.trunook.debug.powerSaveOff", #selector(powerSaveOff)),
+            ("com.trunook.debug.powerSaveAuto", #selector(powerSaveAuto)),
             ("com.trunook.debug.shotNotch", #selector(shotNotch)),
             ("com.trunook.debug.shotMirror", #selector(shotMirror)),
             ("com.trunook.debug.shotMarks", #selector(shotMarks)),
@@ -934,6 +940,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func shotSettings() {
         settingsWindow.snapshot()
     }
+
+    /// Закрыть окна настроек и знакомства, как кнопкой. Нажать её из сессии
+    /// нечем, а проверять надо именно закрытое окно: спрятанное жгло
+    /// процессор (`ENERGY.md`, О1).
+    @objc private func closeWindows() {
+        settingsWindow.close()
+        welcomeWindow.close()
+    }
+
+    /// Сон экранов без того, чтобы гасить их у человека перед глазами
+    /// (`ENERGY.md`, О7).
+    @objc private func screensSleep() { controller.debugScreensSleep(true) }
+    @objc private func screensWake() { controller.debugScreensSleep(false) }
+
+    /// Режим энергосбережения поверх питания — проверять его, не выдёргивая
+    /// зарядку (`ENERGY.md`, раздел 2). `powerSaveAuto` возвращает решение
+    /// питанию.
+    @objc private func powerSaveOn() { PowerPreference.shared.debugForce(true) }
+    @objc private func powerSaveOff() { PowerPreference.shared.debugForce(false) }
+    @objc private func powerSaveAuto() { PowerPreference.shared.debugForce(nil) }
 
     /// Лист со значками провайдеров.
     @objc private func shotMarks() {

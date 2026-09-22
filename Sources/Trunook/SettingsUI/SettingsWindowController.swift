@@ -6,8 +6,11 @@ import SwiftUI
 ///
 /// Приложение — агент (`LSUIElement`), у него нет ни Dock, ни главного меню,
 /// поэтому окно приходится создавать и показывать вручную.
-final class SettingsWindowController {
+final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
+    /// Где окно стояло при закрытии: закрытое окно отдаёт содержимое
+    /// (см. `release`), а новое должно открыться там же, куда его увели.
+    private var lastFrame: NSRect?
 
     private let selection = SettingsSelection()
     private let models = ModelList.shared
@@ -140,13 +143,49 @@ final class SettingsWindowController {
         window.isOpaque = true
         window.contentView = NSHostingView(rootView: view)
         window.isReleasedWhenClosed = false
+        window.delegate = self
         self.window = window
-        centerOnActiveScreen(window)
+        if let lastFrame {
+            window.setFrame(lastFrame, display: false)
+        } else {
+            centerOnActiveScreen(window)
+        }
         present(window)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        release()
+    }
+
+    /// Закрытое окно отдаёт содержимое, а не прячет его.
+    ///
+    /// Спрятанное окно продолжало жить: фон шёл тридцать кадров в секунду
+    /// до перезапуска приложения — восемнадцать процентов процессора в покое
+    /// после первого же открытия настроек. Следующий показ строит окно
+    /// заново: раздел, поиск города и доступы живут в контроллере, а не в виде.
+    ///
+    /// Следующим оборотом цикла, а не прямо здесь: окно ещё закрывается,
+    /// и отпускать его посреди собственного закрытия нельзя.
+    private func release() {
+        guard let window else { return }
+        lastFrame = window.frame
+        self.window = nil
+        DispatchQueue.main.async {
+            window.delegate = nil
+            window.contentView = nil
+        }
     }
 
     func snapshot() {
         WindowSnapshot.write(window, named: "settings", withTitlebar: true)
+    }
+
+    /// Закрыть окно. Для отладочного события: `performClose` из фона
+    /// молча не срабатывает, а `close` проходит тот же `windowWillClose`.
+    func close() {
+        guard let window else { return }
+        DebugLog.write("окно «\(window.title)» закрыто событием")
+        window.close()
     }
 
     /// `NSWindow.center()` ориентируется на экран, где окно уже находится,

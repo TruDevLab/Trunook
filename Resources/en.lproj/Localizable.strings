@@ -1576,3 +1576,20 @@
 "Уведомления" = "Notifications";
 "Сборка" = "Build";
 "Выкатить новую версию?" = "Ship the new version?";
+
+/* Энергосбережение */
+"Никогда" = "Never";
+"В режиме энергосбережения macOS" = "In macOS Low Power Mode";
+"От аккумулятора и в режиме энергосбережения" = "On battery and in Low Power Mode";
+"для проверки" = "for testing";
+"энергосбережение macOS" = "macOS Low Power Mode";
+"от аккумулятора" = "on battery";
+"Энергосбережение" = "Power saving";
+"Включать" = "Turn on";
+"Замирают анимации, реже опросы, сводки ждут зарядки." = "Animations stop, checks run less often, digests wait for power.";
+"Сейчас" = "Now";
+"включён: %@" = "on: %@";
+"выключен" = "off";
+"В режиме энергосбережения замирают кот, погодные сценки и бегущая строка, реже проверяются буфер, музыка, погода и встречи, а сводки, слежка за сайтами и связи заметок ждут зарядки. Когда включать его — от режима энергосбережения macOS или ещё и от аккумулятора — выбирается в «Основных». Наведение, звонки, напоминания и таймер работают как обычно." = "In power saving mode the cat, weather scenes and scrolling text stand still; the clipboard, music, weather and meetings are checked less often; digests, site watches and note links wait for power. Whether it turns on with macOS Low Power Mode or on battery too is chosen in General. Hovering, calls, reminders and the timer work as usual.";
+"энергосбережение батарея аккумулятор заряд экономия энергия разряжается быстро садится" = "power saving battery charge energy low power drains fast";
+"Включено энергосбережение" = "Power saving is on";

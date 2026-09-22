@@ -149,6 +149,7 @@ struct SettingsView: View {
     /// Наблюдается здесь, в корне окна, — оттуда перерисовка расходится
     /// по всем разделам.
     @ObservedObject var motion = MotionPreference.shared
+    @ObservedObject var power = PowerPreference.shared
     /// Сочетания заданы пользователем, поэтому после правки их надо
     /// перерегистрировать в системе.
     let onHotKeysChanged: () -> Void

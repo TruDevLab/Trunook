@@ -9,7 +9,7 @@ import AppKit
 final class ClipboardMonitor {
     var onCopy: ((ClipboardEntry) -> Void)?
 
-    private var timer: Timer?
+    private var timer: PowerAwareTimer?
     private var lastChangeCount = NSPasteboard.general.changeCount
 
     /// Изображение крупнее этого не сохраняем: история должна оставаться
@@ -30,17 +30,32 @@ final class ClipboardMonitor {
     func start() {
         guard timer == nil else { return }
         lastChangeCount = NSPasteboard.general.changeCount
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+        timer = PowerAwareTimer(every: 0.25, whenSaving: 1) { [weak self] in
             self?.check()
         }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
         DebugLog.write("буфер: наблюдение начато")
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+    }
+
+    /// Пауза на время сна экранов (`ENERGY.md`, О7). В отличие от `start`,
+    /// после паузы прежняя отметка буфера сохраняется: скопированное, пока
+    /// опрос стоял, — скриптом, с другого устройства — попадёт в историю
+    /// первой же проверкой.
+    func pause() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    func resume() {
+        guard timer == nil else { return }
+        timer = PowerAwareTimer(every: 0.25, whenSaving: 1) { [weak self] in
+            self?.check()
+        }
+        check()
     }
 
     private func check() {

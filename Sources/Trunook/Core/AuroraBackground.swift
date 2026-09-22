@@ -34,6 +34,11 @@ struct AuroraBackground: View {
     private static let stillFrame: TimeInterval = 7
 
     @ObservedObject private var motion = MotionPreference.shared
+    /// Энергосбережение останавливает показ так же, как «уменьшить движение»
+    /// (`ENERGY.md`, Р1).
+    @ObservedObject private var power = PowerPreference.shared
+
+    private var isStill: Bool { motion.reduceMotion || power.saving }
 
     var body: some View {
         // «Увеличить контраст» — сплошной фон без пятен: строка поверх
@@ -55,9 +60,9 @@ struct AuroraBackground: View {
         // Приём тот же, что в `WelcomeNotchDemo`: показ замирает на одном
         // кадре, а не замедляется. Правило одно на окно, и жить оно обязано
         // в обоих его движущихся частях одинаково.
-        TimelineView(motion.reduceMotion ? .periodic(from: .now, by: .infinity)
+        TimelineView(isStill ? .periodic(from: .now, by: .infinity)
                                          : .periodic(from: .now, by: 1.0 / 30.0)) { context in
-            let time = motion.reduceMotion
+            let time = isStill
                 ? Self.stillFrame
                 : context.date.timeIntervalSinceReferenceDate
             GeometryReader { proxy in

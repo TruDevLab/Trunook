@@ -33,7 +33,7 @@ final class MonitorService: ObservableObject {
     /// отклик на действие, а стоит замер сотых долей процента.
     private static let interval: TimeInterval = 0.5
 
-    private var timer: Timer?
+    private var timer: PowerAwareTimer?
     /// Счётчики процессора с прошлого замера. Обнуляются при остановке:
     /// иначе первое же значение после долгого перерыва оказалось бы средним
     /// за всё время, пока панель была закрыта, — и выглядело бы как правда.
@@ -46,11 +46,9 @@ final class MonitorService: ObservableObject {
         previousTicks = Self.cpuTicks()
         refreshMemoryAndDisk()
 
-        let timer = Timer(timeInterval: Self.interval, repeats: true) { [weak self] _ in
+        timer = PowerAwareTimer(every: Self.interval, whenSaving: 2) { [weak self] in
             self?.tick()
         }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
         DebugLog.write("мониторинг: опрос начат")
     }
 

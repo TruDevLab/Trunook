@@ -65,6 +65,7 @@ final class DigestService: ObservableObject {
         let timer = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
             self?.tick()
         }
+        timer.allowCoalescing()
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -88,6 +89,11 @@ final class DigestService: ObservableObject {
 
     func tick(now: Date = Date()) {
         guard settings.digestEnabled, settings.ollamaEnabled, !isRunning else { return }
+        // Сводка по расписанию ждёт выхода из энергосбережения: это минуты
+        // работы модели на видеокарте. Пропущенная идёт первым же тиком
+        // после — расписание смотрит на прошлый запуск, а не на час
+        // (`ENERGY.md`, Р2). Запуск рукой не ждёт.
+        guard !PowerPreference.shared.saving else { return }
         let anchor = DigestSchedule.anchor(now: now, last: settings.lastDigestRun)
         if anchor != settings.lastDigestRun { settings.lastDigestRun = anchor }
         guard settings.digestSchedule.isDue(now: now, last: anchor) else { return }

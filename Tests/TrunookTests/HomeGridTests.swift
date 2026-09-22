@@ -203,6 +203,26 @@ struct HomeGridTests {
         #expect(settings.homeWidgets == [widget(3, .timer, .wide), widget(7, .month, .large)])
     }
 
+    /// Разобранная раскладка запоминается, но не переживает свои байты:
+    /// запись мимо `Settings` — `defaults write` при отладке — видна сразу.
+    @Test("Запомненная раскладка сменяется записью и через настройки, и мимо них")
+    func кэшРаскладки() {
+        let defaults = UserDefaults(suiteName: "trunook-tests-\(UUID().uuidString)")!
+        let settings = Trunook.Settings(defaults: defaults)
+        settings.homeWidgets = [widget(1, .timer, .small)]
+        #expect(settings.homeWidgets == [widget(1, .timer, .small)])
+        #expect(settings.homeWidgets == [widget(1, .timer, .small)])
+
+        settings.homeWidgets = [widget(2, .month, .large)]
+        #expect(settings.homeWidgets == [widget(2, .month, .large)])
+
+        HomeWidgets.save([widget(3, .music, .full)], to: defaults)
+        #expect(settings.homeWidgets == [widget(3, .music, .full)])
+
+        defaults.removeObject(forKey: HomeWidgets.key)
+        #expect(settings.homeWidgets == HomeWidgets.standard)
+    }
+
     /// Раскладку, сохранённую более новой версией, старая не теряет целиком.
     @Test("Незнакомый вид пропускается, незнакомый размер заменяется")
     func незнакомыйВид() {

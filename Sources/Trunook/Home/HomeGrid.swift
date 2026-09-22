@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// Раскладка плиток главного экрана по клеткам.
 ///
@@ -37,6 +38,32 @@ struct HomeGrid: Equatable {
         columns: Int = HomeGrid.columns,
         maxRows: Int = HomeGrid.maxRows
     ) -> HomeGrid {
+        // Последняя укладка запоминается: высоту главного экрана спрашивает
+        // расчёт выреза на каждом тике опроса мыши, а раскладка меняется
+        // только руками в настройках. Укладка заново была самой дорогой
+        // частью тика (`ENERGY.md`, О3). Функция чистая — запомненное
+        // по тем же входам и есть ответ.
+        let key = PlaceKey(widgets: widgets, columns: columns, maxRows: maxRows)
+        lastPlacedLock.lock()
+        defer { lastPlacedLock.unlock() }
+        if let last = lastPlaced, last.key == key { return last.grid }
+        let grid = pack(widgets, columns: columns, maxRows: maxRows)
+        lastPlaced = (key, grid)
+        return grid
+    }
+
+    private struct PlaceKey: Equatable {
+        let widgets: [HomeWidget]
+        let columns: Int
+        let maxRows: Int
+    }
+
+    /// Под замком: в приложении раскладку спрашивают с главного потока,
+    /// но тесты идут параллельно.
+    private static var lastPlaced: (key: PlaceKey, grid: HomeGrid)?
+    private static let lastPlacedLock = NSLock()
+
+    private static func pack(_ widgets: [HomeWidget], columns: Int, maxRows: Int) -> HomeGrid {
         var taken = Array(repeating: Array(repeating: false, count: columns), count: maxRows)
         var placements: [Placement] = []
         var overflow: [HomeWidget] = []

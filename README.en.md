@@ -50,6 +50,12 @@ down to it. Clicking that strip takes you straight to its panel.
 walkable with Tab, and icon captions are read by VoiceOver. The system's
 Reduce Motion and Reduce Transparency settings are respected.
 
+**Easy on the battery.** At rest the notch barely touches the CPU, and while
+the displays sleep it doesn't touch it at all. In power saving mode — with
+macOS Low Power Mode, or on battery too, chosen in General — animations stand
+still, the clipboard, music and meetings are checked less often, and digests
+and note links wait for power.
+
 ---
 
 ## The home screen

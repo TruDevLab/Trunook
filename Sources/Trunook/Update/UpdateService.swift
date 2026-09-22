@@ -69,6 +69,7 @@ final class UpdateService: NSObject, ObservableObject {
         let timer = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
             self?.check(manual: false)
         }
+        timer.allowCoalescing()
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
 

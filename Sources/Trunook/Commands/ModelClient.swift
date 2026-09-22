@@ -398,7 +398,9 @@ final class ModelClient {
             // Просим окно контекста явно — иначе длинный промт молча
             // обрежется. Подробности у `contextWindow(forCharacters:)`.
             if let contextWindow { options["num_ctx"] = contextWindow }
-            body["keep_alive"] = settings.ollamaKeepAlive
+            // В энергосбережении модель уходит из памяти через две минуты,
+            // а не через полчаса (`ENERGY.md`, Р2).
+            body["keep_alive"] = PowerPreference.shared.saving ? "2m" : settings.ollamaKeepAlive
             body["options"] = options
         case .openAI:
             // Ни окна контекста, ни удержания модели в памяти здесь нет:

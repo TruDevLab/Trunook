@@ -141,6 +141,7 @@ struct NotchView: View {
     /// `ButtonStyle` — не `View`. Подписка в корне перерисовывает всё
     /// поддерево разом, и они читают новые значения.
     @ObservedObject private var motion = MotionPreference.shared
+    @ObservedObject private var power = PowerPreference.shared
     @ObservedObject var clipboard: ClipboardService
     @ObservedObject var assistant: AssistantSession
     /// Диктовка: по ней оживает значок микрофона в поле вопроса.
@@ -836,7 +837,8 @@ struct NotchView: View {
         // вида, и SwiftUI пересобирал бы поддерево вместо перехода.
         TimelineView(.animation(
             minimumInterval: 1 / 30,
-            paused: motion.reduceMotion || voice.phase == nil || isMirror
+            // В режиме энергосбережения свечение ровное, без дыхания (`ENERGY.md`, Р1).
+            paused: motion.reduceMotion || power.saving || voice.phase == nil || isMirror
         )) { context in
             let strength = voiceGlowStrength(at: context.date)
             // Тени, наложенные одна на другую: каждая угасает наружу сама,

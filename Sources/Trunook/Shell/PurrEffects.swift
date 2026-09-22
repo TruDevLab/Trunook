@@ -50,7 +50,7 @@ final class PurrEffects {
     /// системы такой частоты не даёт, поэтому берём самый мягкий рисунок
     /// и повторяем его так часто, как он успевает отрабатывать.
     private func startHaptics() {
-        guard hapticTimer == nil else { return }
+        guard hapticTimer == nil, !PowerPreference.shared.saving else { return }
         Haptics.tap()
         let timer = Timer(timeInterval: 0.16, repeats: true) { _ in
             Haptics.tap()
@@ -73,6 +73,9 @@ final class PurrEffects {
         // Мурчание при этом остаётся: звук и виброотклик к движению
         // на экране отношения не имеют.
         guard !MotionPreference.shared.reduceMotion else { return }
+        // В режиме энергосбережения мурчание — только звуком: дрожь это
+        // тридцать перерисовок выреза в секунду (`ENERGY.md`, Р1).
+        guard !PowerPreference.shared.saving else { return }
         let started = Date()
         let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }

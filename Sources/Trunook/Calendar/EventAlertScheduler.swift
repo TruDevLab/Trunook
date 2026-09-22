@@ -28,6 +28,7 @@ final class EventAlertScheduler {
         let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
             self?.evaluate()
         }
+        timer.allowCoalescing()
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }

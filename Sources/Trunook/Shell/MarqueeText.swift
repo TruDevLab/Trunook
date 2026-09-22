@@ -40,15 +40,21 @@ struct MarqueeText: View {
     /// как убрать плашку целиком. Строка при этом не пропадает — она
     /// показывается неподвижной и обрезается многоточием.
     @ObservedObject private var motion = MotionPreference.shared
+    /// В режиме энергосбережения строка стоит так же, как при «уменьшить
+    /// движение» (`ENERGY.md`, Р1).
+    @ObservedObject private var power = PowerPreference.shared
 
     private var textWidth: CGFloat { TextMeasure.width(text, font: font) }
     private var needsScroll: Bool {
-        !motion.reduceMotion && textWidth > availableWidth + 0.5
+        !motion.reduceMotion && !power.saving && textWidth > availableWidth + 0.5
     }
 
     var body: some View {
         if needsScroll {
-            TimelineView(.animation) { context in
+            // Шестьдесят кадров, а не частота экрана: на ProMotion без предела
+            // строка пересчитывалась сто двадцать раз в секунду, а глазом
+            // разницы в плавном сдвиге текста нет (`ENERGY.md`, О9).
+            TimelineView(.animation(minimumInterval: 1.0 / 60)) { context in
                 // Вторая копия строки идёт следом, чтобы прокрутка была бесшовной.
                 HStack(spacing: gap) {
                     label

@@ -59,6 +59,24 @@ struct QuickCommandTests {
         #expect(loaded.map(\.id) == Array(0..<7))
     }
 
+    /// Настройки запоминают разобранный набор: его читает расчёт выреза
+    /// на каждом тике. Запомненное обязано уступать новым байтам — записанным
+    /// и через `Settings`, и мимо них.
+    @Test("Запомненный набор сменяется записью и через настройки, и мимо них")
+    func кэшНабора() {
+        let store = defaults()
+        let settings = Trunook.Settings(defaults: store)
+        settings.quickCommands = [command(id: 1)]
+        #expect(settings.quickCommands.map(\.id) == [1])
+        #expect(settings.quickCommands.map(\.id) == [1])
+
+        settings.quickCommands = [command(id: 2), command(id: 3)]
+        #expect(settings.quickCommands.map(\.id) == [2, 3])
+
+        QuickCommands.save([command(id: 4)], to: store)
+        #expect(settings.quickCommands.map(\.id) == [4])
+    }
+
     @Test("Порядок — это порядок в наборе, а не номера команд")
     func порядокПоНабору() {
         let store = defaults()

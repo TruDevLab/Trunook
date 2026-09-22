@@ -22,12 +22,19 @@ struct NotchProgressRing: View {
     var tint: Color?
     var thickness: CGFloat = 4
 
+    @ObservedObject private var power = PowerPreference.shared
+
     var body: some View {
         if let track, let duration = track.duration, duration > 0 {
             // Позиция считается из времени, а не приходит обновлениями:
             // MediaRemote присылает отметку старта и скорость, дальше
             // положение ползунка — арифметика.
-            TimelineView(.periodic(from: .now, by: 1.0 / 30)) { context in
+            // На паузе позиция не движется — и часы стоят: полоса та же,
+            // а тридцать пересчётов в секунду ради неё не нужны
+            // (`ENERGY.md`, О8).
+            // В режиме энергосбережения — раз в секунду: полоса ползёт
+            // шагами, но место в треке видно так же (`ENERGY.md`, Р1).
+            TimelineView(.animation(minimumInterval: power.saving ? 1 : 1.0 / 30, paused: !track.isPlaying)) { context in
                 outline
                     .trim(from: 0, to: progress(of: track, duration: duration, at: context.date))
                     .stroke(

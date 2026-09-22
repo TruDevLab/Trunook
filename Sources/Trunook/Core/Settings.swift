@@ -532,7 +532,7 @@ final class Settings: ObservableObject {
     }
 
     var quickCommands: [QuickCommand] {
-        get { QuickCommands.load(from: defaults) }
+        get { decoded("quickCommands") { QuickCommands.load(from: defaults) } }
         set {
             objectWillChange.send()
             QuickCommands.save(newValue, to: defaults)
@@ -587,7 +587,7 @@ final class Settings: ObservableObject {
     /// в настройки при запуске: иначе поправленная в новой версии раскладка
     /// по умолчанию не дошла бы до того, кто свою так и не заводил.
     var homeWidgets: [HomeWidget] {
-        get { HomeWidgets.load(from: defaults) ?? HomeWidgets.standard }
+        get { decoded(HomeWidgets.key) { HomeWidgets.load(from: defaults) ?? HomeWidgets.standard } }
         set {
             objectWillChange.send()
             HomeWidgets.save(newValue, to: defaults)
@@ -1502,6 +1502,18 @@ final class Settings: ObservableObject {
         self[keyPath: keyPath] = selected == Set(all) ? [] : selected
     }
 
+    // MARK: - Энергосбережение
+
+    /// Когда приложение отключает украшения и фоновую работу модели.
+    ///
+    /// По умолчанию — вслед за режимом энергосбережения macOS: человек,
+    /// включивший его, уже сказал, что батарея важнее. Работа
+    /// от аккумулятора сама по себе такого не говорит.
+    var powerSavingMode: PowerSavingMode {
+        get { PowerSavingMode(rawValue: defaults.string(forKey: "powerSavingMode") ?? "") ?? .lowPowerMode }
+        set { store(newValue.rawValue, "powerSavingMode") }
+    }
+
     // MARK: - Батарея
 
     var batteryEnabled: Bool {
@@ -1521,6 +1533,31 @@ final class Settings: ObservableObject {
 
     // MARK: - Внутреннее
 
+    /// Разобранные значения, хранимые в `UserDefaults` как JSON, — вместе
+    /// с байтами, из которых они разобраны.
+    private var decodedCache: [String: (data: Data?, value: Any)] = [:]
+
+    /// Разобрать значение один раз, пока его байты в `UserDefaults` не менялись.
+    ///
+    /// Раскладку главного экрана и команды читает расчёт выреза — на каждом
+    /// тике опроса мыши и для каждого окна. Разбор JSON на каждом чтении
+    /// был двумя третями всей работы приложения в покое (`ENERGY.md`, О2).
+    ///
+    /// Ключ кэша — сами байты, а не сброс при записи: так подхватывается
+    /// и запись мимо `Settings` — `defaults write` при отладке, миграция
+    /// внутри `QuickCommands.load`. Сравнение байтов стоит доли того,
+    /// что стоил разбор. Байты берутся после загрузки: миграция могла
+    /// переписать значение, и кэш должен запомнить уже новое.
+    private func decoded<T>(_ key: String, _ load: () -> T) -> T {
+        let data = defaults.data(forKey: key)
+        if let hit = decodedCache[key], hit.data == data, let value = hit.value as? T {
+            return value
+        }
+        let value = load()
+        decodedCache[key] = (defaults.data(forKey: key), value)
+        return value
+    }
+
     private func flag(_ key: String, default fallback: Bool) -> Bool {
         defaults.object(forKey: key) as? Bool ?? fallback
     }
@@ -1539,8 +1576,10 @@ final class Settings: ObservableObject {
     // постороннее. Строку, которую так легко забыть, надо писать один раз.
 
     private func hotKey(_ key: String, default fallback: HotKeySpec?) -> HotKeySpec? {
-        guard let data = defaults.data(forKey: key) else { return fallback }
-        return try? JSONDecoder().decode(HotKeySpec.self, from: data)
+        decoded(key) {
+            guard let data = defaults.data(forKey: key) else { return fallback }
+            return try? JSONDecoder().decode(HotKeySpec.self, from: data)
+        }
     }
 
     private func storeHotKey(_ value: HotKeySpec?, _ key: String) {

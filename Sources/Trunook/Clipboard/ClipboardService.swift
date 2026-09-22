@@ -48,6 +48,7 @@ final class ClipboardService: ObservableObject {
             self?.prune()
             self?.reload()
         }
+        timer.allowCoalescing()
         RunLoop.main.add(timer, forMode: .common)
         pruneTimer = timer
     }
@@ -56,6 +57,16 @@ final class ClipboardService: ObservableObject {
         monitor.stop()
         pruneTimer?.invalidate()
         pruneTimer = nil
+    }
+
+    /// Пока экраны спят, опрос буфера стоит (`ENERGY.md`, О7).
+    func pause() {
+        monitor.pause()
+    }
+
+    func resume() {
+        guard settings.clipboardEnabled, pruneTimer != nil else { return }
+        monitor.resume()
     }
 
     /// Перечитывает список. Держим на один больше, чем показываем: так видно,
