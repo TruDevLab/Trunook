@@ -36,10 +36,14 @@ struct ExternalNotice: Equatable, Identifiable {
     /// Куда написать ответ. Файл, а не сеть: тот, кто прислал вопрос, уже
     /// умеет ждать файла — на этом стоят все хуки и все сборочные скрипты.
     let replyPath: String?
+    /// Кнопки — предложение, а не вопрос (`"optional": true`): плашка уходит
+    /// сама через `hold`, и никто её не возвращает. Так приходит почта —
+    /// «Ответить» и «В архив» под письмом, о котором можно и забыть.
+    let isOptional: Bool
 
     /// Ждёт ли уведомление ответа. От этого зависит и срок жизни плашки,
     /// и то, можно ли её перебить.
-    var waitsForAnswer: Bool { !actions.isEmpty }
+    var waitsForAnswer: Bool { !actions.isEmpty && !isOptional }
 
     static let maxActions = 2
     /// Потолок срока: присланное уведомление не имеет права занять вырез
@@ -66,12 +70,14 @@ struct ExternalNotice: Equatable, Identifiable {
 
         let raw = (json["actions"] as? [[String: Any]]) ?? []
         actions = raw.prefix(Self.maxActions).compactMap(Action.init(json:))
+        isOptional = (json["optional"] as? NSNumber)?.boolValue ?? false
 
         let asked = (json["hold"] as? NSNumber)?.doubleValue ?? 0
         // Спрашивающее уведомление ждёт без срока, даже если срок указан:
         // вопрос, пропавший сам, — это ответ, которого никто не давал.
-        hold = actions.isEmpty
-            ? min(max(asked > 0 ? asked : 6, 1), Self.maxHold)
+        // Кнопки-предложения (`optional`) — не вопрос: у них срок как у всех.
+        hold = actions.isEmpty || isOptional
+            ? min(max(asked > 0 ? asked : (actions.isEmpty ? 6 : 10), 1), Self.maxHold)
             : .infinity
     }
 
@@ -83,15 +89,17 @@ struct ExternalNotice: Equatable, Identifiable {
         symbol: String = "bell.badge",
         hold: TimeInterval = 6,
         actions: [Action] = [],
-        replyPath: String? = nil
+        replyPath: String? = nil,
+        isOptional: Bool = false
     ) {
         self.id = id
         self.source = source
         self.title = title
         self.symbol = symbol
-        self.hold = actions.isEmpty ? hold : .infinity
+        self.hold = actions.isEmpty || isOptional ? hold : .infinity
         self.actions = Array(actions.prefix(Self.maxActions))
         self.replyPath = replyPath
+        self.isOptional = isOptional
     }
 
     /// Значки, которые разрешено просить по имени.

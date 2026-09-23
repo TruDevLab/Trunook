@@ -41,6 +41,24 @@ struct NotificationsTests {
         #expect(ExternalNotice.symbol(named: "BUILD") == "hammer.fill")
     }
 
+    @Test("Кнопки-предложения (optional) не держат вырез: срок как у простого уведомления")
+    func кнопкиБезВопроса() {
+        let mail = ExternalNotice(json: [
+            "title": "Анна: Бюджет",
+            "optional": true,
+            "hold": 12,
+            "actions": [["id": "reply", "title": "Ответить", "positive": true], ["id": "archive", "title": "В архив"]],
+        ], id: "1")
+        #expect(mail?.actions.count == 2)
+        #expect(mail?.waitsForAnswer == false)
+        #expect(mail?.hold == 12)
+        // Без срока — десять секунд: успеть прочесть и нажать.
+        let quiet = ExternalNotice(json: [
+            "title": "Анна: Бюджет", "optional": true, "actions": [["id": "reply", "title": "Ответить"]],
+        ], id: "2")
+        #expect(quiet?.hold == 10)
+    }
+
     @Test("Спрашивающее уведомление не истекает само, даже если просили срок")
     func срокУВопроса() {
         let ask = ExternalNotice(json: [
