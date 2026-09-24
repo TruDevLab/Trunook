@@ -55,6 +55,14 @@ enum SlashCatalogue {
                 tools: [.upcoming, .dayAgenda, .createEvent, .moveEvent, .cancelEvent]
             ),
             SlashTool(
+                id: "mail",
+                title: t("Почта"),
+                detail: t("письма в Trudaybook"),
+                symbol: "envelope",
+                tint: Palette.blue,
+                tools: AgentTool.mail
+            ),
+            SlashTool(
                 id: "notes",
                 title: t("Заметки"),
                 detail: t("поиск и новая заметка"),

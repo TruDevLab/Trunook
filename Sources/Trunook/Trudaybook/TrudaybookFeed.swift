@@ -27,6 +27,8 @@ struct TrudaybookSummary: Equatable {
     let important: Int
     let top: Letter?
     let marks: [Mark]
+    /// Trudaybook разрешил помощнику работать с почтой.
+    let acceptsCommands: Bool
 
     /// Потолок файла: сводка — это десяток чисел и сотня отметок.
     static let maxFileSize = 256 * 1024
@@ -34,7 +36,9 @@ struct TrudaybookSummary: Equatable {
     /// дольше четверти часа значит, что он закрыт.
     static let freshness: TimeInterval = 15 * 60
 
-    init(updated: Date, unresolved: Int, important: Int, top: Letter? = nil, marks: [Mark] = []) {
+    init(updated: Date, unresolved: Int, important: Int, top: Letter? = nil, marks: [Mark] = [],
+         acceptsCommands: Bool = false) {
+        self.acceptsCommands = acceptsCommands
         self.updated = updated
         self.unresolved = unresolved
         self.important = important
@@ -59,6 +63,7 @@ struct TrudaybookSummary: Equatable {
         } else {
             top = nil
         }
+        acceptsCommands = (json["commands"] as? NSNumber)?.boolValue ?? false
         let raw = (json["marks"] as? [[String: Any]]) ?? []
         marks = raw.prefix(500).compactMap { mark in
             guard let time = Self.date(mark["time"]) else { return nil }

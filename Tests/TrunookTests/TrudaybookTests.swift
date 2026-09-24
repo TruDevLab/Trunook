@@ -61,4 +61,49 @@ struct TrudaybookTests {
         #expect(MailWidget.detail(TrudaybookSummary(updated: now, unresolved: 5, important: 0)) == t("не разобрано"))
         #expect(MailWidget.detail(TrudaybookSummary(updated: now, unresolved: 5, important: 2)) == tf("важных: %d", 2))
     }
+
+    @Test("Почта — без карточки, но и без отправки: только обратимое")
+    func почтаОбратима() {
+        #expect(AgentTool.mail.allSatisfy { !$0.needsConfirmation })
+        #expect(AgentTool.mailUnread.kind == .read)
+        #expect(!AgentTool.allCases.map(\.name).contains { $0.contains("send") })
+    }
+
+    @Test("Сводка говорит, разрешены ли команды")
+    func флагКоманд() {
+        let on = summary(#"{"version":1,"updated":"2026-09-25T09:59:00Z","unresolved":1,"commands":true}"#)
+        let off = summary(#"{"version":1,"updated":"2026-09-25T09:59:00Z","unresolved":1}"#)
+        #expect(on?.acceptsCommands == true)
+        #expect(off?.acceptsCommands == false)
+    }
+
+    @Test("Ответ Trudaybook: успех, отказ, мусор")
+    func ответ() {
+        if case let .ok(json) = TrudaybookCommands.parse(Data(#"{"ok":true,"text":"Готово"}"#.utf8)) {
+            #expect(json["text"] as? String == "Готово")
+        } else { Issue.record("ожидался успех") }
+        if case let .failed(error) = TrudaybookCommands.parse(Data(#"{"ok":false,"error":"Нет письма"}"#.utf8)) {
+            #expect(error == "Нет письма")
+        } else { Issue.record("ожидался отказ") }
+        if case .ok = TrudaybookCommands.parse(Data("мусор".utf8)) { Issue.record("мусор не успех") }
+    }
+
+    @Test("Список писем раздаёт ярлыки, и по ярлыку уходит номер письма")
+    func ярлыки() {
+        let runner = AgentRunner(calendar: CalendarService(), timer: TimerService(), notes: NotesService(),
+                                 weather: WeatherService())
+        let result = runner.mailListResult([
+            "ok": true, "total": 2,
+            "letters": [
+                ["id": "mail:a:9", "from": "Андрей Козлов", "title": "Договор", "time": "2026-09-25T07:12:00Z",
+                 "important": true, "snippet": "Посмотрите правки"],
+                ["id": "mail:a:3", "from": "Анна", "title": "Обед", "time": "2026-09-25T06:00:00Z"],
+            ],
+        ])
+        #expect(result.text.contains("m1 · Андрей Козлов · «Договор»"))
+        #expect(result.text.contains("Посмотрите правки"))
+        #expect(runner.letterReference("m2") == "mail:a:3")
+        #expect(runner.letterReference("M1") == "mail:a:9")
+        #expect(runner.letterReference("Козлов договор") == "Козлов договор")
+    }
 }

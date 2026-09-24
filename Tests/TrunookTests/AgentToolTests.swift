@@ -139,7 +139,10 @@ struct AgentToolTests {
         settings.weatherEnabled = true
         settings.notesEnabled = true
 
-        let wire = AgentTool.wire(for: settings)
+        // Почта включается не настройкой, а запущенным Trudaybook: её
+        // разметка проверяется та же, но берётся напрямую.
+        let absent = AgentTool.mail.filter { !$0.isEnabled(settings) }
+        let wire = AgentTool.wire(for: settings) + absent.map(\.schema.wire)
         #expect(wire.count == AgentTool.allCases.count)
 
         for item in wire {

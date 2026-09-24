@@ -81,7 +81,8 @@ final class AgentRunner {
 
         switch tool {
         case .upcoming, .dayAgenda, .weatherNow, .searchNotes, .appHelp,
-             .startTimer, .stopTimer, .startStopwatch:
+             .startTimer, .stopTimer, .startStopwatch,
+             .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft:
             return .run(tool, call)
         case .createEvent:
             return prepareEvent(call, now: now, calendar: day)
@@ -110,6 +111,8 @@ final class AgentRunner {
         case .startTimer: completion(startTimer(call))
         case .stopTimer: completion(stopTimer())
         case .startStopwatch: completion(startStopwatch())
+        case .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft:
+            runMail(tool, call, now: now, completion: completion)
         case .createEvent, .moveEvent, .cancelEvent, .createReminder, .createNote:
             // Сюда не попасть: пишущее готовится карточкой.
             completion(AgentToolResult(
@@ -657,6 +660,97 @@ final class AgentRunner {
     }
 
     // MARK: - Мелочи
+
+    // MARK: - Почта через Trudaybook
+
+    /// Ярлыки писем из последнего списка: «m1» → номер письма в Trudaybook.
+    private(set) var letterLabels: [String: String] = [:]
+
+    /// Ярлык — в номер; не ярлык — слова, их Trudaybook сопоставит сам.
+    func letterReference(_ raw: String) -> String {
+        letterLabels[raw.lowercased().trimmingCharacters(in: .whitespaces)] ?? raw
+    }
+
+    private func runMail(_ tool: AgentTool, _ call: ToolCall, now: Date,
+                         completion: @escaping (AgentToolResult) -> Void) {
+        var command: [String: Any]
+        switch tool {
+        case .mailUnread:
+            command = ["action": "list", "limit": AgentTime.minutes(call.integer("limit"), default: 10, in: 1...30),
+                       "important_only": call.flag("important_only")]
+            if let from = call.string("from") { command["from"] = from }
+        default:
+            guard let letter = call.string("letter") else {
+                return completion(AgentToolResult(text: t("Не сказано, какое письмо."), label: tool.title))
+            }
+            command = ["letter": letterReference(letter)]
+            switch tool {
+            case .mailOpen: command["action"] = "open"
+            case .mailDone: command["action"] = "done"
+            case .mailPriority:
+                command["action"] = "priority"
+                command["level"] = call.string("level")?.lowercased() ?? ""
+            case .mailDraft:
+                guard let text = call.string("text") else {
+                    return completion(AgentToolResult(text: t("Нет текста ответа."), label: tool.title))
+                }
+                command["action"] = "draft"
+                command["text"] = text
+            case .mailSnooze:
+                guard let raw = call.string("until"),
+                      let moment = AgentTime.parse(raw, now: now)
+                else { return completion(AgentToolResult(text: badDate, label: t("Не понял время"))) }
+                // Только день — значит, с утра: письмо, вернувшееся в полночь,
+                // пролежит до утра незамеченным.
+                let until = moment.isDateOnly
+                    ? Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: moment.date) ?? moment.date
+                    : moment.date
+                command["action"] = "snooze"
+                command["until"] = ISO8601DateFormatter().string(from: until)
+            default:
+                break
+            }
+        }
+        TrudaybookCommands.send(command) { [weak self] reply in
+            switch reply {
+            case let .failed(error):
+                completion(AgentToolResult(text: error, label: tool.title))
+            case let .ok(json):
+                if tool == .mailUnread {
+                    completion(self?.mailListResult(json) ?? AgentToolResult(text: "", label: tool.title))
+                } else {
+                    let text = (json["text"] as? String) ?? t("Готово.")
+                    completion(AgentToolResult(text: text, label: text))
+                }
+            }
+        }
+    }
+
+    /// Список писем для модели: ярлык, отправитель, тема, когда, начало.
+    func mailListResult(_ json: [String: Any], now: Date = Date()) -> AgentToolResult {
+        let letters = (json["letters"] as? [[String: Any]]) ?? []
+        let total = (json["total"] as? NSNumber)?.intValue ?? letters.count
+        letterLabels = [:]
+        guard !letters.isEmpty else {
+            return AgentToolResult(text: t("Неразобранных писем нет."), label: t("Посмотрел почту"))
+        }
+        let formatter = ISO8601DateFormatter()
+        let lines = letters.enumerated().map { index, letter -> String in
+            let label = "m\(index + 1)"
+            if let id = letter["id"] as? String { letterLabels[label] = id }
+            var line = "\(label) · \(letter["from"] as? String ?? "") · «\(letter["title"] as? String ?? "")»"
+            if let raw = letter["time"] as? String, let time = formatter.date(from: raw) {
+                line += " · " + AgentTime.stamp(now: time)
+            }
+            if (letter["important"] as? NSNumber)?.boolValue == true { line += " · " + t("важное") }
+            if let snippet = letter["snippet"] as? String, !snippet.isEmpty { line += "\n   " + snippet }
+            return line
+        }
+        return AgentToolResult(
+            text: tf("Неразобранных писем: %d. Свежие сверху:", total) + "\n" + lines.joined(separator: "\n"),
+            label: tf("Посмотрел почту: %d", total)
+        )
+    }
 
     private var badDate: String {
         tf("Не понял, на какое время. Назови дату и время как «%@».", AgentTime.format)

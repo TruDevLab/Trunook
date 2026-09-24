@@ -25,6 +25,17 @@ enum AgentTool: String, CaseIterable, Identifiable {
     case createNote = "note_create"
     /// Справка о самом приложении: что умеет и где настраивается.
     case appHelp = "app_help"
+    // Почта — через соседа, Trudaybook. Всё обратимое; отправки нет
+    // вовсе: ответ помощник кладёт черновиком, отправляет человек.
+    case mailUnread = "mail_unread"
+    case mailOpen = "mail_open"
+    case mailSnooze = "mail_snooze"
+    case mailPriority = "mail_priority"
+    case mailDone = "mail_done"
+    case mailDraft = "mail_reply_draft"
+
+    /// Инструменты почты.
+    static let mail: [AgentTool] = [.mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft]
 
     var id: String { rawValue }
 
@@ -51,8 +62,12 @@ enum AgentTool: String, CaseIterable, Identifiable {
 
     var kind: Kind {
         switch self {
-        case .upcoming, .dayAgenda, .weatherNow, .searchNotes, .appHelp: return .read
-        case .startTimer, .stopTimer, .startStopwatch: return .act
+        case .upcoming, .dayAgenda, .weatherNow, .searchNotes, .appHelp, .mailUnread: return .read
+        // Почта — «делает, но обратимое и заметное»: отложенное возвращают,
+        // приоритет снимают, черновик закрывают не отправив. Всё видно
+        // в Trudaybook, и карточка перед каждым шагом была бы лишней.
+        case .startTimer, .stopTimer, .startStopwatch,
+             .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft: return .act
         case .createEvent, .moveEvent, .cancelEvent, .createReminder, .createNote: return .write
         }
     }
@@ -77,6 +92,12 @@ enum AgentTool: String, CaseIterable, Identifiable {
         case .searchNotes: return t("Поискать в заметках")
         case .createNote: return t("Создать заметку")
         case .appHelp: return t("Рассказать о приложении")
+        case .mailUnread: return t("Посмотреть почту")
+        case .mailOpen: return t("Открыть письмо")
+        case .mailSnooze: return t("Отложить письмо")
+        case .mailPriority: return t("Поставить приоритет письму")
+        case .mailDone: return t("Отметить письмо разобранным")
+        case .mailDraft: return t("Подготовить ответ")
         }
     }
 
@@ -96,6 +117,12 @@ enum AgentTool: String, CaseIterable, Identifiable {
         // Вопрос в кружке: это единственное действие, которое ничего
         // не делает, а объясняет.
         case .appHelp: return "questionmark.circle"
+        case .mailUnread: return "envelope"
+        case .mailOpen: return "envelope.open"
+        case .mailSnooze: return "clock"
+        case .mailPriority: return "exclamationmark.2"
+        case .mailDone: return "checkmark.circle"
+        case .mailDraft: return "arrowshape.turn.up.left"
         }
     }
 
@@ -120,6 +147,10 @@ enum AgentTool: String, CaseIterable, Identifiable {
         // не зависит ни от одной его функции — про выключенную спросят
         // как раз тогда, когда не могут её найти.
         case .appHelp: return true
+        // Своей настройки нет: разрешение даёт сам Trudaybook, и пока
+        // оно есть и Trudaybook запущен, его сводка говорит об этом.
+        case .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft:
+            return TrudaybookFeed.shared.current()?.acceptsCommands == true
         }
     }
 
@@ -139,6 +170,8 @@ enum AgentTool: String, CaseIterable, Identifiable {
         case .weatherNow: return t("Погода выключена в настройках.")
         case .searchNotes, .createNote: return t("Заметки выключены в настройках.")
         case .appHelp: return nil
+        case .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft:
+            return t("Trudaybook не запущен или в нём не разрешено помощнику работать с почтой.")
         }
     }
 
@@ -186,6 +219,18 @@ enum AgentTool: String, CaseIterable, Identifiable {
         // и функции, и разделы настроек, которых нет.
         case .appHelp:
             return t("Справка о самом приложении Trunook: что оно умеет, как этим пользоваться и в каком разделе настроек это включается. Бери его на любой вопрос про приложение, его возможности, настройки и сочетания клавиш: своей памяти о Trunook у тебя нет, а тут ответ точный.")
+        case .mailUnread:
+            return t("Неразобранные письма из Trudaybook: от кого, тема, когда, важное ли и начало текста. Бери на любой вопрос о почте. У каждого письма ярлык вида «m1» — по нему потом и действуй.")
+        case .mailOpen:
+            return t("Открыть письмо в Trudaybook, чтобы человек его прочёл.")
+        case .mailSnooze:
+            return t("Отложить письмо: оно пропадёт из неразобранного и вернётся в названное время.")
+        case .mailPriority:
+            return t("Поставить письму приоритет или снять его.")
+        case .mailDone:
+            return t("Отметить письмо разобранным.")
+        case .mailDraft:
+            return t("Подготовить ответ на письмо: текст откроется черновиком в Trudaybook, отправит его сам человек. Пиши ответ целиком, от первого лица, без подписи.")
         }
     }
 
@@ -243,6 +288,31 @@ enum AgentTool: String, CaseIterable, Identifiable {
                 .init(name: "text", kind: .string, description: t("Текст заметки."), isRequired: true),
                 .init(name: "title", kind: .string, description: t("Название. Не указывай — приложение придумает само."), isRequired: false),
             ]
+        case .mailUnread:
+            return [
+                .init(name: "from", kind: .string, description: t("От кого — имя или фамилия. Не спрашивали про отправителя — не указывай."), isRequired: false),
+                .init(name: "important_only", kind: .boolean, description: t("Только важные."), isRequired: false),
+                .init(name: "limit", kind: .integer, description: t("Сколько писем, от 1 до 30. По умолчанию 10."), isRequired: false),
+            ]
+        case .mailOpen, .mailDone:
+            return [letterParameter]
+        case .mailSnooze:
+            return [
+                letterParameter,
+                .init(name: "until", kind: .string,
+                      description: tf("До какого времени: день словом и время цифрами — «завтра 09:00», «понедельник 12:00» — или точная дата «%@». Дату сам не считай.", AgentTime.format),
+                      isRequired: true),
+            ]
+        case .mailPriority:
+            return [
+                letterParameter,
+                .init(name: "level", kind: .string, description: t("Приоритет: high, medium, low или none — снять."), isRequired: true),
+            ]
+        case .mailDraft:
+            return [
+                letterParameter,
+                .init(name: "text", kind: .string, description: t("Текст ответа целиком."), isRequired: true),
+            ]
         }
     }
 
@@ -270,6 +340,15 @@ enum AgentTool: String, CaseIterable, Identifiable {
     /// ошибается чаще, чем попадает.
     private var eventDescription: String {
         t("Ярлык встречи из списка указанных человеком, например «e1». Название тоже подойдёт, но ярлык надёжнее.")
+    }
+
+    /// Письмо — ярлыком из последнего списка почты. Номеров Trudaybook
+    /// модели не даём: как и у встреч, переписывая длинный номер, она
+    /// ошибается чаще, чем попадает.
+    private var letterParameter: ToolSchema.Parameter {
+        .init(name: "letter", kind: .string,
+              description: t("Ярлык письма из списка почты, например «m1». Можно словами — отправитель и тема, — но ярлык надёжнее."),
+              isRequired: true)
     }
 
     private var dueDescription: String {
