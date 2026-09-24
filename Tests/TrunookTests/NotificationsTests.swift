@@ -59,6 +59,32 @@ struct NotificationsTests {
         #expect(quiet?.hold == 10)
     }
 
+    @Test("Конфетти — только по явной просьбе, значки Trudaybook узнаются")
+    func конфеттиИЗначки() {
+        let done = ExternalNotice(json: ["title": "Всё разобрано", "celebrate": true, "icon": "check"], id: "1")
+        #expect(done?.celebrates == true)
+        #expect(ExternalNotice(json: ["title": "Письмо"], id: "2")?.celebrates == false)
+        #expect(ExternalNotice(json: ["title": "Письмо", "celebrate": "да"], id: "3")?.celebrates == false)
+        #expect(ExternalNotice.symbol(named: "calendar") == "calendar")
+        #expect(ExternalNotice.symbol(named: "video") == "video.fill")
+        #expect(ExternalNotice.symbol(named: "mail") == "envelope.fill")
+    }
+
+    @Test("Недописанный скрытый файл не забирается из папки")
+    func скрытыйНеЗабирается() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trunook-inbox-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let hidden = folder.appendingPathComponent(".пишется.json")
+        let ready = folder.appendingPathComponent("готов.json")
+        try Data(#"{"title": "Пол"#.utf8).write(to: hidden)
+        try Data(#"{"title": "Готово"}"#.utf8).write(to: ready)
+        NotifyInbox(folder: folder).drain()
+        #expect(FileManager.default.fileExists(atPath: hidden.path))
+        #expect(!FileManager.default.fileExists(atPath: ready.path))
+    }
+
     @Test("Спрашивающее уведомление не истекает само, даже если просили срок")
     func срокУВопроса() {
         let ask = ExternalNotice(json: [

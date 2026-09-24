@@ -103,7 +103,11 @@ final class NotifyInbox: ObservableObject {
             at: folder, includingPropertiesForKeys: nil
         )) ?? []
 
-        for file in files.filter({ $0.pathExtension == "json" }).sorted(by: { $0.path < $1.path }) {
+        // Скрытые — недописанные: и `notify.sh`, и Trudaybook пишут вопрос
+        // во временный `.имя.json` и переносят. Расширение у него то же,
+        // и забирать его значило читать файл на середине записи.
+        let ready = files.filter { $0.pathExtension == "json" && !$0.lastPathComponent.hasPrefix(".") }
+        for file in ready.sorted(by: { $0.path < $1.path }) {
             let name = file.lastPathComponent
             guard let data = try? Data(contentsOf: file) else { continue }
 

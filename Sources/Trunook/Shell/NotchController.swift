@@ -3967,7 +3967,16 @@ final class NotchController {
     private func present(_ notice: ExternalNotice) {
         if notice.waitsForAnswer { waitingNotice = notice }
         activities.present(.external(notice))
+        // Залп по просьбе снаружи — не чаще раза в минуту: картинка
+        // безобидна, но чужой скрипт в цикле не должен устроить салют.
+        if notice.celebrates, Date().timeIntervalSince(externalCelebratedAt) > 60 {
+            externalCelebratedAt = Date()
+            onCelebrate?()
+        }
     }
+
+    /// Когда последний раз стреляли конфетти по присланному уведомлению.
+    private var externalCelebratedAt = Date.distantPast
 
     /// Нажали кнопку присланного уведомления.
     ///

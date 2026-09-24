@@ -40,6 +40,10 @@ struct ExternalNotice: Equatable, Identifiable {
     /// сама через `hold`, и никто её не возвращает. Так приходит почта —
     /// «Ответить» и «В архив» под письмом, о котором можно и забыть.
     let isOptional: Bool
+    /// Залп конфетти из чёлки вместе с плашкой (`"celebrate": true`) —
+    /// так Trudaybook отмечает «всё разобрано». Безвреден: ничего, кроме
+    /// картинки, и тот не чаще раза в минуту (`NotchController.present`).
+    let celebrates: Bool
 
     /// Ждёт ли уведомление ответа. От этого зависит и срок жизни плашки,
     /// и то, можно ли её перебить.
@@ -71,6 +75,7 @@ struct ExternalNotice: Equatable, Identifiable {
         let raw = (json["actions"] as? [[String: Any]]) ?? []
         actions = raw.prefix(Self.maxActions).compactMap(Action.init(json:))
         isOptional = (json["optional"] as? NSNumber)?.boolValue ?? false
+        celebrates = (json["celebrate"] as? NSNumber)?.boolValue ?? false
 
         let asked = (json["hold"] as? NSNumber)?.doubleValue ?? 0
         // Спрашивающее уведомление ждёт без срока, даже если срок указан:
@@ -90,7 +95,8 @@ struct ExternalNotice: Equatable, Identifiable {
         hold: TimeInterval = 6,
         actions: [Action] = [],
         replyPath: String? = nil,
-        isOptional: Bool = false
+        isOptional: Bool = false,
+        celebrates: Bool = false
     ) {
         self.id = id
         self.source = source
@@ -100,6 +106,7 @@ struct ExternalNotice: Equatable, Identifiable {
         self.actions = Array(actions.prefix(Self.maxActions))
         self.replyPath = replyPath
         self.isOptional = isOptional
+        self.celebrates = celebrates
     }
 
     /// Значки, которые разрешено просить по имени.
@@ -118,6 +125,12 @@ struct ExternalNotice: Equatable, Identifiable {
         "download": "arrow.down.circle.fill",
         "message": "bubble.left.fill",
         "phone": "phone.fill",
+        // Для Trudaybook: приглашение и встреча, отложенное, видеосвязь, почта.
+        "calendar": "calendar",
+        "clock": "clock.fill",
+        "video": "video.fill",
+        "mail": "envelope.fill",
+        "archive": "archivebox.fill",
     ]
 
     static func symbol(named name: String?) -> String {
