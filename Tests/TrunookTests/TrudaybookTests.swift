@@ -90,7 +90,7 @@ struct TrudaybookTests {
 
     @Test("Список писем раздаёт ярлыки, и по ярлыку уходит номер письма")
     func ярлыки() {
-        let runner = AgentRunner(calendar: CalendarService(), timer: TimerService(), notes: NotesService(),
+        let runner = AgentRunner(calendar: CalendarService(), timer: TimerService(), notes: isolatedNotes().service,
                                  weather: WeatherService())
         let result = runner.mailListResult([
             "ok": true, "total": 2,
@@ -106,4 +106,55 @@ struct TrudaybookTests {
         #expect(runner.letterReference("M1") == "mail:a:9")
         #expect(runner.letterReference("Козлов договор") == "Козлов договор")
     }
+
+    /// Заметки во временной базе и с настройками без модели — настоящих
+    /// заметок человека тест не касается.
+    private func isolatedNotes() -> (service: NotesService, settings: Settings) {
+        let defaults = UserDefaults(suiteName: "trunook-tests-\(UUID().uuidString)")!
+        let settings = Settings(defaults: defaults)
+        settings.ollamaEnabled = false
+        settings.notesTitleByModel = false
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("notes-\(UUID().uuidString).sqlite")
+        let service = NotesService(store: NotesStore(url: url), titler: NoteTitler(settings: settings), settings: settings)
+        return (service, settings)
+    }
+
+    @Test("Заметка дня ходит в обе стороны, и только по файлам дней")
+    func заметкаДня() throws {
+        let (notes, settings) = isolatedNotes()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("daynotes-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let defaults = UserDefaults(suiteName: "trunook-tests-\(UUID().uuidString)")!
+        let sync = DayNoteSync(notes: notes, settings: settings, folder: folder, defaults: defaults)
+
+        let file = folder.appendingPathComponent("2026-09-25.txt")
+        try Data("Позвонить юристам".utf8).write(to: file)
+        try Data("чужое".utf8).write(to: folder.appendingPathComponent("список.txt"))
+        sync.sync()
+        let made = notes.notes.filter { $0.plain == "Позвонить юристам" }
+        #expect(made.count == 1)
+        #expect(made.first?.title.hasPrefix("Trudaybook · ") == true)
+        #expect(notes.notes.count == 1)
+
+        // Повтор без правок — ничего нового.
+        sync.sync()
+        #expect(notes.notes.count == 1)
+
+        // Правка здесь уходит в файл.
+        let id = try #require(made.first?.id)
+        notes.save(NSAttributedString(string: "Позвонить юристам и Козлову"), origin: .typed, editing: id,
+                   now: Date().addingTimeInterval(120))
+        sync.sync()
+        #expect(try String(contentsOf: file, encoding: .utf8) == "Позвонить юристам и Козлову")
+        #expect(notes.notes.count == 1)
+    }
+
+    @Test("Имя заметки дня — словами")
+    func имяЗаметки() {
+        #expect(DayNoteSync.title(for: "2026-09-25", locale: Locale(identifier: "ru_RU")) == "Trudaybook · 25 сентября")
+        #expect(DayNoteSync.day(fromFileName: "2026-09-25.txt") == "2026-09-25")
+        #expect(DayNoteSync.day(fromFileName: "25-09-2026.txt") == nil)
+    }
 }
+

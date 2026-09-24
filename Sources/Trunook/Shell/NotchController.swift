@@ -35,6 +35,8 @@ final class NotchController {
     let calls = CallService()
     /// «Фокус до…» для соседей: пока идёт рабочая фаза таймера.
     private lazy var focusBeacon = FocusBeacon(timer: timer)
+    /// Заметка дня, общая с Trudaybook.
+    private lazy var dayNotes = DayNoteSync(notes: notes)
     /// Надиктовать текст в поле — своим слушателем, не тем, которым
     /// слушает голосовой заход: диктовать в заметку и спрашивать голосом
     /// одновременно нельзя, но гасить друг друга они не должны.
@@ -602,7 +604,10 @@ final class NotchController {
 
         // Соседство с Trudaybook: его сводка для плитки «Почта» и шкалы дня,
         // наш фокус — для его тишины. Без Trudaybook сводку не ждём вовсе.
-        if TrudaybookFeed.isInstalled { TrudaybookFeed.shared.start() }
+        if TrudaybookFeed.isInstalled {
+            TrudaybookFeed.shared.start()
+            dayNotes.start()
+        }
         focusBeacon.start()
 
         calls.onCall = { [weak self] invite in
