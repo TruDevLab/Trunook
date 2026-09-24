@@ -1593,3 +1593,13 @@
 "В режиме энергосбережения замирают кот, погодные сценки и бегущая строка, реже проверяются буфер, музыка, погода и встречи, а сводки, слежка за сайтами и связи заметок ждут зарядки. Когда включать его — от режима энергосбережения macOS или ещё и от аккумулятора — выбирается в «Основных». Наведение, звонки, напоминания и таймер работают как обычно." = "In power saving mode the cat, weather scenes and scrolling text stand still; the clipboard, music, weather and meetings are checked less often; digests, site watches and note links wait for power. Whether it turns on with macOS Low Power Mode or on battery too is chosen in General. Hovering, calls, reminders and the timer work as usual.";
 "энергосбережение батарея аккумулятор заряд экономия энергия разряжается быстро садится" = "power saving battery charge energy low power drains fast";
 "Включено энергосбережение" = "Power saving is on";
+
+/* Trudaybook: плитка «Почта» */
+"Открыть Trudaybook" = "Open Trudaybook";
+"Нужен Trudaybook" = "Requires Trudaybook";
+"Включите сводку в Trudaybook" = "Turn on the summary in Trudaybook";
+"Trudaybook закрыт" = "Trudaybook is closed";
+"всё разобрано" = "all done";
+"важных: %d" = "important: %d";
+"не разобрано" = "to handle";
+"Почта" = "Mail";

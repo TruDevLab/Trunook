@@ -42,6 +42,7 @@ struct HomeActions {
     let openTeleprompter: () -> Void
     /// Событие обратного отсчёта задают в настройках главного экрана.
     let editCountdown: () -> Void
+    let openTrudaybook: () -> Void
 }
 
 /// Службы, из которых плитки берут данные. Каждая плитка подписывается
@@ -369,6 +370,8 @@ struct HomeWidgetView: View {
             WeatherWidget(widget: widget, weather: services.weather)
         case .monitor:
             MonitorWidget(widget: widget, monitor: services.monitor, actions: actions)
+        case .mail:
+            MailWidget(widget: widget, feed: .shared, actions: actions)
         case .battery:
             BatteryWidget(widget: widget, battery: services.battery)
         case .caffeine:

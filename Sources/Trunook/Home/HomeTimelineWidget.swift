@@ -15,6 +15,11 @@ struct TimelineWidget: View {
     let widget: HomeWidget
     @ObservedObject var planner: CalendarPlanner
     let actions: HomeActions
+    @ObservedObject private var feed = TrudaybookFeed.shared
+
+    private var mail: [DayMailMark] {
+        feed.current()?.marks(on: planner.day) ?? []
+    }
 
     /// Высота часа, при которой в получасовой полосе помещается название.
     ///
@@ -72,7 +77,7 @@ struct TimelineWidget: View {
     @ViewBuilder
     private func chart(_ timeline: DayTimeline) -> some View {
         if widget.size.rows == 1 {
-            DayRibbon(timeline: timeline, items: planner.events, size: chartSize)
+            DayRibbon(timeline: timeline, items: planner.events, size: chartSize, mail: mail)
         } else {
             DayTimelineChart(
                 timeline: timeline,
@@ -85,7 +90,8 @@ struct TimelineWidget: View {
                 // перелистыванием, и прокрутка внутри плитки спорила бы
                 // с ним.
                 scrolls: false,
-                onOpen: actions.openItem
+                onOpen: actions.openItem,
+                mail: mail
             )
         }
     }

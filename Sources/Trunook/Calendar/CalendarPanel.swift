@@ -11,6 +11,8 @@ import SwiftUI
 /// и читая, что там.
 struct CalendarPanel: View {
     @ObservedObject var planner: CalendarPlanner
+    /// Письма Trudaybook — точками на шкале дня.
+    @ObservedObject private var feed = TrudaybookFeed.shared
     /// Выбранное представление дня хранится в настройках, а не в панели:
     /// накладка живёт от открытия до закрытия, и выбор, сделанный руками,
     /// пропадал бы вместе с ней.
@@ -276,7 +278,8 @@ struct CalendarPanel: View {
                 size: CGSize(width: Self.dayWidth, height: Self.dayBodyHeight),
                 hourHeight: Self.hourHeight,
                 bottomInset: Self.newEventSize,
-                onOpen: onOpenEvent
+                onOpen: onOpenEvent,
+                mail: feed.current(at: context.date)?.marks(on: planner.day) ?? []
             )
         }
     }

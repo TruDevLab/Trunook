@@ -151,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.openEvent", #selector(openFirstItem)),
             ("com.trunook.debug.expand", #selector(expandNotch)),
             ("com.trunook.debug.homeAll", #selector(showHomePage)),
+            ("com.trunook.debug.homeMail", #selector(toggleHomeMail)),
             ("com.trunook.debug.homePinned", #selector(toggleHomePinned)),
             ("com.trunook.debug.notePin", #selector(togglePinNewestNote)),
             ("com.trunook.debug.noteChecklist", #selector(showChecklist)),
@@ -548,6 +549,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HomeWidget(id: 2, kind: .pinnedNotes, size: .full),
         ]
         DebugLog.write("главный экран: плитки закреплённых заметок")
+        controller.debugExpand(seconds: 8)
+    }
+
+    /// Раскладка человека на время показа плитки «Почта» — на диске,
+    /// в настройках, а не в поле: между показом и возвратом приложение
+    /// пересобирают, и копия в памяти уходит вместе с процессом. Так уже
+    /// терялась раскладка пользователя (16 и 25 сентября).
+    private static let homeBeforeMailKey = "debugHomeBeforeMail"
+
+    /// Плитка «Почта» во всех размерах рядом со шкалой дня (на ней точки
+    /// писем). Повторный вызов возвращает прежнюю раскладку.
+    @objc private func toggleHomeMail() {
+        let defaults = UserDefaults.standard
+        if let saved = defaults.object(forKey: Self.homeBeforeMailKey) as? Data {
+            // Пустые данные — ключа раскладки не было: действует стандартная.
+            if saved.isEmpty {
+                Settings.shared.homeWidgets = HomeWidgets.standard
+                defaults.removeObject(forKey: HomeWidgets.key)
+            } else {
+                defaults.set(saved, forKey: HomeWidgets.key)
+                Settings.shared.homeWidgets = HomeWidgets.load(from: defaults) ?? HomeWidgets.standard
+            }
+            defaults.removeObject(forKey: Self.homeBeforeMailKey)
+            DebugLog.write("главный экран: раскладка возвращена")
+            return
+        }
+        defaults.set(defaults.data(forKey: HomeWidgets.key) ?? Data(), forKey: Self.homeBeforeMailKey)
+        controller.debugCloseOverlay()
+        TrudaybookFeed.shared.refresh()
+        Settings.shared.homeWidgets = [
+            HomeWidget(id: 0, kind: .mail, size: .wide),
+            HomeWidget(id: 1, kind: .mail, size: .small),
+            HomeWidget(id: 2, kind: .mail, size: .threeWide),
+            HomeWidget(id: 3, kind: .timeline, size: .full),
+        ]
+        DebugLog.write("главный экран: плитки «Почта»")
         controller.debugExpand(seconds: 8)
     }
 

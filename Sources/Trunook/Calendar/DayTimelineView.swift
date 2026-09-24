@@ -26,6 +26,8 @@ struct DayTimelineChart: View {
     var bottomInset: CGFloat = 0
     /// Нажатие по полосе. `nil` — шкала только показывает (плитка).
     var onOpen: ((CalendarItem) -> Void)?
+    /// Письма дня из Trudaybook — точками на оси часов.
+    var mail: [DayMailMark] = []
 
     /// Колонка часов. Уже строки списка: в ней стоит один-два знака.
     static var gutter: CGFloat { NotchStyle.scaled(20) }
@@ -123,6 +125,7 @@ struct DayTimelineChart: View {
             ForEach(timeline.blocks) { block in
                 blockView(block)
             }
+            mailDots
             nowLine
         }
         .frame(width: size.width, height: contentHeight, alignment: .topLeading)
@@ -164,6 +167,21 @@ struct DayTimelineChart: View {
             .offset(y: offset(of: minute))
             .id(minute == anchorHour ? Self.anchor : "hour-\(minute)")
         }
+    }
+
+    /// Письма — точками в просвете между колонкой часов и полосами:
+    /// там они не заслоняют ни подписи часа, ни название встречи.
+    /// Важное — янтарное, разобранное — приглушённое.
+    private var mailDots: some View {
+        let shown = mail.filter { $0.minute >= timeline.startMinute && $0.minute <= timeline.endMinute }
+        return ForEach(Array(shown.enumerated()), id: \.offset) { _, mark in
+            Circle()
+                .fill(mark.important ? Palette.amber : Color.white)
+                .opacity(mark.done ? 0.35 : 0.95)
+                .frame(width: Self.gutterGap, height: Self.gutterGap)
+                .offset(x: Self.gutter, y: offset(of: mark.minute) - Self.gutterGap / 2)
+        }
+        .accessibilityHidden(true)
     }
 
     private func offset(of minute: Int) -> CGFloat {
@@ -287,6 +305,8 @@ struct DayRibbon: View {
     let timeline: DayTimeline
     let items: [CalendarItem]
     let size: CGSize
+    /// Письма дня из Trudaybook — точками по нижнему краю ленты.
+    var mail: [DayMailMark] = []
 
     /// Строка подписей часов под лентой.
     private static var labelHeight: CGFloat { NotchStyle.scaled(12) }
@@ -312,6 +332,7 @@ struct DayRibbon: View {
                 ForEach(timeline.blocks) { block in
                     blockView(block)
                 }
+                mailDots
                 nowLine
             }
             .frame(width: size.width, height: trackHeight)
@@ -322,6 +343,18 @@ struct DayRibbon: View {
 
     private func x(of minute: Int) -> CGFloat {
         CGFloat(timeline.fraction(of: minute)) * size.width
+    }
+
+    private var mailDots: some View {
+        let shown = mail.filter { $0.minute >= timeline.startMinute && $0.minute <= timeline.endMinute }
+        return ForEach(Array(shown.enumerated()), id: \.offset) { _, mark in
+            Circle()
+                .fill(mark.important ? Palette.amber : Color.white)
+                .opacity(mark.done ? 0.35 : 0.95)
+                .frame(width: 4, height: 4)
+                .offset(x: min(max(0, x(of: mark.minute) - 2), size.width - 4), y: trackHeight - 5)
+        }
+        .accessibilityHidden(true)
     }
 
     private var hourMarks: [Int] {

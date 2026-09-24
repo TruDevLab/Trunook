@@ -1246,7 +1246,8 @@ struct NotchView: View {
             startVoice: onStartVoice,
             dictateNote: onDictateNote,
             openTeleprompter: onOpenTeleprompter,
-            editCountdown: onEditCountdown
+            editCountdown: onEditCountdown,
+            openTrudaybook: { TrudaybookFeed.openApp() }
         )
     }
 }

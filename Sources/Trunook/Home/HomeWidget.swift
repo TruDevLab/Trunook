@@ -66,6 +66,8 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
     /// Сколько воды выпито за сегодня.
     case water
     case monitor
+    /// Неразобранная почта из Trudaybook.
+    case mail
     case battery
     case caffeine
     case news
@@ -102,7 +104,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         // У команд своя функция и свой раздел настроек: кольцо ведёт
         // в панель разговора, а плитка запускает команду на месте.
         case .music, .tasks, .weather, .battery, .pinnedNotes, .countdown, .water,
-             .commands:
+             .commands, .mail:
             return nil
         }
     }
@@ -124,6 +126,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .battery: return t("Батарея")
         case .pinnedNotes: return t("Закреплённые заметки")
         case .countdown: return t("Обратный отсчёт")
+        case .mail: return t("Почта")
         default: return hubEntry?.title ?? rawValue
         }
     }
@@ -142,6 +145,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .battery: return "battery.75percent"
         case .pinnedNotes: return "pin.fill"
         case .countdown: return "hourglass"
+        case .mail: return "envelope.fill"
         default: return hubEntry?.symbol ?? "square"
         }
     }
@@ -156,6 +160,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         case .battery: return Palette.positive
         case .pinnedNotes: return Palette.notes
         case .countdown: return Palette.magenta
+        case .mail: return Palette.blue
         default: return hubEntry?.tint ?? .white
         }
     }
@@ -187,6 +192,7 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         // растянулись бы пустотой — показывать там больше нечего.
         case .water: return [.wide, .small, .threeWide, .full]
         case .monitor: return [.wide, .small, .threeWide, .full]
+        case .mail: return [.wide, .small, .threeWide]
         case .battery: return [.small]
         case .caffeine: return [.small, .wide, .threeWide]
         case .news: return [.full, .wide, .threeWide, .fullTall]
@@ -216,7 +222,9 @@ enum HomeWidgetKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         // Вода не спрашивает ни модели, ни доступов: пить можно и с
         // выключенным напоминанием.
-        case .music, .battery, .countdown, .water: return true
+        // Почта не выключается здесь: сводку шлёт сам Trudaybook, и без неё
+        // плитка скажет, где её включить.
+        case .music, .battery, .countdown, .water, .mail: return true
         case .tasks: return settings.thingsEnabled
         // Тем же выключателем, что и список под полем вопроса: плитка — его
         // ярлыки, и жить дольше самого списка ей незачем.

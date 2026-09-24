@@ -33,6 +33,8 @@ final class NotchController {
     let inbox = NotifyInbox()
     /// Входящие звонки чужих телефонов.
     let calls = CallService()
+    /// «Фокус до…» для соседей: пока идёт рабочая фаза таймера.
+    private lazy var focusBeacon = FocusBeacon(timer: timer)
     /// Надиктовать текст в поле — своим слушателем, не тем, которым
     /// слушает голосовой заход: диктовать в заметку и спрашивать голосом
     /// одновременно нельзя, но гасить друг друга они не должны.
@@ -597,6 +599,11 @@ final class NotchController {
         // содержимое, второму нужен Универсальный доступ.
         inbox.onNotice = { [weak self] notice in self?.present(notice) }
         inbox.start()
+
+        // Соседство с Trudaybook: его сводка для плитки «Почта» и шкалы дня,
+        // наш фокус — для его тишины. Без Trudaybook сводку не ждём вовсе.
+        if TrudaybookFeed.isInstalled { TrudaybookFeed.shared.start() }
+        focusBeacon.start()
 
         calls.onCall = { [weak self] invite in
             self?.activities.present(.incomingCall(invite))
