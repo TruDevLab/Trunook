@@ -37,6 +37,8 @@ final class NotchController {
     private lazy var focusBeacon = FocusBeacon(timer: timer)
     /// Заметка дня, общая с Trudaybook.
     private lazy var dayNotes = DayNoteSync(notes: notes)
+    /// Прогноз недели для Trudaybook.
+    private lazy var weekForecast = WeekForecastExport()
     /// Надиктовать текст в поле — своим слушателем, не тем, которым
     /// слушает голосовой заход: диктовать в заметку и спрашивать голосом
     /// одновременно нельзя, но гасить друг друга они не должны.
@@ -593,6 +595,12 @@ final class NotchController {
             // Спросить на ближайшем тике, а не через две секунды: плашка
             // уже раскрывается, и сценке надо начаться вместе с ней.
             self.weatherSceneCheckedAt = .distantPast
+        }
+        // Прогноз недели — только соседу, и только если он есть.
+        if TrudaybookFeed.isInstalled {
+            weather.onCoordinates = { [weak self] latitude, longitude in
+                self?.weekForecast.coordinatesChanged(latitude: latitude, longitude: longitude)
+            }
         }
         weather.start()
 

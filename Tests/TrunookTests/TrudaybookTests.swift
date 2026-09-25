@@ -159,5 +159,29 @@ struct TrudaybookTests {
         #expect(DayNoteSync.day(fromFileName: "2026-09-25.txt") == "2026-09-25")
         #expect(DayNoteSync.day(fromFileName: "25-09-2026.txt") == nil)
     }
+
+    @Test("Прогноз недели: местные часы Open-Meteo — в абсолютное время")
+    func прогнозНедели() throws {
+        let answer = """
+        {"utc_offset_seconds":10800,
+         "hourly":{"time":["2026-09-25T09:00","2026-09-25T10:00"],"temperature_2m":[10.44,null],
+                   "weather_code":[61,3],"precipitation_probability":[70,10]},
+         "daily":{"time":["2026-09-25"],"weather_code":[61],"temperature_2m_max":[14.2],
+                  "temperature_2m_min":[8.1],"precipitation_probability_max":[80]}}
+        """
+        let data = try #require(WeekForecastExport.export(from: Data(answer.utf8), now: now, place: "Москва"))
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["version"] as? Int == 1)
+        #expect(json["place"] as? String == "Москва")
+        let hours = try #require(json["hours"] as? [[String: Any]])
+        // Час без температуры пропущен, 09:00 по Москве — 06:00 UTC.
+        #expect(hours.count == 1)
+        #expect(hours.first?["time"] as? String == "2026-09-25T06:00:00Z")
+        #expect(hours.first?["temp"] as? Double == 10.4)
+        let days = try #require(json["days"] as? [[String: Any]])
+        #expect(days.first?["date"] as? String == "2026-09-25")
+        #expect(days.first?["precip"] as? Int == 80)
+        #expect(WeekForecastExport.export(from: Data("{}".utf8), now: now, place: nil) == nil)
+    }
 }
 

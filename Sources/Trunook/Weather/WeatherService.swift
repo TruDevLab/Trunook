@@ -39,6 +39,10 @@ final class WeatherService: NSObject, ObservableObject {
     /// Текст и значок для плашки в вырезе.
     var onAlert: ((_ text: String, _ symbol: String) -> Void)?
 
+    /// Узнали место — уже округлённые координаты, те же, что уйдут
+    /// в запрос. По ним прогноз недели для Trudaybook (`WeekForecastExport`).
+    var onCoordinates: ((_ latitude: Double, _ longitude: Double) -> Void)?
+
     /// Сменилась погода за окном — сценка под чёлкой. Первый ответ после
     /// запуска не считается сменой: погода не поменялась, её просто узнали.
     var onSceneChange: ((WeatherArt.Scene) -> Void)?
@@ -206,6 +210,9 @@ final class WeatherService: NSObject, ObservableObject {
         // но путь пусть будет один: меньше поводов однажды отправить лишнее.
         let latitude = (rawLatitude * 100).rounded() / 100
         let longitude = (rawLongitude * 100).rounded() / 100
+        if let onCoordinates {
+            DispatchQueue.main.async { onCoordinates(latitude, longitude) }
+        }
 
         var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")
         components?.queryItems = [
