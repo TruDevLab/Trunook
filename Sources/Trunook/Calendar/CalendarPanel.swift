@@ -279,7 +279,7 @@ struct CalendarPanel: View {
                 hourHeight: Self.hourHeight,
                 bottomInset: Self.newEventSize,
                 onOpen: onOpenEvent,
-                mail: feed.current(at: context.date)?.marks(on: planner.day) ?? []
+                mail: feed.current()?.marks(on: planner.day) ?? []
             )
         }
     }

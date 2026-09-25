@@ -13,8 +13,8 @@ struct MailWidget: View {
     var body: some View {
         HomeTile(widget: widget, onTap: actions.openTrudaybook, hint: t("Открыть Trudaybook")) {
             // Такт в минуту: им сводка «стареет», если Trudaybook закрыли.
-            TimelineView(.periodic(from: .now, by: 60)) { context in
-                if let summary = feed.current(at: context.date) {
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                if let summary = feed.current() {
                     if widget.size == .small { small(summary) } else { wide(summary) }
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
@@ -25,6 +25,8 @@ struct MailWidget: View {
                 }
             }
         }
+        // Показалась плитка — перечитать файл, не дожидаясь минутного опроса.
+        .onAppear { feed.refresh() }
     }
 
     private var emptyText: String {

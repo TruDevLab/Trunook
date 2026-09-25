@@ -226,6 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.agentRun", #selector(runAgentTimer)),
             ("com.trunook.debug.agentAsk", #selector(runAgentAgenda)),
             ("com.trunook.debug.mailAsk", #selector(askMail)),
+            ("com.trunook.debug.trudaybookFeed", #selector(logTrudaybookFeed)),
             ("com.trunook.debug.mailSnoozeAsk", #selector(askMailSnooze)),
             ("com.trunook.debug.helpAsk", #selector(askAppHelp)),
             ("com.trunook.debug.slash", #selector(showSlashList)),
@@ -806,6 +807,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func askAppHelpSetting() { controller.debugAgentAsk("а как настроить новостную сводку?") }
     /// Почта через Trudaybook: чтение, затем действие по ярлыку из списка.
     @objc private func askMail() { controller.debugAgentAsk("что важного в почте?") }
+    /// Что видит служба сводки Trudaybook — без правок, только в журнал.
+    @objc private func logTrudaybookFeed() { DebugLog.write(TrudaybookFeed.shared.describe()) }
     @objc private func askMailSnooze() { controller.debugAgentAsk("отложи первое письмо до завтра 10:00") }
 
     /// Список инструментов под полем — по нему снимается вёрстка.

@@ -78,9 +78,11 @@ struct TrudaybookSummary: Equatable {
         return ISO8601DateFormatter().date(from: text)
     }
 
+    /// Сводка свежая. Запись «из будущего» — тоже свежая: часы двух
+    /// приложений одни, и такое значит лишь, что спросивший опоздал со своим
+    /// «сейчас» (замерший `TimelineView`), а не что Trudaybook закрыт.
     func isFresh(at now: Date) -> Bool {
-        let age = now.timeIntervalSince(updated)
-        return age < Self.freshness && age > -60
+        now.timeIntervalSince(updated) < Self.freshness
     }
 
     /// Отметки писем на шкале выбранного дня — минутами от полуночи.
@@ -162,8 +164,20 @@ final class TrudaybookFeed: ObservableObject {
         if parsed != summary { summary = parsed }
     }
 
-    /// Сводка, если она свежая.
-    func current(at now: Date = Date()) -> TrudaybookSummary? {
-        summary.flatMap { $0.isFresh(at: now) ? $0 : nil }
+    /// Сводка, если она свежая. Время — всегда настоящее: такт
+    /// `TimelineView` замирает, пока плитки не видно или включено
+    /// энергосбережение, и с ним свежий файл выглядел записанным «в будущем» —
+    /// плитка писала «Trudaybook закрыт» при открытом Trudaybook.
+    func current() -> TrudaybookSummary? {
+        summary.flatMap { $0.isFresh(at: Date()) ? $0 : nil }
+    }
+
+    /// Что видит служба — в журнал, по событию `trudaybookFeed`.
+    func describe() -> String {
+        let formatter = ISO8601DateFormatter()
+        let stamp = { (date: Date?) in date.map(formatter.string(from:)) ?? "нет" }
+        guard let summary else { return "Trudaybook: сводки нет, файл \(stamp(modified)), таймер \(timer != nil)" }
+        return "Trudaybook: сводка \(stamp(summary.updated)), неразобранных \(summary.unresolved), "
+            + "свежая \(summary.isFresh(at: Date())), файл \(stamp(modified)), таймер \(timer != nil)"
     }
 }

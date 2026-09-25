@@ -25,6 +25,9 @@ struct TrudaybookTests {
         #expect(parsed?.marks.count == 1)
         #expect(parsed?.isFresh(at: now) == true)
         #expect(parsed?.isFresh(at: now.addingTimeInterval(3600)) == false)
+        // Замерший такт спрашивает «сейчас» из прошлого — свежий файл
+        // от этого не становится «Trudaybook закрыт».
+        #expect(parsed?.isFresh(at: now.addingTimeInterval(-4 * 3600)) == true)
     }
 
     @Test("Чужая версия и мусор — не сводка")
