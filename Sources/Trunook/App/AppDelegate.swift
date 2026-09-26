@@ -139,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.noteSave", #selector(saveNote)),
             ("com.trunook.debug.caffeineExpire", #selector(expireCaffeine)),
             ("com.trunook.debug.caffeineOn", #selector(startCaffeine)),
+            ("com.trunook.debug.caffeinePanel", #selector(openCaffeinePanel)),
             ("com.trunook.debug.water", #selector(showWater)),
             ("com.trunook.debug.waterPill", #selector(showWaterPill)),
             ("com.trunook.debug.waterVessel", #selector(showWaterVessel)),
@@ -246,6 +247,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.shotMirror", #selector(shotMirror)),
             ("com.trunook.debug.shotMarks", #selector(shotMarks)),
             ("com.trunook.debug.meeting", #selector(testMeeting)),
+            ("com.trunook.debug.mailNotice", #selector(testMailNotice)),
+            ("com.trunook.debug.musicSkip", #selector(testMusicSkip)),
             ("com.trunook.debug.links", #selector(testLinkExtraction)),
             ("com.trunook.debug.nextTrack", #selector(testNextTrack)),
             ("com.trunook.debug.reminder", #selector(testReminderSoon)),
@@ -261,6 +264,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.pasteRow", #selector(stepPasteRow)),
             ("com.trunook.debug.ollama", #selector(ollamaEcho)),
             ("com.trunook.debug.meetingButtons", #selector(dumpMeetingButtons)),
+            ("com.trunook.debug.meetingFour", #selector(showMeetingFour)),
+            ("com.trunook.debug.screenLock", #selector(lockScreenDebug)),
+            ("com.trunook.debug.screenUnlock", #selector(unlockScreenDebug)),
             ("com.trunook.debug.meetingApps", #selector(dumpMeetingApps)),
             ("com.trunook.debug.meetingProbe", #selector(probeMeetingPress)),
             ("com.trunook.debug.meetingHand", #selector(toggleMeetingHand)),
@@ -326,6 +332,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add(to: submenu, title: "Событие: зарядка отключена", action: #selector(testPowerDisconnected), key: "")
         add(to: submenu, title: "Событие: низкий заряд", action: #selector(testLowBattery), key: "")
         add(to: submenu, title: "Событие: смена трека", action: #selector(testTrackChanged), key: "")
+        add(to: submenu, title: "Событие: новое письмо", action: #selector(testMailNotice), key: "")
+        add(to: submenu, title: "Событие: встреча через 5 минут", action: #selector(testMeeting), key: "")
         add(to: submenu, title: "Мурчание", action: #selector(testPurr), key: "")
         add(to: submenu, title: "Окно знакомства", action: #selector(openWelcome), key: "")
         add(to: submenu, title: "Описание выпусков", action: #selector(openReleaseNotes), key: "")
@@ -794,6 +802,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func dumpCalls() { controller.debugCallDump() }
     /// Мини-вид с встречей со ссылкой — проверить кнопку «Подключиться».
     @objc private func hoverMeeting() { controller.debugHoverMeeting() }
+    @objc private func showMeetingFour() { controller.debugMeetingFour() }
+    @objc private func lockScreenDebug() { controller.debugScreenLock(true) }
+    @objc private func unlockScreenDebug() { controller.debugScreenLock(false) }
     /// Ответ на ждущую плашку без мыши: проверяется не кнопка, а то,
     /// что за ней стоит.
     @objc private func answerActivityYes() { controller.debugAnswerActivity(yes: true) }
@@ -1021,6 +1032,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Снимок полоски на чужом экране — в режиме «Все экраны».
     @objc private func shotMirror() {
         controller.snapshotMirror()
+    }
+
+    @objc private func testMailNotice() { controller.debugMailNotice() }
+
+    /// Перемотка на 10 секунд вперёд: позиция до и после — в журнал.
+    @objc private func testMusicSkip() {
+        let music = controller.music
+        let before = music.nowPlaying?.position() ?? -1
+        music.skip(by: 10)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            let after = music.nowPlaying?.position() ?? -1
+            DebugLog.write(String(format: "музыка: перемотка +10 с — было %.1f, стало %.1f", before, after))
+        }
     }
 
     @objc private func testMeeting() {
@@ -1288,6 +1312,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.debugCycleTeleprompterPrompt()
     }
 
+    /// Панель выбора срока — без включения чашки.
+    @objc private func openCaffeinePanel() { controller.openAwake() }
+
     @objc private func toggleCaffeine() {
         controller.debugToggleAwake()
     }
@@ -1377,14 +1404,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             launchAtLogin: launchAtLogin,
             weather: controller.weather,
             mode: mode,
-            onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() }
+            onHotKeysChanged: { [weak self] in self?.controller.installHotKeys() },
+            onPreviewNotch: { [weak self] seconds in self?.controller.holdOpen(seconds: seconds) }
         )
     }
 
     /// Залп из чёлки без обновления: нажать кнопку и дождаться настоящего
     /// выпуска ради одной анимации — плохой цикл разработки.
     @objc private func testConfetti() {
-        confetti.fire(on: controller.notchScreen)
+        confetti.fire(on: controller.notchScreen, forced: true)
     }
 
     /// Обход хранилища: сколько файлов видно и сколько из них свои.

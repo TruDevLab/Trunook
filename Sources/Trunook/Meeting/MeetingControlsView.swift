@@ -18,11 +18,15 @@ struct MeetingControlsView: View {
     static let spacing: CGFloat = 10
     static let horizontalPadding: CGFloat = 18
 
-    static func width(actionCount: Int) -> CGFloat {
+    /// Ширина плашки: по кнопкам, но не уже чёлки с плечами — тот же пол,
+    /// что у плашек событий. Четыре кнопки на широкой чёлке давали плашку
+    /// уже самого выреза.
+    static func width(actionCount: Int, metrics: NotchMetrics) -> CGFloat {
         let count = max(actionCount, 1)
-        return CGFloat(count) * buttonSize
+        let natural = CGFloat(count) * buttonSize
             + CGFloat(count - 1) * spacing
             + 2 * horizontalPadding
+        return max(natural, metrics.closed.width + ActivityLayout.overhangBeyondNotch)
     }
 
     static func height(notchHeight: CGFloat) -> CGFloat {
@@ -36,6 +40,8 @@ struct MeetingControlsView: View {
             }
         }
         .padding(.horizontal, Self.horizontalPadding)
+        // Кнопки — посередине плашки, когда её расширил пол по чёлке.
+        .frame(width: Self.width(actionCount: meeting.availableActions.count, metrics: metrics))
         .padding(.top, metrics.notchHeight + 8)
         .padding(.bottom, 12)
     }

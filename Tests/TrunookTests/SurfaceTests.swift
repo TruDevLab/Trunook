@@ -45,18 +45,21 @@ struct SurfaceTests {
         // Стекло берёт цвет от обоев, а обои бывают любые. Без затемнения
         // плитка на светлой картинке становится светлой, и белая подпись
         // на ней пропадает — ровно это и случилось в меню всех функций.
-        #expect(Surface.Role.tile.scrimOnGlass > 0)
-        #expect(Surface.Role.row.scrimOnGlass > 0)
-        #expect(Surface.Role.control.scrimOnGlass > 0)
-        #expect(Surface.Role.card.scrimOnGlass > 0)
+        // Матовые плитки — на прозрачном фоне; на матовом они без стекла
+        // и держатся кромкой (`плиткиПротивФона`).
+        let frosted = Surface.GlassLook.step(Surface.LookScale.hazy)
+        #expect(Surface.Role.tile.scrimOnGlass(in: frosted) > 0)
+        #expect(Surface.Role.row.scrimOnGlass(in: frosted) > 0)
+        #expect(Surface.Role.control.scrimOnGlass(in: frosted) > 0)
+        #expect(Surface.Role.card.scrimOnGlass(in: frosted) > 0)
 
         // По плитке читают одно короткое слово мелким кеглем — запас ей
         // нужнее, чем карточке.
-        #expect(Surface.Role.tile.scrimOnGlass > Surface.Role.card.scrimOnGlass)
+        #expect(Surface.Role.tile.scrimOnGlass(in: frosted) > Surface.Role.card.scrimOnGlass(in: frosted))
 
         for role in [Surface.Role.card, .tile, .row, .control, .segment] {
-            #expect(role.scrimOnGlass >= 0 && role.scrimOnGlass < 1,
-                    "\(role) затемняет на \(role.scrimOnGlass)")
+            #expect(role.scrimOnGlass(in: frosted) >= 0 && role.scrimOnGlass(in: frosted) < 1,
+                    "\(role) затемняет на \(role.scrimOnGlass(in: frosted))")
         }
     }
 
@@ -127,36 +130,37 @@ struct SurfaceTests {
         }
     }
 
-    @Test("Шкала плотности: середина оставляет всё как было")
-    func шкалаПлотности() {
-        // На точке «как задумано» множитель обязан равняться единице:
-        // затемнения подбирались и проверялись живьём именно в ней, и любой
-        // сдвиг здесь молча переделал бы то, что уже одобрено.
-        #expect(Double(Surface.DensityScale.normal) / Double(Surface.DensityScale.normal) == 1)
-
-        // Самое тихое затемнение — не ноль. Без него стекло берёт цвет обоев
-        // целиком, и белая подпись на светлой картинке пропадает: ползунок
-        // не должен уметь сделать вырез нечитаемым.
-        #expect(Surface.DensityScale.quietest > 0)
-        #expect(Surface.DensityScale.quietest < 1)
-
-        // Крайняя точка правее «как задумано»: справа лежит непрозрачность.
-        #expect(Surface.DensityScale.opaque > Surface.DensityScale.normal)
+    @Test("Пять положений: слева стекло, посередине матовое, справа чёрный")
+    func шкалаВида() {
+        typealias Scale = Surface.LookScale
+        #expect(Scale.steps == [0, 25, 50, 75, 100])
+        // По умолчанию — полупрозрачное.
+        #expect(Scale.standard == Scale.hazy)
+        // Промежуточное значение прилипает к ближайшему положению.
+        #expect(Scale.snap(40) == Scale.matte)
+        #expect(Scale.snap(10) == Scale.glass)
+        #expect(Scale.snap(90) == Scale.opaque)
+        // Середина — ровно прежнее матовое: затемнения подбирались
+        // и проверялись живьём именно в нём.
+        let matte = Surface.GlassLook.step(Scale.matte)
+        #expect(matte.frost == 1 && matte.scrimScale == 1 && matte.panelScrim(0.24) == 0.24)
+        #expect(Surface.GlassLook.step(Scale.glass).frost == 0)
+        #expect(Surface.GlassLook.step(Scale.dark).scrimScale > 1)
     }
 
     @Test("У каждого положения ползунка есть название")
     func положенияНазваны() {
         // Доля сама по себе ничего не значит — мнение бывает о слове.
-        for level in stride(from: 0, through: Surface.DensityScale.opaque, by: 5) {
-            #expect(!Surface.DensityScale.title(for: level).isEmpty,
+        for level in stride(from: 0, through: Surface.LookScale.opaque, by: 5) {
+            #expect(!Surface.LookScale.title(for: level).isEmpty,
                     "положение \(level) без названия")
         }
 
         // Концы шкалы названы по-разному, иначе она не читается шкалой.
-        #expect(Surface.DensityScale.title(for: 0)
-                != Surface.DensityScale.title(for: Surface.DensityScale.opaque))
-        #expect(Surface.DensityScale.title(for: Surface.DensityScale.normal)
-                != Surface.DensityScale.title(for: 0))
+        #expect(Surface.LookScale.title(for: 0)
+                != Surface.LookScale.title(for: Surface.LookScale.opaque))
+        #expect(Surface.LookScale.title(for: Surface.LookScale.matte)
+                != Surface.LookScale.title(for: 0))
     }
 
     @Test("Затемнение не переходит в полную непрозрачность")
@@ -205,6 +209,17 @@ struct SurfaceTests {
             #expect(высота - полоса > 8,
                     "на полоске \(высота) стеклу осталось \(высота - полоса) точек")
         }
+    }
+
+    @Test("На стекле панель без затемнения, плитки матовые; матовое — как прежде")
+    func видПоложений() {
+        let glass = Surface.GlassLook.step(Surface.LookScale.glass)
+        let matte = Surface.GlassLook.step(Surface.LookScale.matte)
+        #expect(glass.panelScrim(0.24) == 0)
+        #expect(glass.surfaceScrim(0.42) > 0)
+        // Матовое — ровно прежние числа.
+        #expect(matte.panelScrim(0.24) == 0.24)
+        #expect(matte.surfaceScrim(0.42) == 0.42)
     }
 }
 

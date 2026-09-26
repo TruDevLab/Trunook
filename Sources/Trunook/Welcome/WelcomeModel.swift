@@ -8,19 +8,35 @@ import EventKit
 /// Отдельный объект, а не `@State`: в этом тулчейне `@State` недоступен —
 /// он реализован макросом, а плагин SwiftUI-макросов поставляется с Xcode.
 final class WelcomeModel: ObservableObject {
+    /// Шаги по порядку. Не все видны каждому: настройка календаря,
+    /// погоды и помощника показывается, только если человек отметил их
+    /// на шаге «Чем пользуетесь» (`WelcomeFlow.steps`).
     enum Step: Int, CaseIterable, Identifiable {
-        case intro, features, gestures, shortcuts, ai, permissions, done
+        case intro, features, uses, look, calendar, weather, ai, home, controls, permissions, done
 
         var id: Int { rawValue }
+
+        /// Шаг что-то настраивает. У таких «Пропустить» ведёт к следующему
+        /// шагу, а не закрывает знакомство: пропускают настройку, а не всё.
+        var isSetup: Bool {
+            switch self {
+            case .uses, .look, .calendar, .weather, .ai, .home, .permissions: return true
+            case .intro, .features, .controls, .done: return false
+            }
+        }
 
         /// Надпись над заголовком — она же метка шага в индикаторе.
         var eyebrow: String {
             switch self {
             case .intro: return t("ЗНАКОМСТВО")
             case .features: return t("ВОЗМОЖНОСТИ")
-            case .gestures: return t("УПРАВЛЕНИЕ")
-            case .shortcuts: return t("СОЧЕТАНИЯ")
+            case .uses: return t("ВАШ НАБОР")
+            case .look: return t("ВИД")
+            case .calendar: return t("КАЛЕНДАРЬ")
+            case .weather: return t("ПОГОДА И ПЕРЕРЫВЫ")
             case .ai: return t("ПОМОЩНИК")
+            case .home: return t("ГЛАВНЫЙ ЭКРАН")
+            case .controls: return t("УПРАВЛЕНИЕ")
             case .permissions: return t("ДОСТУПЫ")
             case .done: return t("ГОТОВО")
             }
@@ -35,9 +51,13 @@ final class WelcomeModel: ObservableObject {
             switch self {
             case .intro: return t("Знакомство")
             case .features: return t("Возможности")
-            case .gestures: return t("Управление")
-            case .shortcuts: return t("Сочетания клавиш")
+            case .uses: return t("Чем пользуетесь")
+            case .look: return t("Вид выреза")
+            case .calendar: return t("Календарь")
+            case .weather: return t("Погода и перерывы")
             case .ai: return t("Помощник")
+            case .home: return t("Главный экран")
+            case .controls: return t("Управление")
             case .permissions: return t("Доступы")
             case .done: return t("Готово")
             }
@@ -332,16 +352,22 @@ final class WelcomeModel: ObservableObject {
         Haptics.tap()
     }
 
+    /// Шаги, которые видит этот человек: по тому, что он отметил.
+    var steps: [Step] { WelcomeFlow.steps(uses: WelcomeFlow.uses(in: settings)) }
+
     var canGoBack: Bool { step != .intro }
     var isLastStep: Bool { step == .done }
 
     func next() {
-        guard let following = Step(rawValue: step.rawValue + 1) else { return }
+        let visible = steps
+        // Шаг мог пропасть из списка, пока на нём стоят, — сняли отметку
+        // на «Чем пользуетесь» и вернулись: идём к ближайшему следующему.
+        guard let following = visible.first(where: { $0.rawValue > step.rawValue }) else { return }
         go(to: following)
     }
 
     func back() {
-        guard let previous = Step(rawValue: step.rawValue - 1) else { return }
+        guard let previous = steps.last(where: { $0.rawValue < step.rawValue }) else { return }
         go(to: previous)
     }
 

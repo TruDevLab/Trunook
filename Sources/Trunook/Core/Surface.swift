@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Поверхность: стекло там, где оно есть, заливка там, где его нет.
 ///
@@ -16,9 +17,9 @@ import SwiftUI
 /// 1. **Система умеет.** `glassEffect` — с macOS 26. Ниже остаётся прежняя
 ///    заливка, и это не заглушка: она посчитана и выверена по контрасту,
 ///    см. лестницу прозрачностей в `NotchStyle`.
-/// 2. **Человек не отказался.** `Settings.notchDensity` в крайней точке
-///    возвращает вырезу сплошную черноту; прочие ступени меняют плотность
-///    затемнений, не отменяя стекла.
+/// 2. **Человек не отказался.** `Settings.notchLook` в крайней правой
+///    точке возвращает вырезу сплошную черноту; прочие положения меняют
+///    стекло и затемнения, не отменяя его.
 /// 3. **Система не просила уплотнить.** «Уменьшить прозрачность» — настройка
 ///    ровно про это, и половинчато её выполнять нельзя: кому полупрозрачные
 ///    слои читать трудно, тому трудно и полупрозрачное стекло.
@@ -52,48 +53,42 @@ enum Surface {
 
     // MARK: - Насколько плотно
 
-    /// Плотность стекла в вырезе: от прозрачного к сплошному чёрному.
+    /// Вид выреза — один ползунок на пять положений: слева прозрачное
+    /// стекло с линзой, посередине матовое, справа сплошной чёрный.
     ///
-    /// Одна шкала вместо переключателя «непрозрачный вырез»: тот был её
-    /// крайней точкой, и держать рядом два средства про одно и то же значило
-    /// бы заново разводить настройки, которые только что сводили.
-    ///
-    /// Ноль — стекла почти не видно, сотня — стекла нет вовсе.
-    enum DensityScale {
-        /// Что стоит по умолчанию.
-        ///
-        /// Сорок, а не полсотни: именно на сорока множитель равен единице,
-        /// то есть затемнения остаются ровно теми, что подбирались и были
-        /// проверены живьём. Ползунок при этом стоит левее середины —
-        /// и это честно: вправо от «как задумано» лежит больше пути,
-        /// чем влево, потому что справа он кончается непрозрачностью,
-        /// а слева — просто очень прозрачным стеклом.
-        static let normal = 40
-
-        /// Крайняя точка: стекла нет.
+    /// Прежде ползунков было два — «затемнение» и «прозрачность», — потом
+    /// один плавный; пользователь попросил пять положений, каждое проверено
+    /// снимком на читаемость.
+    enum LookScale {
+        /// Прозрачное стекло с линзой.
+        static let glass = 0
+        /// Стекло с линзой и дымкой под ним — по умолчанию.
+        static let hazy = 25
+        /// Матовое стекло — прежний вид.
+        static let matte = 50
+        /// Матовое темнее.
+        static let dark = 75
+        /// Стекла нет, вырез сплошь чёрный.
         static let opaque = 100
 
-        /// Насколько тихим бывает затемнение в самом левом положении.
-        ///
-        /// Не ноль: без затемнения вовсе стекло берёт цвет обоев целиком,
-        /// и белая подпись на светлой картинке пропадает. Ползунок не должен
-        /// уметь сделать вырез нечитаемым — это не «на свой вкус», это
-        /// поломка, которую человек себе устроил сам.
-        static let quietest = 0.3
+        static let steps = [glass, hazy, matte, dark, opaque]
 
-        /// Как назвать нынешнее положение ползунка.
-        ///
-        /// Ползунок без подписи показывает долю, а доля тут ничего не значит:
-        /// «шестьдесят процентов плотности» — это не то, о чём человек может
-        /// иметь мнение. Слово рядом отвечает на «что сейчас», а сам ползунок
-        /// остаётся тем, чем и должен быть, — способом искать своё, а не
-        /// выбирать из чужого списка.
+        /// Что стоит, пока человек не выбрал сам.
+        static let standard = hazy
+
+        /// Ближайшее из пяти положений.
+        static func snap(_ level: Int) -> Int {
+            steps.min { abs($0 - level) < abs($1 - level) } ?? matte
+        }
+
+        /// Слово рядом с ползунком: доля сама по себе ничего не значит.
         static func title(for level: Int) -> String {
-            switch level {
-            case opaque...: return t("Непрозрачный")
-            case (normal + 15)...: return t("Матовее")
-            case ..<(normal - 15): return t("Прозрачнее")
-            default: return t("Как обычно")
+            switch snap(level) {
+            case glass: return t("Стекло")
+            case hazy: return t("Полупрозрачное")
+            case matte: return t("Матовое")
+            case dark: return t("Темнее")
+            default: return t("Чёрный")
             }
         }
     }
@@ -104,10 +99,7 @@ enum Surface {
     /// плашку подписи, заливку главного действия. Порознь их пришлось бы
     /// подбирать пятью наборами, и они разъехались бы при первой же правке
     /// одного из них.
-    static var scrimScale: Double {
-        max(DensityScale.quietest,
-            Double(Settings.shared.notchDensity) / Double(DensityScale.normal))
-    }
+    static var scrimScale: Double { GlassLook.current.scrimScale }
 
     /// Затемнение, приведённое к выбранной плотности.
     ///
@@ -116,6 +108,84 @@ enum Surface {
     /// бы искать глазами.
     static func scrim(_ value: Double) -> Double {
         min(0.98, value * scrimScale)
+    }
+
+    /// Доля матового стекла у панели: 1 — матовое, 0 — линза.
+    static var frost: Double { GlassLook.current.frost }
+
+    /// Вид стекла в вырезе — одним значением на всё дерево выреза.
+    ///
+    /// Через `Environment`, а не чтением настроек по месту: модификатор
+    /// поверхности SwiftUI пересчитывает, только когда меняются его входы,
+    /// и плитка, чьи входы от ползунка не зависят, так и оставалась
+    /// прежней. Среду же получают все, кто её читает.
+    ///
+    /// Плитки и кнопки — всегда матовое стекло с затемнением. На прозрачном
+    /// фоне это и отделяет их от резких обоев. На матовом пробовали
+    /// прозрачные плитки с кромкой — пользователь попросил вернуть матовое
+    /// и «Темнее» ровно к прежнему виду.
+    struct GlassLook: Equatable {
+        /// Доля матового стекла у панели: 1 — матовое, 0 — линза.
+        var frost: Double
+        /// Множитель затемнений.
+        var scrimScale: Double
+        /// Затемнение под всей панелью, в долях обычного.
+        var panelScrimFactor: Double
+        /// Затемнение под матовой плиткой, в долях обычного.
+        var surfaceScrimFactor: Double = 1
+
+        /// Пять положений ползунка.
+        static func step(_ level: Int) -> GlassLook {
+            switch LookScale.snap(level) {
+            case LookScale.glass:
+                // Панель без черноты вовсе; плитки матовые и темнее
+                // обычного: в светлой теме за ними светлые окна, и при
+                // обычном затемнении серые подписи на них терялись
+                // (снято снимком).
+                return GlassLook(frost: 0, scrimScale: 1, panelScrimFactor: 0, surfaceScrimFactor: 1.3)
+            case LookScale.hazy:
+                // Линза с дымкой: обои видны, но притушены.
+                return GlassLook(frost: 0, scrimScale: 1, panelScrimFactor: 1.6, surfaceScrimFactor: 1.2)
+            case LookScale.matte:
+                // Ровно прежнее «как обычно»: затемнения, подобранные живьём.
+                return GlassLook(frost: 1, scrimScale: 1, panelScrimFactor: 1)
+            default:
+                // Темнее — темнеет панель, а плитки и кнопки остаются почти
+                // как на матовом: с общим множителем они уходили в черноту
+                // (0.42 × 1.75 у плитки) и сливались с панелью — поймал
+                // пользователь. У чёрного стекла нет, и значения нужны только
+                // плашке подписи.
+                return GlassLook(frost: 1, scrimScale: 1.75, panelScrimFactor: 1, surfaceScrimFactor: 0.6)
+            }
+        }
+
+        static var current: GlassLook { step(Settings.shared.notchLook) }
+
+        /// Вне выреза — прежнее матовое: ползунок только про вырез.
+        static var outsideNotch: GlassLook {
+            GlassLook(frost: 1, scrimScale: 1, panelScrimFactor: 1)
+        }
+
+        /// Затемнение под плиткой.
+        func surfaceScrim(_ base: Double) -> Double {
+            min(0.98, base * scrimScale * surfaceScrimFactor)
+        }
+
+        /// Насколько плотно лежит цвет под стеклом у главного действия.
+        ///
+        /// Не в полную силу: сплошная заливка не пускает стекло сквозь себя,
+        /// и кнопка выходит наклейкой на стеклянной плашке. Вполсилы цвет
+        /// остаётся собой — по нему подобрана подпись, — но преломление
+        /// и то, что за плашкой, сквозь него читаются.
+        ///
+        /// На плоской ветке не применяется: без стекла просвечивать нечему,
+        /// и ослабленный цвет там был бы просто бледным.
+        var accentFill: Double { min(0.98, 0.5 * scrimScale) }
+
+        /// Затемнение под всей панелью.
+        func panelScrim(_ base: Double) -> Double {
+            min(0.98, base * scrimScale * panelScrimFactor)
+        }
     }
 
     // MARK: - Когда стекло
@@ -143,7 +213,7 @@ enum Surface {
     /// на своём фоне, и чернота выреза к ним отношения не имеет.
     static var inNotch: Bool {
         isSupported && !isFlatForSnapshot
-            && Settings.shared.notchDensity < DensityScale.opaque
+            && Settings.shared.notchLook < LookScale.opaque
             && !MotionPreference.shared.reduceTransparency
     }
 
@@ -161,24 +231,10 @@ enum Surface {
     /// непрозрачный вырез, ни попросивший систему уменьшить прозрачность
     /// не должны видеть никакого растворения.
     static var notchIsTranslucent: Bool {
-        isSupported && Settings.shared.notchDensity < DensityScale.opaque
+        isSupported && Settings.shared.notchLook < LookScale.opaque
             && !MotionPreference.shared.reduceTransparency
     }
 
-    /// Насколько плотно лежит цвет под стеклом у главного действия.
-    ///
-    /// Не в полную силу: сплошная заливка не пускает стекло сквозь себя,
-    /// и кнопка выходит наклейкой на стеклянной плашке. Вполсилы цвет
-    /// остаётся собой — по нему подобрана подпись, — но преломление
-    /// и то, что за плашкой, сквозь него читаются.
-    ///
-    /// На плоской ветке не применяется: без стекла просвечивать нечему,
-    /// и ослабленный цвет там был бы просто бледным.
-    ///
-    /// Слушается той же шкалы плотности, что и затемнения: выбравший
-    /// «прозрачнее» ждёт этого от всей панели, а кнопка, оставшаяся плотной
-    /// посреди поредевшего стекла, читалась бы забытой.
-    static var accentFillOnGlass: Double { min(0.98, 0.5 * scrimScale) }
 
     /// Затемнение под всплывающей плашкой подписи.
     ///
@@ -208,7 +264,7 @@ enum Surface {
     /// 0.92 / 0.75 / 0.60 / 0.48 дают там от 17.55:1 до 4.92:1. Это
     /// затемнение возвращает ей то основание, под которое её считали,
     /// не отнимая у панели прозрачности.
-    static var panelScrim: Double { scrim(0.24) }
+    static var panelScrim: Double { GlassLook.current.panelScrim(0.24) }
 
     /// Чем подменить стекло на снимке.
     ///
@@ -299,11 +355,20 @@ enum Surface {
         ///
         /// У плитки больше, чем у карточки: по плитке читают одно короткое
         /// слово мелким кеглем, и запас ей нужнее.
-        var scrimOnGlass: Double {
+        var scrimOnGlass: Double { scrimOnGlass(in: .current) }
+
+        /// Затемнение под стеклом при заданном виде стекла: множитель
+        /// ползунка затемнения и ослабление на прозрачной стороне ползунка
+        /// прозрачности.
+        func scrimOnGlass(in look: GlassLook) -> Double {
+            look.surfaceScrim(baseScrim)
+        }
+
+        private var baseScrim: Double {
             switch self {
-            case .tile: return Surface.scrim(0.42)
-            case .row, .control: return Surface.scrim(0.30)
-            case .card: return Surface.scrim(0.24)
+            case .tile: return 0.42
+            case .row, .control: return 0.30
+            case .card: return 0.24
             // Дорожка сегмента и так лежит на затемнённой карточке,
             // а бегунок держится цветом.
             case .segment: return 0
@@ -409,6 +474,7 @@ private struct SurfaceStyle<S: Shape>: ViewModifier {
     /// когда плотность нужна плиточная, а нажимается не сама поверхность,
     /// а кнопки на ней — как у плитки быстрых команд.
     var interactive: Bool?
+    @Environment(\.glassLook) private var look
 
     /// Под стеклом заливка гаснет — остаётся только подсветка под курсором.
     /// Гаснет, а не убирается: убрать значило бы завести ветку.
@@ -419,7 +485,7 @@ private struct SurfaceStyle<S: Shape>: ViewModifier {
     /// Затемнение под стеклом. Вне стекла нулевое: там подложка и так
     /// лежит на чёрном теле панели.
     private var scrim: Double {
-        glass ? role.scrimOnGlass : 0
+        glass ? role.scrimOnGlass(in: look) : 0
     }
 
     func body(content: Content) -> some View {
@@ -496,10 +562,11 @@ private struct AccentSurface<S: Shape>: ViewModifier {
     let shape: S
     let tint: Color
     let glass: Bool
+    @Environment(\.glassLook) private var look
 
     /// Под стеклом цвет ложится вполсилы, без него — целиком: просвечивать
     /// нечему, и ослабленный цвет был бы просто бледным.
-    private var fillOpacity: Double { glass ? Surface.accentFillOnGlass : 1 }
+    private var fillOpacity: Double { glass ? look.accentFill : 1 }
 
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
@@ -518,15 +585,80 @@ private struct AccentSurface<S: Shape>: ViewModifier {
 /// поверхность под указателем — у кнопки это отклик, у панели, над которой
 /// курсор стоит **всё время, пока она открыта**, это была бы постоянно
 /// подсвеченная панель.
+///
+/// Прозрачность (`Surface.frost`): матовое гаснет по ползунку, а под ним
+/// проступает линза `LensGlass`. Ступеней у системы
+/// всего две (`.regular` и `.clear`), а ползунок обещает плавный ход.
+/// В крайних точках остаётся одно стекло — матовое по умолчанию рисуется
+/// ровно как прежде.
 private struct PanelGlass<S: Shape>: ViewModifier {
     let shape: S
     let glass: Bool
+    /// Из среды, а не чтением настройки в `body`: модификатор с теми же
+    /// входами SwiftUI не пересчитывает, и ползунок не менял ничего.
+    @Environment(\.glassLook) private var look
 
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
-            content.glassEffect(glass ? .regular : .identity, in: shape)
+            let frost = look.frost
+            let blended = glass && frost > 0 && frost < 1
+            // Прозрачное стекло — не здесь: системное `.clear` на macOS
+            // размывает не меньше матового (проверено снимком), и под
+            // прозрачной половиной ползунка лежит `LensGlass` из `NotchView`.
+            // Здесь матовое только гаснет.
+            content
+                .glassEffect(glass && frost >= 1 ? .regular : .identity, in: shape)
+                .background(
+                    Color.clear
+                        .glassEffect(blended ? .regular : .identity, in: shape)
+                        .opacity(blended ? frost : 0)
+                )
         } else {
             content
         }
+    }
+}
+
+private struct GlassLookKey: EnvironmentKey {
+    static var defaultValue: Surface.GlassLook { .outsideNotch }
+}
+
+extension EnvironmentValues {
+    /// Вид стекла выреза. Ставит `NotchView`; вне выреза — матовое.
+    var glassLook: Surface.GlassLook {
+        get { self[GlassLookKey.self] }
+        set { self[GlassLookKey.self] = newValue }
+    }
+}
+
+/// Прозрачное стекло с линзой по краю — как у системных виджетов поверх
+/// обоев: то, что за ним, остаётся резким, а у кромки преломляется.
+///
+/// SwiftUI такого не даёт: у `Glass` два вида, и оба на macOS размывают
+/// (`.clear` даже сильнее). Нужный вид — у `NSGlassEffectView` среди
+/// закрытых вариантов (`_variant`). Перебор всех 24 снимком: 11 — резкий
+/// фон и линза с цветной каймой, 20 — то же мягче, 13–15 — почти ничего.
+/// Нет варианта — остаётся обычный стиль `.clear`, пусть и размытый.
+///
+/// Форму задаёт только `cornerRadius`: маска слоя линзу ломает —
+/// преломление идёт по прямоугольнику, а не по скруглению.
+@available(macOS 26.0, *)
+struct LensGlass: NSViewRepresentable {
+    var cornerRadius: CGFloat
+
+    static let variant = 11
+
+    func makeNSView(context: Context) -> NSGlassEffectView {
+        let view = NSGlassEffectView()
+        view.style = .clear
+        if view.responds(to: NSSelectorFromString("set_variant:")) {
+            view.setValue(Self.variant, forKey: "_variant")
+        }
+        view.cornerRadius = cornerRadius
+        return view
+    }
+
+    func updateNSView(_ view: NSGlassEffectView, context: Context) {
+        if view.cornerRadius != cornerRadius { view.cornerRadius = cornerRadius }
     }
 }

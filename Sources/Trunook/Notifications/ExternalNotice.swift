@@ -44,6 +44,15 @@ struct ExternalNotice: Equatable, Identifiable {
     /// так Trudaybook отмечает «всё разобрано». Безвреден: ничего, кроме
     /// картинки, и тот не чаще раза в минуту (`NotchController.present`).
     let celebrates: Bool
+    /// О какой встрече плашка (`"event": {"title", "start"}`). По нему
+    /// Trunook узнаёт встречу из своего календаря и не показывает её дважды:
+    /// Exchange бывает подключён и к macOS, и к Trudaybook напрямую.
+    let event: EventRef?
+
+    struct EventRef: Equatable {
+        let title: String
+        let start: Date
+    }
 
     /// Ждёт ли уведомление ответа. От этого зависит и срок жизни плашки,
     /// и то, можно ли её перебить.
@@ -76,6 +85,7 @@ struct ExternalNotice: Equatable, Identifiable {
         actions = raw.prefix(Self.maxActions).compactMap(Action.init(json:))
         isOptional = (json["optional"] as? NSNumber)?.boolValue ?? false
         celebrates = (json["celebrate"] as? NSNumber)?.boolValue ?? false
+        event = (json["event"] as? [String: Any]).flatMap(EventRef.init(json:))
 
         let asked = (json["hold"] as? NSNumber)?.doubleValue ?? 0
         // Спрашивающее уведомление ждёт без срока, даже если срок указан:
@@ -96,7 +106,8 @@ struct ExternalNotice: Equatable, Identifiable {
         actions: [Action] = [],
         replyPath: String? = nil,
         isOptional: Bool = false,
-        celebrates: Bool = false
+        celebrates: Bool = false,
+        event: EventRef? = nil
     ) {
         self.id = id
         self.source = source
@@ -107,6 +118,26 @@ struct ExternalNotice: Equatable, Identifiable {
         self.replyPath = replyPath
         self.isOptional = isOptional
         self.celebrates = celebrates
+        self.event = event
+    }
+
+    /// Встреча из своего календаря, о которой эта плашка, — если она там есть.
+    ///
+    /// Сверка по названию и началу, а не по идентификатору: у одной встречи,
+    /// прочитанной через macOS и через Exchange напрямую, идентификаторы
+    /// разные. Минута люфта — на округление времени сервером.
+    func sameMeeting(in items: [CalendarItem]) -> CalendarItem? {
+        guard let event else { return nil }
+        let title = Self.normalized(event.title)
+        return items.first { item in
+            item.source == .event && !item.isAllDay
+                && abs(item.start.timeIntervalSince(event.start)) < 60
+                && Self.normalized(item.title) == title
+        }
+    }
+
+    private static func normalized(_ title: String) -> String {
+        title.trimmed.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     /// Значки, которые разрешено просить по имени.
@@ -165,6 +196,16 @@ extension ExternalNotice.Action {
     static let no = ExternalNotice.Action(
         id: "no", title: t("Отклонить"), symbol: "xmark", isPositive: false
     )
+}
+
+extension ExternalNotice.EventRef {
+    init?(json: [String: Any]) {
+        guard let title = (json["title"] as? String)?.trimmed, !title.isEmpty,
+              let text = json["start"] as? String,
+              let start = ISO8601DateFormatter().date(from: text)
+        else { return nil }
+        self.init(title: title, start: start)
+    }
 }
 
 private extension String {

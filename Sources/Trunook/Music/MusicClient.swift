@@ -109,6 +109,16 @@ final class MusicClient: NSObject, ObservableObject, TrunookHelperClientProtocol
         }
     }
 
+    /// Перемотать на `delta` секунд от нынешней позиции — назад со знаком
+    /// минус. Позиция считается на сейчас (`NowPlaying.position`), а не берётся
+    /// из последнего опроса: между опросами трек ушёл вперёд.
+    func skip(by delta: Double) {
+        guard let track = nowPlaying, let position = track.position() else { return }
+        var target = max(0, position + delta)
+        if let duration = track.duration { target = min(target, max(0, duration - 1)) }
+        seek(to: target)
+    }
+
     func seek(to seconds: Double) {
         proxy()?.setElapsed(seconds) { [weak self] _ in
             DispatchQueue.main.async { self?.refreshBurst() }

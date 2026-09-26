@@ -162,6 +162,30 @@ struct NotificationsTests {
         #expect(ActivityView.answerRoom(for: .trackChanged) == 0)
     }
 
+    @Test("Встреча, которую Trunook видит сам, узнаётся по названию и началу")
+    func своиВстречи() {
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        let own = CalendarItem(
+            id: "ek-1", title: "Ретро - разбор дефектов", start: start, end: nil,
+            isAllDay: false, source: .event, link: nil, colorComponents: nil
+        )
+        func notice(_ title: String, _ start: Date) -> ExternalNotice? {
+            ExternalNotice(json: [
+                "source": "Exchange", "title": "«\(title)» через 5 мин",
+                "event": ["title": title, "start": ISO8601DateFormatter().string(from: start)],
+            ], id: "1")
+        }
+        #expect(notice("Ретро - разбор дефектов", start)?.sameMeeting(in: [own]) == own)
+        // Регистр и лишние пробелы — та же встреча.
+        #expect(notice(" ретро -  разбор дефектов ", start.addingTimeInterval(30))?.sameMeeting(in: [own]) == own)
+        // Другое время или название — другая встреча.
+        #expect(notice("Ретро - разбор дефектов", start.addingTimeInterval(3600))?.sameMeeting(in: [own]) == nil)
+        #expect(notice("Планерка", start)?.sameMeeting(in: [own]) == nil)
+        // Без описания встречи сверять нечего.
+        #expect(ExternalNotice(json: ["title": "«Ретро - разбор дефектов» через 5 мин"], id: "2")?
+            .sameMeeting(in: [own]) == nil)
+    }
+
     // MARK: - Очерёдность
 
     @Test("Звонок и вопрос важнее смены трека, но ждут не дольше срока")

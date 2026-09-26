@@ -56,15 +56,23 @@ struct WakeGuardTests {
         guardian.disable()
     }
 
-    /// Подписи кнопок в панели: круглые часы подписаны часами, остальное —
-    /// минутами, ноль — словами. Повторов быть не должно, иначе две кнопки
-    /// в ряду выглядят одинаково.
-    @Test("У каждого срока своя подпись")
-    func подписиСроков() {
-        let titles = Settings.caffeineLimits.map(CaffeinePanel.title(minutes:))
-        #expect(Set(titles).count == titles.count, "подписи повторяются: \(titles)")
-        #expect(titles.allSatisfy { !$0.isEmpty })
-        #expect(CaffeinePanel.title(minutes: 120) == CaffeinePanel.title(minutes: 120))
+    /// Шкала чашки — как у таймера, но деление в пять минут и длинное
+    /// на получасе; подписи часами: «30», «1 ч», «1:30».
+    @Test("Шкала чашки: шаг пять минут, подписи часами")
+    func шкалаЧашки() {
+        #expect(CaffeinePanel.dialLabel(30) == "30")
+        #expect(CaffeinePanel.dialLabel(90) == "1:30")
+        #expect(CaffeinePanel.dialLabel(120) == CaffeinePanel.title(minutes: 120))
+        let step = TimerDialLayout.step
+        // На одно деление — пять минут, и за границы шкалы не уехать.
+        #expect(TimerDialLayout.minutes(from: 60, drag: -step, range: CaffeinePanel.range,
+                                        unit: CaffeinePanel.unit) == 65)
+        #expect(TimerDialLayout.minutes(from: 60, drag: step * 1000, range: CaffeinePanel.range,
+                                        unit: CaffeinePanel.unit) == CaffeinePanel.range.lowerBound)
+        let ticks = TimerDialLayout.ticks(centerMinutes: 60, width: 400, range: CaffeinePanel.range,
+                                          unit: CaffeinePanel.unit, majorEvery: CaffeinePanel.majorEvery)
+        #expect(ticks.allSatisfy { $0.minutes % 5 == 0 })
+        #expect(ticks.filter(\.isMajor).allSatisfy { $0.minutes % 30 == 0 })
     }
 
     /// Повторное включение не должно заводить вторую ассерцию: первая тогда
@@ -126,11 +134,11 @@ struct WakeGuardTests {
         #expect(told, "об истёкшем сроке не сообщили")
     }
 
-    @Test("Среди сроков есть и «без ограничения», и все названные")
+    @Test("Шкала покрывает прежние сроки: от получаса до двух часов и дальше")
     func срокиНаВыбор() {
-        #expect(Settings.caffeineLimits.contains(0), "нет варианта «без ограничения»")
-        for minutes in [30, 90, 120] {
-            #expect(Settings.caffeineLimits.contains(minutes), "нет срока \(minutes) мин")
+        for minutes in [30, 60, 90, 120] {
+            #expect(CaffeinePanel.range.contains(minutes), "нет срока \(minutes) мин")
+            #expect(minutes % CaffeinePanel.unit == 0, "срок \(minutes) мимо делений")
         }
     }
 

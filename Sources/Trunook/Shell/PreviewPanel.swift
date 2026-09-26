@@ -14,6 +14,8 @@ struct PreviewPanel: View {
     /// Точка отсчёта бегущей строки — момент наведения.
     let startDate: Date
     let onTogglePlayback: () -> Void
+    /// Перемотать трек на столько секунд — назад со знаком минус.
+    let onSkip: (Double) -> Void
     /// Подключиться к встрече по её ссылке.
     let onJoin: (URL) -> Void
 
@@ -58,8 +60,18 @@ struct PreviewPanel: View {
             text: text(track: track, event: event),
             trailing: join ? t("Подключиться") : nil,
             minimumWidth: metrics.closed.width,
-            trailingIsButton: join
+            trailingIsButton: join,
+            trailingExtra: hasTrack(track) ? skipRoom : 0
         )
+    }
+
+    /// Шаг перемотки.
+    static let skipStep: Double = 10
+
+    /// Место под две кнопки перемотки — тем же расчётом, что у кнопок
+    /// ответа в плашках: одной мерой и для ширины, и для вёрстки.
+    static var skipRoom: CGFloat {
+        ActivityLayout.spacing + 2 * ActivityView.answerDiameter + ActivityView.answerSpacing
     }
 
     private var layout: ActivityLayout { Self.layout(track: track, event: event, metrics: metrics) }
@@ -79,6 +91,14 @@ struct PreviewPanel: View {
 
             if let link = Self.joinLink(track: track, event: event) {
                 joinButton(link)
+            }
+
+            if showsTrack {
+                HStack(spacing: ActivityView.answerSpacing) {
+                    skipButton(symbol: "gobackward.10", hint: t("Назад на 10 секунд"), delta: -Self.skipStep)
+                    skipButton(symbol: "goforward.10", hint: t("Вперёд на 10 секунд"), delta: Self.skipStep)
+                }
+                .fixedSize()
             }
         }
         .padding(.leading, ActivityLayout.leadingPadding)
@@ -103,6 +123,19 @@ struct PreviewPanel: View {
                         .foregroundStyle(event?.color ?? .white.opacity(0.5))
                 )
         }
+    }
+
+    /// Круглая кнопка перемотки — как кнопки ответа в плашках.
+    private func skipButton(symbol: String, hint: String, delta: Double) -> some View {
+        Button { onSkip(delta) } label: {
+            Image(systemName: symbol)
+                .font(.system(size: NotchStyle.font(11), weight: .bold))
+                .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
+                .frame(width: ActivityView.answerDiameter, height: ActivityView.answerDiameter)
+                .background(Circle().fill(.white.opacity(0.14)))
+        }
+        .buttonStyle(NotchButtonStyle(diameter: ActivityView.answerDiameter))
+        .notchHint(hint)
     }
 
     /// Капсула «Подключиться» — цветом встречи, как у плашки события.

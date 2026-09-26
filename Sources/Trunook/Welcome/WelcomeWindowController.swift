@@ -32,7 +32,8 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         launchAtLogin: LaunchAtLogin,
         weather: WeatherService,
         mode: WelcomeModel.Mode = .tour,
-        onHotKeysChanged: @escaping () -> Void
+        onHotKeysChanged: @escaping () -> Void,
+        onPreviewNotch: @escaping (TimeInterval) -> Void
     ) {
         launchAtLogin.refresh()
         // `present`, а не `load`: «Что нового» — это вопрос, а не место,
@@ -56,6 +57,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
             releaseNotes: releaseNotes,
             ai: ai,
             onHotKeysChanged: onHotKeysChanged,
+            onPreviewNotch: onPreviewNotch,
             onFinish: { [weak self] in self?.finish() }
         )
 

@@ -198,8 +198,6 @@ struct ActivityView: View {
     /// тот сорт уговора, который однажды нарушают.
     static func button(for kind: Activity.Kind) -> ActivityButton? {
         switch kind {
-        case let .meeting(item, _):
-            return (item.link?.url).map(ActivityButton.join)
         case .update:
             return .installUpdate
         case let .siteChanged(_, _, url):
@@ -311,6 +309,15 @@ struct ActivityView: View {
                 no: invite.canDecline
                     ? .init(symbol: "phone.down.fill", hint: t("Отклонить"), isDangerous: true)
                     : nil
+            )
+        case let .meeting(item, _):
+            // Круглой кнопкой, как «Подключиться» в плашке встречи
+            // от Trudaybook: одна и та же встреча не должна выглядеть
+            // по-разному в зависимости от того, кто о ней напомнил.
+            guard item.link != nil else { return nil }
+            return ActivityAnswer(
+                yes: .init(symbol: "video.fill", hint: t("Подключиться"), isPositive: true),
+                no: nil
             )
         case let .external(notice):
             guard let first = notice.actions.first else { return nil }
@@ -591,8 +598,10 @@ struct ActivityView: View {
             return nil
         case .timer:
             return nil
-        case let .meeting(item, _):
-            return item.link == nil ? nil : t("Подключиться")
+        case .meeting:
+            // «Подключиться» — круглой кнопкой ответа (`answer(for:)`),
+            // подпись всплывает при наведении.
+            return nil
         case .trackChanged:
             return nil
         case let .powerConnected(percentage),

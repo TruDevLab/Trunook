@@ -235,7 +235,7 @@ enum NotchSizing {
             // что нужно от выреза, пока идёт разговор.
             if content.meetingActions > 0 {
                 return CGSize(
-                    width: MeetingControlsView.width(actionCount: content.meetingActions),
+                    width: MeetingControlsView.width(actionCount: content.meetingActions, metrics: metrics),
                     height: MeetingControlsView.height(notchHeight: metrics.notchHeight)
                 )
             }

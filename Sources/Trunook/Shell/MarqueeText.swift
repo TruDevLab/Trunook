@@ -4,9 +4,31 @@ import AppKit
 enum TextMeasure {
     /// Ширина строки до вёрстки. Нужна, чтобы заранее решить, поместится ли
     /// текст и какой ширины делать плашку.
+    ///
+    /// С памятью: расчёт выреза идёт на каждом тике мыши (10 раз в секунду),
+    /// и пока горит полоска чашки или таймера, одна и та же «8:88:88»
+    /// набиралась CoreText заново каждый тик — в профиле покоя это был
+    /// главный расход главного потока (замер 26 сентября). Строк на деле
+    /// горсть, поэтому память просто сбрасывается, если разрослась.
     static func width(_ string: String, font: NSFont) -> CGFloat {
-        (string as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+        let key = Key(string: string, font: font.fontName, size: font.pointSize)
+        lock.lock()
+        defer { lock.unlock() }
+        if let known = cache[key] { return known }
+        let width = (string as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+        if cache.count >= 512 { cache.removeAll(keepingCapacity: true) }
+        cache[key] = width
+        return width
     }
+
+    private struct Key: Hashable {
+        let string: String
+        let font: String
+        let size: CGFloat
+    }
+
+    private static var cache: [Key: CGFloat] = [:]
+    private static let lock = NSLock()
 }
 
 /// Однострочный текст, который едет справа налево, если не помещается.

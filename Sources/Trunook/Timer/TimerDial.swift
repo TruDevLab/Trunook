@@ -21,8 +21,14 @@ enum TimerDialLayout {
         let minutes: Int
         /// Где стоит по горизонтали, в точках от левого края полосы.
         let x: CGFloat
-        /// Каждое пятое — длинное и с подписью.
-        var isMajor: Bool { minutes % 5 == 0 }
+        /// Длинное и с подписью: у таймера каждое пятое.
+        var isMajor: Bool
+
+        init(minutes: Int, x: CGFloat, isMajor: Bool? = nil) {
+            self.minutes = minutes
+            self.x = x
+            self.isMajor = isMajor ?? (minutes % 5 == 0)
+        }
     }
 
     /// Деления, попадающие в полосу шириной `width`, когда в её середине
@@ -30,21 +36,29 @@ enum TimerDialLayout {
     ///
     /// `centerMinutes` дробное намеренно: пока таймер идёт, остаток убывает
     /// непрерывно, и шкала должна ползти, а не прыгать раз в минуту.
+    ///
+    /// `unit` — сколько минут в одном делении, `majorEvery` — каждое какое
+    /// деление длинное. У таймера минута и пятое, у чашки — пять минут
+    /// и шестое, то есть получас: срок у неё в часах, и по минуте на деление
+    /// до двух часов пришлось бы тянуть через полтора метра.
     static func ticks(
         centerMinutes: Double,
         width: CGFloat,
-        range: ClosedRange<Int>
+        range: ClosedRange<Int>,
+        unit: Int = 1,
+        majorEvery: Int = 5
     ) -> [Tick] {
-        guard width > 0 else { return [] }
+        guard width > 0, unit > 0 else { return [] }
         let middle = width / 2
         // Половина полосы плюс одно деление про запас: крайнее должно
         // появляться до того, как въедет в кадр, иначе край мигает.
         let span = Int((middle / step).rounded(.up)) + 1
-        let base = Int(centerMinutes.rounded())
-        return (base - span...base + span).compactMap { minutes in
+        let base = Int((centerMinutes / Double(unit)).rounded())
+        return (base - span...base + span).compactMap { index in
+            let minutes = index * unit
             guard range.contains(minutes) else { return nil }
-            let x = middle + (CGFloat(minutes) - CGFloat(centerMinutes)) * step
-            return Tick(minutes: minutes, x: x)
+            let x = middle + (CGFloat(minutes) - CGFloat(centerMinutes)) / CGFloat(unit) * step
+            return Tick(minutes: minutes, x: x, isMajor: index % majorEvery == 0)
         }
     }
 
@@ -61,9 +75,10 @@ enum TimerDialLayout {
     static func minutes(
         from startMinutes: Int,
         drag: CGFloat,
-        range: ClosedRange<Int>
+        range: ClosedRange<Int>,
+        unit: Int = 1
     ) -> Int {
-        let moved = Int((drag / step).rounded())
+        let moved = Int((drag / step).rounded()) * unit
         return min(max(startMinutes - moved, range.lowerBound), range.upperBound)
     }
 }
@@ -138,6 +153,13 @@ struct TimerDial: View {
     /// Что делать с выбранным значением. `nil` — шкалу не тянут: она идёт
     /// сама, и хвататься за неё не за что.
     let onScrub: ((Int) -> Void)?
+    /// Минут в делении и каждое какое длинное — см. `TimerDialLayout.ticks`.
+    var unit: Int = 1
+    var majorEvery: Int = 5
+    /// Подпись под длинным делением. У таймера — число минут.
+    var label: (Int) -> String = { "\($0)" }
+    /// Цвет метки середины — цвет функции.
+    var tint: Color = Palette.timer
 
     static let height: CGFloat = 30
     /// Докуда доросли длинные деления и метка середины.
@@ -175,7 +197,9 @@ struct TimerDial: View {
         for tick in TimerDialLayout.ticks(
             centerMinutes: centerMinutes,
             width: size.width,
-            range: range
+            range: range,
+            unit: unit,
+            majorEvery: majorEvery
         ) {
             let height = tick.isMajor ? Self.majorHeight : Self.minorHeight
             let width: CGFloat = tick.isMajor ? 1.5 : 1
@@ -193,7 +217,7 @@ struct TimerDial: View {
             // Подпись только у длинных: у каждой минуты числа сливаются
             // в сплошную строку и перестают читаться как числа.
             let label = context.resolve(
-                Text("\(tick.minutes)")
+                Text(label(tick.minutes))
                     .font(.system(size: NotchStyle.font(8.5), weight: .medium))
                     .foregroundStyle(.white.opacity(0.42))
             )
@@ -206,7 +230,7 @@ struct TimerDial: View {
     /// её пришлось бы искать среди тридцати одинаковых чёрточек.
     private var marker: some View {
         Capsule()
-            .fill(Palette.timer)
+            .fill(tint)
             // Выше самого длинного деления: метка обязана быть заметно
             // не делением, иначе среди тридцати чёрточек её приходится
             // искать по цвету, а цвет — признак, который есть не у всех.
@@ -246,7 +270,8 @@ struct TimerDial: View {
                 let chosen = TimerDialLayout.minutes(
                     from: start,
                     drag: value.translation.width,
-                    range: range
+                    range: range,
+                    unit: unit
                 )
                 guard chosen != Int(centerMinutes.rounded()) else { return }
                 grip.passed()

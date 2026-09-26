@@ -202,6 +202,20 @@ final class NotchWindowHost {
         return Entry(window: window, hosting: hosting, geometry: geometry, metrics: metrics)
     }
 
+    /// Главное окно — над экраном блокировки, остальные убраны. После
+    /// разблокировки окна пересоздают: обратно из того пространства
+    /// окно не возвращается.
+    func attachToLockScreen() -> Bool {
+        guard let active else { return false }
+        for (id, entry) in entries where id != activeID { entry.window.orderOut(nil) }
+        return LockScreenSpace.shared.attach(active.window)
+    }
+
+    /// Убрать окна с экрана, не разбирая их: вернёт их `rebuild`.
+    func orderOutAll() {
+        entries.values.forEach { $0.window.orderOut(nil) }
+    }
+
     func hide() {
         entries.values.forEach { $0.window.orderOut(nil) }
         entries.removeAll()

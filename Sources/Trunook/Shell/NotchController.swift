@@ -215,6 +215,7 @@ final class NotchController {
 
     func stop() {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+        DistributedNotificationCenter.default().removeObserver(self)
         input.stop()
         swipeResetTimer?.invalidate()
         swipeResetTimer = nil
@@ -254,6 +255,10 @@ final class NotchController {
     }
 
     @objc private func screensChanged() {
+        // Пока экран заблокирован, система отдаёт экраны экрана блокировки:
+        // по ним остров встал бы не на место и так и остался бы там
+        // после входа. Расставим заново при разблокировке.
+        guard !screenLocked else { return }
         placeScreens(force: true)
     }
 
@@ -296,7 +301,13 @@ final class NotchController {
     /// их срок идёт и во сне.
     private var screensAsleep = false
     private var sessionInactive = false
+    /// Экран заблокирован. Остров либо над экраном блокировки
+    /// (`lockScreenShown`), либо убран.
+    private var screenLocked = false
+    /// Вырез показан над экраном блокировки: погода, заряд, музыка.
+    private var lockScreenShown = false
     private var isDormant = false
+    private var isInputPaused = false
 
     private func installDormancy() {
         let center = NSWorkspace.shared.notificationCenter
@@ -309,6 +320,46 @@ final class NotchController {
         for (name, selector) in names {
             center.addObserver(self, selector: selector, name: name, object: nil)
         }
+        // Блокировка экрана не усыпляет его и не отдаёт сеанс: о ней
+        // говорят только эти два общесистемных уведомления.
+        let distributed = DistributedNotificationCenter.default()
+        distributed.addObserver(self, selector: #selector(screenDidLock),
+                                name: .init("com.apple.screenIsLocked"), object: nil)
+        distributed.addObserver(self, selector: #selector(screenDidUnlock),
+                                name: .init("com.apple.screenIsUnlocked"), object: nil)
+    }
+
+    @objc private func screenDidLock() {
+        guard !screenLocked else { return }
+        screenLocked = true
+        if state.isHovered { setHovered(false) }
+        collapsePanel()
+        critter.cancel()
+        lockScreenShown = settings.lockScreenEnabled && host.attachToLockScreen()
+        if !lockScreenShown { host.orderOutAll() }
+        DebugLog.write(lockScreenShown
+            ? "экран заблокирован: остров над экраном блокировки"
+            : "экран заблокирован: остров убран")
+        updateDormancy()
+    }
+
+    @objc private func screenDidUnlock() {
+        guard screenLocked else { return }
+        screenLocked = false
+        // Из пространства экрана блокировки окно обратно не вернуть —
+        // собираем заново.
+        if lockScreenShown { host.hide() }
+        lockScreenShown = false
+        DebugLog.write("экран разблокирован: остров на место")
+        updateDormancy()
+        // Заново и по свежим экранам: за время блокировки они могли
+        // смениться, а уведомление об этом было пропущено нарочно.
+        placeScreens(force: true)
+    }
+
+    /// Отладка: блокировка без блокировки — снять её из сессии нельзя.
+    func debugScreenLock(_ locked: Bool) {
+        locked ? screenDidLock() : screenDidUnlock()
     }
 
     @objc private func screensSlept() { screensAsleep = true; updateDormancy() }
@@ -322,15 +373,19 @@ final class NotchController {
     }
 
     private func updateDormancy() {
-        let dormant = screensAsleep || sessionInactive
+        let dormant = screensAsleep || sessionInactive || screenLocked
+        // Над экраном блокировки мышь нужна: музыкой управляют наведением.
+        let inputPaused = screensAsleep || sessionInactive || (screenLocked && !lockScreenShown)
+        if inputPaused != isInputPaused {
+            isInputPaused = inputPaused
+            inputPaused ? input.pausePolling() : input.resumePolling()
+        }
         guard dormant != isDormant else { return }
         isDormant = dormant
         if dormant {
-            input.pausePolling()
             clipboard.pause()
             meeting.stop()
         } else {
-            input.resumePolling()
             clipboard.resume()
             meeting.start()
         }
@@ -342,6 +397,7 @@ final class NotchController {
     /// Режим читается на каждом тике: смену в настройках `NotchScreens`
     /// замечает сам и пересобирает окна, отдельной подписки не нужно.
     private func placeScreens(force: Bool = false) {
+        guard !screenLocked else { return }
         screens.place(
             mode: settings.notchScreenMode,
             host: host,
@@ -1089,6 +1145,10 @@ final class NotchController {
     }
 
     private var notchInputs: NotchInputs {
+        lockScreenShown ? allInputs.lockScreen() : allInputs
+    }
+
+    private var allInputs: NotchInputs {
         NotchInputs(
             overlay: state.overlay,
             swipe: state.swipe,
@@ -2056,6 +2116,24 @@ final class NotchController {
         DebugLog.write("входящие: образец показан, ответ ляжет в \(reply.path)")
     }
 
+    /// Образец нового письма — той же плашкой, какую шлёт Trudaybook,
+    /// и через тот же разбор словаря, что у настоящих входящих. Подписи
+    /// без перевода, как у прочих отладочных пунктов.
+    func debugMailNotice() {
+        guard let notice = ExternalNotice(json: [
+            "source": "Почта",
+            "title": "Анна Петрова: Бюджет на октябрь",
+            "icon": "mail",
+            "hold": 12,
+            "optional": true,
+            "actions": [
+                ["id": "reply", "title": "Ответить", "positive": true, "icon": "message"],
+                ["id": "archive", "title": "В архив", "icon": "check"],
+            ],
+        ], id: "debug-mail") else { return }
+        present(notice)
+    }
+
     /// Образец наступившего напоминания — с «готово» и «через 15 минут».
     func debugReminderDue() {
         let item = CalendarItem(
@@ -2095,6 +2173,17 @@ final class NotchController {
         ))
         // Опрос курсора идёт десять раз в секунду и снял бы наведение
         // на первом тике — как и у отладочного раскрытия, держим вопреки ему.
+        input.hold(seconds: 8)
+        setHovered(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self, self.state.isHovered else { return }
+            self.setHovered(false)
+        }
+    }
+
+    /// Отладка: плашка встречи с четырьмя кнопками — самая узкая из живых.
+    func debugMeetingFour() {
+        meeting.debugShow([.microphone, .camera, .record, .leave], for: 9)
         input.hold(seconds: 8)
         setHovered(true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
@@ -3587,9 +3676,9 @@ final class NotchController {
         }
         // Отладочную сценку полоски не перебивают: снимать её приходится
         // тогда, когда в чёлке висит отсчёт до встречи.
-        let busy = critterForced
+        let busy = lockScreenShown || (critterForced
             ? state.overlay != nil || state.isHovered || state.isPinnedOpen
-            : !settings.critterEnabled || notchSnapshot.presentation != .collapsed
+            : !settings.critterEnabled || notchSnapshot.presentation != .collapsed)
         if busy { critter.cancel() }
     }
 
@@ -3943,6 +4032,10 @@ final class NotchController {
             answerCall(invite, accept: yes)
         case let .external(notice):
             answerExternal(notice, yes: yes)
+        case let .meeting(item, _):
+            guard yes, let url = item.link?.url else { return }
+            activities.dismiss()
+            join(url)
         default:
             break
         }
@@ -3985,6 +4078,13 @@ final class NotchController {
     /// и своя очередь, а смысл затеи в том, чтобы вопрос стоял там же,
     /// где человек и так следит за временем и встречами.
     private func present(_ notice: ExternalNotice) {
+        // Встречу, о которой Trunook напоминает сам, вторая плашка
+        // не объявляет: Exchange бывает подключён и к macOS, и к Trudaybook.
+        if !notice.waitsForAnswer, settings.calendarEnabled,
+           let item = notice.sameMeeting(in: calendar.upcoming) {
+            DebugLog.write("входящие: «\(item.title)» уже в своём календаре — вторая плашка не показана")
+            return
+        }
         if notice.waitsForAnswer { waitingNotice = notice }
         activities.present(.external(notice))
         // Залп по просьбе снаружи — не чаще раза в минуту: картинка

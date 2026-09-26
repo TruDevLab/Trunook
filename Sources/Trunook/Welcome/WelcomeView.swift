@@ -1,7 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// Окно знакомства: четыре шага — что это, как управлять, доступы, готово.
+/// Окно знакомства: рассказ и базовая настройка по шагам.
+///
+/// Шаги настройки — в `WelcomeSetupPages.swift`, правила их показа —
+/// в `WelcomeFlow`.
 struct WelcomeView: View {
     @ObservedObject var model: WelcomeModel
     @ObservedObject var calendar: CalendarService
@@ -25,6 +28,9 @@ struct WelcomeView: View {
     /// Сочетания заданы пользователем — после правки их надо
     /// перерегистрировать в системе.
     let onHotKeysChanged: () -> Void
+    /// Раскрыть вырез на столько секунд: выбирая вид, человек должен видеть
+    /// его на самом вырезе, а не на картинке.
+    let onPreviewNotch: (TimeInterval) -> Void
     let onFinish: () -> Void
 
     static var size: CGSize { WelcomeStyle.windowSize }
@@ -57,7 +63,7 @@ struct WelcomeView: View {
 
     // MARK: - Шапка
 
-    private var header: some View {
+    var header: some View {
         HStack(alignment: .center) {
             WelcomeEyebrow(text: model.eyebrow)
             Spacer(minLength: 0)
@@ -74,7 +80,7 @@ struct WelcomeView: View {
     /// В шапке рядом с языком, а не в шагах: описание — не часть знакомства,
     /// а справка, за которой приходят отдельно. Знакомство им не начинается
     /// и не заканчивается, поэтому и места в череде шагов у него нет.
-    private var notesButton: some View {
+    var notesButton: some View {
         Button {
             model.toggleNotes()
             if model.mode == .notes { releaseNotes.present() }
@@ -106,7 +112,7 @@ struct WelcomeView: View {
     /// Язык переключается прямо здесь, а не только в настройках: человек,
     /// открывший приложение впервые, ещё не знает, где эти настройки, —
     /// а прочитать знакомство ему нужно уже сейчас.
-    private var languagePicker: some View {
+    var languagePicker: some View {
         Menu {
             ForEach(Language.allCases) { language in
                 Button {
@@ -143,9 +149,9 @@ struct WelcomeView: View {
 
     /// Полоски шагов заодно работают навигацией: вернуться к разрешениям
     /// с последнего шага иначе можно было бы только кнопкой «Назад».
-    private var stepIndicator: some View {
+    var stepIndicator: some View {
         HStack(spacing: 6) {
-            ForEach(WelcomeModel.Step.allCases) { step in
+            ForEach(model.steps) { step in
                 let isCurrent = step == model.step
                 Button {
                     model.go(to: step)
@@ -173,7 +179,7 @@ struct WelcomeView: View {
     // MARK: - Содержимое шага
 
     @ViewBuilder
-    private var content: some View {
+    var content: some View {
         switch model.mode {
         case .notes:
             WelcomeNotesPage(notes: releaseNotes)
@@ -183,12 +189,16 @@ struct WelcomeView: View {
     }
 
     @ViewBuilder
-    private var tourContent: some View {
+    var tourContent: some View {
         switch model.step {
         case .intro: introStep
         case .features: featuresStep
-        case .gestures: gesturesStep
-        case .shortcuts: shortcutsStep
+        case .uses: usesStep
+        case .look: lookStep
+        case .calendar: calendarStep
+        case .weather: weatherStep
+        case .home: homeStep
+        case .controls: controlsStep
         case .ai:
             WelcomeAIPage(
                 settings: settings,
@@ -204,7 +214,7 @@ struct WelcomeView: View {
 
     // MARK: Шаг 1 — что это
 
-    private var introStep: some View {
+    var introStep: some View {
         VStack(spacing: 22) {
             VStack(spacing: 9) {
                 Text("Trunook")
@@ -232,7 +242,7 @@ struct WelcomeView: View {
     /// панель и один и тот же разговор — порознь они читались бы как три
     /// разные функции. Ради этого буфер уехал во второй ряд: соседство
     /// по смыслу важнее порядка, в котором функции появлялись.
-    private var featureRow: some View {
+    var featureRow: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
                 feature("music.note", t("Музыка"), WelcomePalette.violet)
@@ -258,7 +268,7 @@ struct WelcomeView: View {
     /// Сколько плиток в самом длинном ряду — для проверки ширины.
     static let widestFeatureRow = 7
 
-    private func feature(_ symbol: String, _ title: String, _ tint: Color) -> some View {
+    func feature(_ symbol: String, _ title: String, _ tint: Color) -> some View {
         WelcomeCard {
             VStack(spacing: 7) {
                 Image(systemName: symbol)
@@ -273,40 +283,6 @@ struct WelcomeView: View {
         }
     }
 
-    // MARK: Шаг 2 — управление
-
-    /// Шаг жестов и шаг сочетаний разделены, и это не украшательство.
-    ///
-    /// Одиннадцать строк в окно 780×700 не помещаются: последние две уходили
-    /// под обрез, и о поглаживании с уводом курсора человек узнавал, только
-    /// если догадывался прокрутить. Прокрутка тут страховка, а не способ
-    /// показать содержимое.
-    private var gesturesStep: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            stepTitle(t("Как этим пользоваться"), subtitle: t("Вырез не отбирает фокус: активное приложение остаётся активным."))
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 6) {
-                    gesture("text.viewfinder", t("Выделите текст и нажмите ⌃⌥C"),
-                            t("Захваченное появится над полем вопроса, команды — списком под ним"))
-                    gesture("cursorarrow.rays", t("Наведите курсор на вырез"),
-                            t("Мини-вид: что играет и когда ближайшая встреча"))
-                    gesture("hand.tap.fill", t("Нажмите или потяните вниз"),
-                            t("Панель целиком. Свайп вверх сворачивает её обратно"))
-                    gesture("circle.grid.3x3.fill", t("Задержите нажатие на чёлке"),
-                            t("Из-под неё веером выедут кружки — по одному на функцию. Не отпуская, ведите руку к нужному"))
-                    gesture("cursorarrow.click.badge.clock", t("Правая кнопка"),
-                            t("Кольцо всех функций стоит открытым: щёлкните по нужному кружку, мимо — закроется"))
-                    gesture("arrow.left.arrow.right", t("Свайп двумя пальцами"),
-                            t("Предыдущий и следующий трек, не убирая курсор с выреза"))
-                    gesture("pawprint.fill", t("Погладьте чёлку"),
-                            t("Поводите курсором из стороны в сторону — вырез замурчит"))
-                    gesture("arrow.down.left", t("Уведите курсор"),
-                            t("Вырез свернётся сам — закрывать ничего не нужно"))
-                }
-            }
-        }
-    }
-
     // MARK: - Возможности
 
     /// Разделы возможностей: список слева, описание справа.
@@ -318,7 +294,7 @@ struct WelcomeView: View {
     ///
     /// Читают этот шаг вразнобой — человек ищет то, чего не понял, — поэтому
     /// список и описание видны разом, а не сменяют друг друга.
-    private var featuresStep: some View {
+    var featuresStep: some View {
         VStack(alignment: .leading, spacing: 12) {
             stepTitle(t("Возможности"),
                       subtitle: t("Выберите слева — справа расскажем подробнее."))
@@ -335,7 +311,7 @@ struct WelcomeView: View {
         }
     }
 
-    private var featureList: some View {
+    var featureList: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 3) {
                 ForEach(WelcomeModel.Feature.allCases) { feature in
@@ -346,7 +322,7 @@ struct WelcomeView: View {
         .frame(width: WelcomeStyle.featureSidebar)
     }
 
-    private func featureRow(_ feature: WelcomeModel.Feature) -> some View {
+    func featureRow(_ feature: WelcomeModel.Feature) -> some View {
         let isCurrent = model.feature == feature
         return Button {
             model.feature = feature
@@ -380,7 +356,7 @@ struct WelcomeView: View {
         .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
     }
 
-    private var featureDetail: some View {
+    var featureDetail: some View {
         WelcomeCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 11) {
@@ -429,38 +405,12 @@ struct WelcomeView: View {
         }
     }
 
-    /// Сочетания — своим шагом. Каждое правится прямо здесь: набирать его
-    /// заново в настройках после того, как оно уже названо, — лишний шаг.
-    private var shortcutsStep: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            stepTitle(t("Сочетания клавиш"),
-                      subtitle: t("Все на ⌃⌥: эту пару macOS не занимает ни под что. Любое можно сменить прямо здесь."))
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 6) {
-                    assistantHotKeyRow
-                    clipboardHotKeyRow
-                    shelfHotKeyRow
-                    calendarHotKeyRow
-                    timerHotKeyRow
-                    monitorHotKeyRow
-                    teleprompterHotKeyRow
-                    notesHotKeyRow
-                    recordHotKeyRow
-                    // Голос последним: у него не одно поле, а четыре, и
-                    // строка вдвое выше остальных. Посреди ровного списка
-                    // она читалась разрывом, в конце — итогом.
-                    voiceTriggerRow
-                }
-            }
-        }
-    }
-
     /// Главное сочетание: захватить выделенное и спросить о нём модель.
     ///
     /// Показывается настоящее и правится на месте: набирать его заново
     /// в настройках после того, как оно уже названо здесь, — лишний шаг,
     /// а вписанное в текст оно к тому же врёт, стоит его сменить.
-    private var assistantHotKeyRow: some View {
+    var assistantHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(symbol: "text.viewfinder", size: WelcomeStyle.tile)
@@ -494,7 +444,7 @@ struct WelcomeView: View {
 
     /// История буфера вызывается своим сочетанием — его тоже показываем
     /// настоящим и правим на месте.
-    private var clipboardHotKeyRow: some View {
+    var clipboardHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(symbol: "doc.on.clipboard", size: WelcomeStyle.tile)
@@ -527,7 +477,7 @@ struct WelcomeView: View {
     }
 
     /// Полка: своё сочетание и объяснение, что файлы кладут перетаскиванием.
-    private var shelfHotKeyRow: some View {
+    var shelfHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(symbol: "tray.full", size: WelcomeStyle.tile)
@@ -561,7 +511,7 @@ struct WelcomeView: View {
 
     /// Таймер: своё сочетание и подсказка про полоску в чёлке — иначе о ней
     /// узнают случайно.
-    private var timerHotKeyRow: some View {
+    var timerHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(symbol: "timer", size: WelcomeStyle.tile)
@@ -598,7 +548,7 @@ struct WelcomeView: View {
     /// Функция появилась позже остальных, а список с тех пор не пересматривали
     /// — и человек, прошедший знакомство целиком, о ⌃⌥D не узнавал ниоткуда.
     /// Стоит рядом с таймером: оба про время.
-    private var calendarHotKeyRow: some View {
+    var calendarHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(symbol: "calendar", size: WelcomeStyle.tile)
@@ -637,7 +587,7 @@ struct WelcomeView: View {
     /// заметки есть у всех, а имя записи, которое придумывает модель,
     /// и поиск по всему архиву её же силами — то, чего от заметок в вырезе
     /// никто не ждёт, и не сказать об этом значит не сказать ничего.
-    private var notesHotKeyRow: some View {
+    var notesHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(
@@ -681,7 +631,7 @@ struct WelcomeView: View {
     /// Строка была потеряна: голос появился позже остальных функций, а список
     /// сочетаний с тех пор не пересматривали — и единственный способ узнать
     /// про вызов оставался в настройках, куда за этим не идут.
-    private var voiceTriggerRow: some View {
+    var voiceTriggerRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(
@@ -726,7 +676,7 @@ struct WelcomeView: View {
     ///
     /// Подпись у каждой строки своя: два одинаковых набора полей рядом
     /// иначе не различить.
-    private func voiceCallRow(
+    func voiceCallRow(
         hint: String,
         trigger: Binding<VoiceTrigger>,
         key: Binding<HotKeySpec?>
@@ -763,7 +713,7 @@ struct WelcomeView: View {
     /// Показывается только там, где работает: расшифровка на устройстве
     /// появилась в macOS 26, и обещать её на старой системе нельзя.
     @ViewBuilder
-    private var recordHotKeyRow: some View {
+    var recordHotKeyRow: some View {
         if RecorderService.isSupported {
             WelcomeCard {
                 HStack(spacing: 13) {
@@ -805,7 +755,7 @@ struct WelcomeView: View {
     /// Телесуфлер — единственное, чего в списке возможностей не угадать
     /// по названию: «текст под чёлкой» звучит странно, пока не сказано, что
     /// под чёлкой стоит камера.
-    private var teleprompterHotKeyRow: some View {
+    var teleprompterHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(symbol: "text.alignleft", tint: WelcomePalette.violet, size: WelcomeStyle.tile)
@@ -837,7 +787,7 @@ struct WelcomeView: View {
         }
     }
 
-    private var monitorHotKeyRow: some View {
+    var monitorHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(symbol: "gauge.with.dots.needle.67percent", size: WelcomeStyle.tile)
@@ -869,13 +819,13 @@ struct WelcomeView: View {
         }
     }
 
-    private var shelfHint: String {
+    var shelfHint: String {
         settings.shelfEnabled
             ? t("Ведите файлы на чёлку. Обратно — перетаскиванием, насовсем")
             : t("Приём файлов выключен в настройках")
     }
 
-    private var clipboardSlotsHint: String {
+    var clipboardSlotsHint: String {
         let slots = settings.clipboardSlotModifiers
         guard slots != .off else {
             return t("Копирования запоминаются; клавиши номеров выключены в настройках")
@@ -884,7 +834,7 @@ struct WelcomeView: View {
     }
 
     /// Сочетания команд перечисляются те, что назначены на самом деле.
-    private var slotsHint: String {
+    var slotsHint: String {
         let assigned = settings.quickCommands.compactMap { $0.hotKey?.display }
         guard !assigned.isEmpty else {
             return t("Выделенное попадёт в панель разговора, команды — списком под полем")
@@ -892,7 +842,7 @@ struct WelcomeView: View {
         return t("Команды напрямую: ") + assigned.joined(separator: ", ")
     }
 
-    private func gesture(_ symbol: String, _ title: String, _ detail: String) -> some View {
+    func gesture(_ symbol: String, _ title: String, _ detail: String) -> some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(symbol: symbol, size: WelcomeStyle.tile)
@@ -917,16 +867,17 @@ struct WelcomeView: View {
     /// Строк здесь больше, чем помещается: у погоды разворачивается поиск
     /// города, и без прокрутки нижние карточки ушли бы под обрез — окно
     /// обрезает содержимое молча, с обеих сторон сразу.
-    private var permissionsStep: some View {
+    var permissionsStep: some View {
         VStack(alignment: .leading, spacing: 12) {
             stepTitle(t("Что разрешить"),
                       subtitle: t("Без доступа приложение работает, но соответствующая часть молчит."))
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 8) {
-                    ForEach(WelcomeModel.Permission.onboarding) { permission in
+                    // Только то, что нужно выбранному: доступ к микрофону
+                    // тому, кто не пользуется голосом, — лишний вопрос.
+                    ForEach(WelcomeModel.Permission.onboarding.filter(model.isRequired)) { permission in
                         permissionRow(permission)
                     }
-                    weatherRow
                     launchRow
                     updatesRow
                     Text(t("Доступ выдаётся один раз и переживает обновления приложения. Отказ система запоминает — вернуть его можно только в Системных настройках."))
@@ -945,7 +896,7 @@ struct WelcomeView: View {
     /// не хуже, а системного диалога о положении тогда не будет вовсе.
     /// Сказать об этом надо именно на шаге доступов — иначе человек откажет
     /// системе и решит, что погода просто сломана.
-    private var weatherRow: some View {
+    var weatherRow: some View {
         let byPlace = settings.weatherSource == .place
 
         return WelcomeCard {
@@ -980,7 +931,7 @@ struct WelcomeView: View {
     }
 
     @ViewBuilder
-    private var placeField: some View {
+    var placeField: some View {
         if let place = settings.weatherPlace {
             HStack(spacing: 8) {
                 Image(systemName: "mappin.circle.fill")
@@ -1038,7 +989,7 @@ struct WelcomeView: View {
         }
     }
 
-    private func permissionRow(_ permission: WelcomeModel.Permission) -> some View {
+    func permissionRow(_ permission: WelcomeModel.Permission) -> some View {
         let state = model.state(of: permission)
         let needed = model.isRequired(permission) && state != .granted
 
@@ -1082,7 +1033,7 @@ struct WelcomeView: View {
         .animation(.easeOut(duration: 0.3), value: state)
     }
 
-    private func stateBadge(_ state: WelcomeModel.PermissionState) -> some View {
+    func stateBadge(_ state: WelcomeModel.PermissionState) -> some View {
         let tint: Color
         switch state {
         case .granted: tint = WelcomePalette.mint
@@ -1097,7 +1048,7 @@ struct WelcomeView: View {
         }
     }
 
-    private var launchRow: some View {
+    var launchRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(symbol: "power", tint: WelcomePalette.violet, size: WelcomeStyle.tile)
@@ -1131,7 +1082,7 @@ struct WelcomeView: View {
     /// приложения в интернет. Сказать об этом надо там же, где спрашивают
     /// про доступы: узнать о такой проверке из настроек, наткнувшись на неё
     /// случайно, — худший способ о ней узнать.
-    private var updatesRow: some View {
+    var updatesRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
                 WelcomeGlyph(symbol: "arrow.down.circle.fill", tint: WelcomePalette.mint, size: WelcomeStyle.tile)
@@ -1164,7 +1115,7 @@ struct WelcomeView: View {
 
     // MARK: Шаг 4 — готово
 
-    private var doneStep: some View {
+    var doneStep: some View {
         VStack(spacing: 20) {
             ZStack {
                 Circle()
@@ -1200,7 +1151,7 @@ struct WelcomeView: View {
         }
     }
 
-    private func hintCard(_ symbol: String, _ title: String, _ detail: String) -> some View {
+    func hintCard(_ symbol: String, _ title: String, _ detail: String) -> some View {
         WelcomeCard {
             VStack(alignment: .leading, spacing: 6) {
                 Image(systemName: symbol)
@@ -1221,7 +1172,7 @@ struct WelcomeView: View {
 
     // MARK: - Общее
 
-    private func stepTitle(_ title: String, subtitle: String) -> some View {
+    func stepTitle(_ title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
                 .font(.system(size: WelcomeStyle.chapter, weight: .bold, design: .rounded))
@@ -1234,7 +1185,7 @@ struct WelcomeView: View {
     }
 
     @ViewBuilder
-    private var footer: some View {
+    var footer: some View {
         if model.mode == .notes {
             // В описании шагов нет, идти некуда — остаётся только уйти.
             HStack(spacing: 12) {
@@ -1247,10 +1198,14 @@ struct WelcomeView: View {
         }
     }
 
-    private var tourFooter: some View {
+    var tourFooter: some View {
         HStack(spacing: 12) {
-            if !model.isLastStep {
-                Button(t("Пропустить")) { onFinish() }
+            // На шаге настройки пропускают его, а не всё знакомство.
+            if model.step.isSetup {
+                Button(t("Пропустить шаг")) { model.next() }
+                    .buttonStyle(WelcomeGhostButton(isQuiet: true))
+            } else if !model.isLastStep {
+                Button(t("Пропустить знакомство")) { onFinish() }
                     .buttonStyle(WelcomeGhostButton(isQuiet: true))
             }
             Spacer(minLength: 0)

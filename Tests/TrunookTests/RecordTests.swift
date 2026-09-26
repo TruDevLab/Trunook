@@ -274,10 +274,22 @@ struct MeetingPanelTests {
     /// действия сразу: потолок ширины окна выреза стоит на `allCases`.
     @Test("Ширина растёт вместе с числом кнопок")
     func ширина() {
-        let six = MeetingControlsView.width(actionCount: 6)
-        let all = MeetingControlsView.width(actionCount: MeetingAction.allCases.count)
+        let metrics = NotchMetrics(notchWidth: 185, notchHeight: 32)
+        let six = MeetingControlsView.width(actionCount: 6, metrics: metrics)
+        let all = MeetingControlsView.width(actionCount: MeetingAction.allCases.count, metrics: metrics)
         #expect(MeetingAction.allCases.count == 9)
         #expect(all > six)
+    }
+
+    /// Четыре кнопки на чёлке шириной 185 давали плашку в 202 точки —
+    /// на одну шире свёрнутой формы, то есть вровень с самим вырезом.
+    @Test("Плашка встречи не уже чёлки с плечами")
+    func неУжеЧёлки() {
+        let metrics = NotchMetrics(notchWidth: 185, notchHeight: 32)
+        let floor = metrics.closed.width + ActivityLayout.overhangBeyondNotch
+        for count in 1...4 {
+            #expect(MeetingControlsView.width(actionCount: count, metrics: metrics) >= floor)
+        }
     }
 
     /// Своих кнопок три: две про устройства и запись. Их не ищут

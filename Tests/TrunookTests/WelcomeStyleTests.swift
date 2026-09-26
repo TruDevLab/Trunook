@@ -175,3 +175,34 @@ struct SettingsStyleTests {
         }
     }
 }
+
+/// Базовая настройка в знакомстве: что видно при каком выборе.
+@Suite("Знакомство: шаги по выбору")
+struct WelcomeFlowTests {
+    @Test("Шаги календаря, погоды и помощника — только для отмеченного")
+    func шагиПоВыбору() {
+        let none = WelcomeFlow.steps(uses: [])
+        #expect(!none.contains(.calendar) && !none.contains(.weather) && !none.contains(.ai))
+        // Общие шаги видны всегда.
+        for step in [WelcomeModel.Step.intro, .uses, .look, .home, .controls, .permissions, .done] {
+            #expect(none.contains(step), "нет шага \(step)")
+        }
+        let all = WelcomeFlow.steps(uses: Set(WelcomeFlow.Use.allCases))
+        #expect(all == WelcomeModel.Step.allCases)
+        // Погода и перерывы — один шаг на двоих: хватает любого.
+        #expect(WelcomeFlow.steps(uses: [.breaks]).contains(.weather))
+        #expect(WelcomeFlow.steps(uses: [.weather]).contains(.weather))
+    }
+
+    @Test("Главный экран из выбранного помещается и не пустой")
+    func главныйЭкран() {
+        // Отмечено всё — не влезшее отброшено, а не спрятано.
+        let full = WelcomeFlow.home(for: Set(WelcomeFlow.Use.allCases))
+        #expect(HomeGrid.place(full).overflow.isEmpty)
+        #expect(full.first?.kind == .music)
+        // Ничего не отмечено — стандартная раскладка, а не пустота.
+        #expect(WelcomeFlow.home(for: []) == HomeWidgets.standard)
+        // Только календарь — встречи и месяц.
+        #expect(WelcomeFlow.home(for: [.calendar]).map(\.kind) == [.schedule, .month])
+    }
+}

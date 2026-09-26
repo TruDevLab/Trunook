@@ -173,7 +173,8 @@ commands — one in the 1×1 size. Select text in another window, click
 
 - **Music.** Track, artwork, playback controls and a progress line along the
   island's outline. Works with any player — the data comes from the system.
-  Swipe with two fingers to change tracks.
+  Swipe with two fingers to change tracks; skip 10 seconds back or forward
+  with the buttons in the mini view.
 - **Weather and power.** An icon with the temperature in the corner of the
   panel or as a tile, pills when the weather changes and when the charger is
   plugged in.
@@ -202,9 +203,12 @@ commands — one in the 1×1 size. Select text in another window, click
   a thin strip — hovering it opens the island there.
 - **Glass.** The panel under the notch lets the wallpaper through while the
   notch itself stays black: the island does not float above the screen, it
-  flows out of the hardware. Transparency is a slider; all the way right the
-  notch is solid black again. Glass needs macOS 26; below that the app works
+  flows out of the hardware. One slider sets the look: clear glass on the
+  left, frosted in the middle, solid black all the way right. Glass needs macOS 26; below that the app works
   as before.
+- **Lock screen.** While the Mac is locked, the notch stays in place with
+  weather and charging pills and music controls. Meetings, notes and
+  anything personal are not shown there. A setting turns it off.
 
 ### Taking care of yourself
 
@@ -215,9 +219,9 @@ commands — one in the 1×1 size. Select text in another window, click
   from then on shows the day's total; the same number lives in the Water
   tile. There are no goals on purpose: you are not at the computer all day.
 - **Coffee cup.** While it is on, the screen neither dims nor locks. The
-  duration is chosen in the notch — half an hour, an hour, an hour and
-  a half, two, or no limit; while the cup is on, the time left shows in the
-  notch itself.
+  duration is chosen in the notch with a dial, like the timer — from five
+  minutes to eight hours — or no limit; while the cup is on, the time left
+  shows in the notch itself.
 - **Keyboard cleaning.** Locks the keyboard for 30, 60 or 90 seconds — wipe
   it without typing anything. The mouse keeps working: the notch shows the
   countdown and an Unlock button. Needs Accessibility access.
@@ -311,6 +315,13 @@ Applications and clear the quarantine:
 ```bash
 sudo xattr -r -c /Applications/Trunook.app
 ```
+
+### First launch
+
+The welcome window walks you through the basic setup: mark what you will
+use, and you only see the steps you need — the notch look, calendars and
+meeting reminders, weather and breaks, the model, a home screen built from
+your choice, and permissions. Any step can be skipped.
 
 ### After that it updates itself
 

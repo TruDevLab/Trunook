@@ -131,7 +131,7 @@ struct NotchMetrics: Equatable {
                 CalendarPanel.width,
                 EventEditorPanel.width,
                 ringSize.width,
-                MeetingControlsView.width(actionCount: MeetingAction.allCases.count)
+                MeetingControlsView.width(actionCount: MeetingAction.allCases.count, metrics: self)
             ),
             // Плашка с подписью значка висит под панелью, а окно обрезает:
             // без запаса она пропала бы ровно там, где нужнее всего, —

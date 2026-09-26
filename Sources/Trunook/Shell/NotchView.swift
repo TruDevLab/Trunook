@@ -531,6 +531,7 @@ struct NotchView: View {
     /// высота равна высоте чёлки, и чёрная полоса покрывает его целиком.
     private var background: some View {
         ZStack(alignment: .top) {
+            lens
             Color.clear.panelGlass(in: shape, glass: glassInNotch)
             // Общее затемнение под стеклом. Панель несёт текст и без всякой
             // плитки под ним — заголовок в крыле, подпись под чёлкой, —
@@ -548,6 +549,30 @@ struct NotchView: View {
             // чёрной планки во всю ширину.
             LinearGradient(stops: ironStops, startPoint: .top, endPoint: .bottom)
                 .mask(ironMaskAcross)
+        }
+    }
+
+    /// Прозрачное стекло с линзой — под матовым, проступает по ползунку
+    /// прозрачности (`LensGlass`).
+    ///
+    /// По телу панели: без вогнутых плеч, а верх уходит за кромку экрана
+    /// на радиус — окно его срезает, и верхних скруглений не видно.
+    /// Панель и так упирается в кромку, а линза по ней читалась бы швом.
+    @ViewBuilder private var lens: some View {
+        if #available(macOS 26.0, *), glassInNotch, Surface.frost < 1 {
+            LensGlass(cornerRadius: shape.bottomRadius)
+                .padding(.horizontal, shape.topRadius)
+                .padding(.top, -shape.bottomRadius)
+                .allowsHitTesting(false)
+            // Полоса шапки: там за стеклом строка меню, и линза без
+            // размытия показывала её значки прямо под кнопками шапки —
+            // «‹‹» и чужой значок рядом с шестерёнкой (снято снимком).
+            LinearGradient(stops: [
+                .init(color: .black.opacity(0.62), location: 0),
+                .init(color: .black.opacity(0.62), location: min(1, metrics.notchHeight / max(1, size.height))),
+                .init(color: .clear, location: min(1, (metrics.notchHeight + 18) / max(1, size.height))),
+            ], startPoint: .top, endPoint: .bottom)
+            .allowsHitTesting(false)
         }
     }
 
@@ -716,6 +741,8 @@ struct NotchView: View {
                 .animation(contentAnimation, value: presentation)
         }
         .frame(width: size.width, height: size.height)
+        // Вид стекла — всем поверхностям выреза разом (см. `Surface.GlassLook`).
+        .environment(\.glassLook, .current)
         .overlay(alignment: swipeAlignment) {
             // Значок проявляется вместе с движением пальцев, а не вспыхивает
             // по факту переключения: так видно, что жест засчитывается,
@@ -1037,6 +1064,7 @@ struct NotchView: View {
         case .caffeine:
             CaffeinePanel(
                 wake: wake,
+                settings: settings,
                 metrics: metrics,
                 onChoose: onChooseAwakeLimit,
                 onDisable: onDisableAwake,
@@ -1170,6 +1198,7 @@ struct NotchView: View {
                 metrics: metrics,
                 startDate: state.hoverStartedAt,
                 onTogglePlayback: { music.send(.togglePlayPause) },
+                onSkip: { music.skip(by: $0) },
                 onJoin: onJoin
             )
             .frame(width: PreviewPanel.layout(track: music.nowPlaying, event: events.first, metrics: metrics).panelWidth)

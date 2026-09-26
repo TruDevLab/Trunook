@@ -15,12 +15,15 @@ final class ConfettiWindowController {
     ///
     /// Молчит при включённом «уменьшить движение»: летящие через весь экран
     /// бумажки — ровно то, ради чего эту настройку и включают.
-    func fire(on screen: NSScreen? = nil) {
+    /// `forced` — залп попросили руками (отладочное событие): тогда
+    /// энергосбережение его не глушит. Иначе на аккумуляторе событие
+    /// `confetti` молчало, и выглядело это поломкой.
+    func fire(on screen: NSScreen? = nil, forced: Bool = false) {
         guard !MotionPreference.shared.reduceMotion else {
             DebugLog.write("конфетти: движение уменьшено, залпа нет")
             return
         }
-        guard !PowerPreference.shared.saving else {
+        guard forced || !PowerPreference.shared.saving else {
             DebugLog.write("конфетти: энергосбережение, залпа нет")
             return
         }

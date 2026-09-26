@@ -317,7 +317,6 @@
 "Без срока" = "No limit";
 "Экран гаснет как обычно" = "The display sleeps as usual";
 "Экран не гаснет — без ограничения" = "The display stays on — no limit";
-"Экран не гаснет — осталось %@" = "The display stays on — %@ left";
 "Следующий трек" = "Next Track";
 "Предыдущий трек" = "Previous Track";
 "Адрес ссылки" = "Link address";
@@ -341,7 +340,6 @@
 "Через %d ч %@" = "In %d h: %@";
 "ЗНАКОМСТВО" = "WELCOME";
 "УПРАВЛЕНИЕ" = "CONTROLS";
-"СОЧЕТАНИЯ" = "SHORTCUTS";
 "ДОСТУПЫ" = "PERMISSIONS";
 "ГОТОВО" = "DONE";
 "Универсальный доступ" = "Accessibility";
@@ -370,19 +368,11 @@
 "Суфлер" = "Prompter";
 "Питание" = "Power";
 "Как этим пользоваться" = "How to use it";
-"Вырез не отбирает фокус: активное приложение остаётся активным." = "The notch never steals focus: the active app stays active.";
 "Наведите курсор на вырез" = "Hover the notch";
 "Мини-вид: что играет и когда ближайшая встреча" = "Mini view: what is playing and when the next meeting is";
 "Нажмите или потяните вниз" = "Click, or pull down";
-"Панель целиком. Свайп вверх сворачивает её обратно" = "The full panel. Swipe up to fold it back";
 "Свайп двумя пальцами" = "Two-finger swipe";
-"Предыдущий и следующий трек, не убирая курсор с выреза" = "Previous and next track without moving the pointer off the notch";
-"Погладьте чёлку" = "Pet the notch";
-"Поводите курсором из стороны в сторону — вырез замурчит" = "Move the pointer back and forth — the notch will purr";
-"Уведите курсор" = "Move the pointer away";
-"Вырез свернётся сам — закрывать ничего не нужно" = "The notch collapses on its own — nothing to close";
 "Сочетания клавиш" = "Keyboard shortcuts";
-"Все на ⌃⌥: эту пару macOS не занимает ни под что. Любое можно сменить прямо здесь." = "All of them use ⌃⌥ — a pair macOS reserves for nothing. Any of them can be changed right here.";
 "Не назначено" = "Not assigned";
 "Полка для файлов" = "File shelf";
 "Пока идёт, чёлка раздвигается счётом — нажмите по нему" = "While it runs the notch widens to show the count — click it";
@@ -612,8 +602,6 @@
 "Как у действия" = "Same as the action";
 "⌃⌥C — выделенное и команды к нему" = "⌃⌥C — the selection and the commands for it";
 "Захват" = "Capture";
-"Выделите текст и нажмите ⌃⌥C" = "Select some text and press ⌃⌥C";
-"Захваченное появится над полем вопроса, команды — списком под ним" = "The captured text appears above the question field, the commands in a list below it";
 "Захваченный текст показывается здесь целиком, насколько помещается в две строки, а дальше обрезается — по нему надо узнать кусок, а не перечитать его. Раскрытая плашка показывает его весь, до своего потолка, а дальше прокручивается: захват срабатывает на всё выделенное, и понять по обрезанной фразе, то ли взялось, нельзя." = "The captured text is shown here as far as two lines allow, then truncated — it is here to be recognised, not reread. Expanded, the pill shows all of it up to its own ceiling and scrolls beyond that: the capture takes whatever was selected, and a truncated phrase will not tell you whether the right thing was picked up.";
 "Удалить команду" = "Delete the command";
 "Удалить команду «%@»" = "Delete the “%@” command";
@@ -674,11 +662,6 @@
 "Раз в сутки спрашивает GitHub о новой версии и скачивает её фоном. Ставится по нажатию" = "Asks GitHub about a new version once a day and downloads it in the background. Installs at a tap";
 "Основные" = "General";
 "Инструменты" = "Tools";
-"Прозрачнее" = "More transparent";
-"Матовее" = "More frosted";
-"Непрозрачный" = "Opaque";
-"Прозрачность выреза" = "Notch transparency";
-"До упора вправо — сплошной чёрный вырез, как было." = "All the way right brings back the solid black notch.";
 
 /* Описание выпусков */
 "Что нового…" = "What’s New…";
@@ -828,7 +811,6 @@
 "Календарь по умолчанию" = "Default calendar";
 "Куда положить" = "Where to put it";
 "Задержите нажатие на чёлке" = "Press and hold on the notch";
-"Из-под неё веером выедут кружки — по одному на функцию. Не отпуская, ведите руку к нужному" = "Circles fan out from under it, one per feature. Without letting go, move to the one you want";
 
 /* Помощник с действиями */
 "Действие выполнить нечем." = "There is nothing to carry this out with.";
@@ -1215,7 +1197,6 @@
 "Добавить виджет" = "Add widget";
 "Соберите вырез из нужных плиток" = "Build the notch from the tiles you need";
 "Весь день работаете с таймером и следите за новостями: поставьте их плитками рядом с музыкой — одно наведение на чёлку, и всё перед глазами." = "You work with a timer all day and keep an eye on the news: put them as tiles next to music — one hover over the notch and it's all in front of you.";
-"Кольцо всех функций стоит открытым: щёлкните по нужному кружку, мимо — закроется" = "Every feature in a ring that stays open: click the circle you want, click elsewhere to close";
 
 /* Где показывать вырез */
 "Экраны" = "Screens";
@@ -1642,3 +1623,66 @@
 "Trudaybook не ответил — возможно, он закрыт." = "Trudaybook didn't answer — it may be closed.";
 "Ответ Trudaybook не разобрался." = "Couldn't read Trudaybook's answer.";
 "Trudaybook не смог это сделать." = "Trudaybook couldn't do that.";
+"Темнее" = "Darker";
+"Матовое" = "Frosted";
+"Полупрозрачное" = "Translucent";
+"Экран блокировки" = "Lock screen";
+"Вырез на экране блокировки" = "Notch on the lock screen";
+"Погода, заряд и музыка поверх экрана блокировки." = "Weather, charging and music on top of the lock screen.";
+"Стекло выреза" = "Notch glass";
+"Стекло" = "Glass";
+"Чёрный" = "Black";
+"Влево — прозрачное стекло, посередине — матовое, вправо — чёрный." = "Left for clear glass, middle for frosted, right for black.";
+"Назад на 10 секунд" = "Back 10 seconds";
+"Вперёд на 10 секунд" = "Forward 10 seconds";
+"Календарь и встречи" = "Calendar & meetings";
+"Помощник ИИ" = "AI assistant";
+"Перерывы и вода" = "Breaks & water";
+"Встреча заранее, кнопки звонка" = "Meetings ahead, call controls";
+"Что играет и управление" = "Now playing and controls";
+"Вопрос модели из выреза" = "Ask a model from the notch";
+"Быстрые записи" = "Quick notes";
+"История копирований" = "Copy history";
+"Дождь — заранее" = "Rain, ahead of time";
+"Вовремя встать и попить" = "Stand up and drink on time";
+"Отсчёт в чёлке" = "Countdown in the notch";
+"Файлы на чёлку" = "Files onto the notch";
+"ВАШ НАБОР" = "YOUR SET";
+"ВИД" = "LOOK";
+"КАЛЕНДАРЬ" = "CALENDAR";
+"ПОГОДА И ПЕРЕРЫВЫ" = "WEATHER & BREAKS";
+"ГЛАВНЫЙ ЭКРАН" = "HOME SCREEN";
+"Чем пользуетесь" = "What you use";
+"Вид выреза" = "Notch look";
+"Погода и перерывы" = "Weather & breaks";
+"Чем вы будете пользоваться?" = "What will you use?";
+"Отметьте нужное — дальше настроим только это. Остальное включается в настройках." = "Pick what you need — we will set up only that. Everything else can be turned on in Settings.";
+"Выбрано" = "Selected";
+"Как будет выглядеть вырез" = "How the notch will look";
+"Выбирая, смотрите на сам вырез — он раскроется." = "Watch the notch itself as you choose — it will open.";
+"На каких экранах" = "Which screens";
+"Кот в чёлке" = "Cat in the notch";
+"Изредка выходит, пока вырезу нечего показывать" = "Shows up now and then when the notch is idle";
+"Какие календари показывать и когда напоминать о встрече." = "Which calendars to show and when to remind you of a meeting.";
+"Напоминать о встрече" = "Meeting reminder";
+"в начале" = "at start";
+"за 5 мин" = "5 min before";
+"за 10 мин" = "10 min before";
+"за 15 мин" = "15 min before";
+"Кнопки звонка в вырезе" = "Call buttons in the notch";
+"Микрофон, камера и выход, пока идёт встреча в браузере, Zoom или Телемосте" = "Mic, camera and leave while a meeting runs in the browser, Zoom or Telemost";
+"Где смотреть погоду и как часто напоминать встать из-за стола." = "Where to get the weather and how often to remind you to get up.";
+"Считается только время за компьютером" = "Only time at the computer counts";
+"Раскрытый вырез — сетка плиток. Соберём её из того, чем вы пользуетесь." = "The open notch is a grid of tiles. We will build it from what you use.";
+"Собрано" = "Done";
+"Собрать так" = "Build it";
+"Плитки можно переставить в настройках, раздел «Главный экран»." = "Tiles can be rearranged in Settings, Home Screen section.";
+"Вырез не отбирает фокус. Сочетания — на ⌃⌥, любое можно сменить прямо здесь." = "The notch never steals focus. Shortcuts use ⌃⌥, and any can be changed right here.";
+"Главный экран целиком. Свайп вверх сворачивает его" = "The full home screen. Swipe up to fold it";
+"Веером выедут кружки всех функций — ведите руку к нужному" = "Circles for every feature fan out — move to the one you want";
+"Предыдущий и следующий трек" = "Previous and next track";
+"Пропустить шаг" = "Skip step";
+"Пропустить знакомство" = "Skip tour";
+"Экран не гаснет" = "Screen stays on";
+"+%d мин" = "+%d min";
+"Ограничить: %@" = "Limit: %@";

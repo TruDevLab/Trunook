@@ -52,6 +52,27 @@ struct NotchResolverTests {
         #expect(activity.resolve().presentation == .activity)
     }
 
+    @Test("Над экраном блокировки — только погода, заряд и музыка")
+    func экранБлокировки() {
+        let meeting = CalendarItem(
+            id: "1", title: "Созвон", start: .now, end: nil,
+            isAllDay: false, source: .event, link: nil, colorComponents: nil
+        )
+        // Панель, встреча и полоска отсчёта снимаются.
+        var inputs = NotchInputs(overlay: .notes, isPinnedOpen: true, chip: meeting,
+                                 activity: Activity(kind: .meeting(item: meeting, minutesBefore: 5)))
+        inputs.events = [meeting]
+        #expect(inputs.lockScreen().resolve().presentation == .collapsed)
+        #expect(inputs.lockScreen().events.isEmpty)
+        // Погода и заряд остаются.
+        #expect(NotchInputs(activity: Activity(kind: .weather(text: "Дождь", symbol: "cloud.rain")))
+            .lockScreen().resolve().presentation == .activity)
+        #expect(NotchInputs(activity: Activity(kind: .powerConnected(percentage: 40)))
+            .lockScreen().resolve().presentation == .activity)
+        // Наведение без трека не раскрывает мини-вид: там была бы встреча.
+        #expect(NotchInputs(isHovered: true).lockScreen().resolve().presentation == .collapsed)
+    }
+
     @Test("Пустой вырез свёрнут, с отсчётом — полоска")
     func пустоеСостояние() {
         #expect(NotchInputs().resolve().presentation == .collapsed)

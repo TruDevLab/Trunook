@@ -113,6 +113,41 @@ struct NotchInputs: Equatable {
         return copy
     }
 
+    /// То, что можно показать поверх экрана блокировки: плашки погоды
+    /// и заряда, мини-вид с музыкой по наведению и свайпы треков.
+    ///
+    /// Всё остальное снято: экран блокировки видит любой, кто подошёл
+    /// к ноутбуку, — встречи, буфер и заметки там не место, а панели
+    /// с полем ввода там и не заработают: клавиатура у экрана пароля.
+    func lockScreen() -> NotchInputs {
+        var copy = passive()
+        copy.swipe = swipe
+        copy.pendingSwipe = pendingSwipe
+        copy.swipeProgress = swipeProgress
+        // Наведение — только ради музыки: без трека мини-вид показал бы
+        // ближайшую встречу, а её тут прятать.
+        copy.isHovered = isHovered && track != nil
+        copy.chip = nil
+        copy.recordingChip = nil
+        copy.timerChip = nil
+        copy.caffeineChip = nil
+        copy.feedChip = nil
+        copy.activity = activity.flatMap { Self.showsOnLockScreen($0.kind) ? $0 : nil }
+        copy.events = []
+        copy.taskCount = 0
+        copy.meetingActions = 0
+        return copy
+    }
+
+    static func showsOnLockScreen(_ kind: Activity.Kind) -> Bool {
+        switch kind {
+        case .weather, .powerConnected, .powerDisconnected, .lowBattery, .trackChanged:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Нажатие важнее наведения, наведение важнее всплывшего события,
     /// событие важнее постоянного отсчёта: чем короче живёт состояние,
     /// тем выше его право занять вырез.

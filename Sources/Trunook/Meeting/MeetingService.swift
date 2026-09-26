@@ -349,6 +349,20 @@ final class MeetingService: ObservableObject {
         isActive = !scan.available.isEmpty
     }
 
+    /// Отладка: плашка встречи с заданными кнопками без самой встречи.
+    /// Опрос на это время стоит — иначе первый же обход снял бы кнопки.
+    func debugShow(_ actions: [MeetingAction], for seconds: TimeInterval) {
+        stop()
+        availableActions = actions
+        isActive = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self else { return }
+            self.availableActions = []
+            self.isActive = false
+            self.start()
+        }
+    }
+
     private func clear() {
         guard isActive || title != nil else { return }
         DebugLog.write("встреча: не найдена")

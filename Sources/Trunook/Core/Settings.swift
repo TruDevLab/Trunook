@@ -86,55 +86,59 @@ final class Settings: ObservableObject {
         set { store(newValue.rawValue, "notchScreenMode") }
     }
 
-    /// Держать вырез полностью чёрным, без стекла.
-    ///
-    /// Панель ниже чёлки по умолчанию стеклянная: полоса высотой с аппаратную
-    /// вырезку остаётся чёрной, а всё под ней пропускает обои. Переход между
-    /// одним и другим — дело вкуса, и вкус тут расходится: кому-то остров
-    /// перестаёт читаться как продолжение железа.
-    ///
-    /// Выключено по умолчанию, потому что стекло — новый вид приложения,
-    /// а не добавка к прежнему. Настройка возвращает прежний.
-    ///
-    /// Действует и на macOS ниже 26, где стекла нет вовсе: там вырез чёрный
-    /// в любом случае, и переключатель просто ничего не меняет. Прятать его
-    /// на старых системах не стоит — настройка, пропадающая в зависимости
-    /// от версии, выглядит потерянной, а не неприменимой.
-    /// Плотность стекла в вырезе: 0 — прозрачнее некуда, 100 — стекла нет.
+    /// Вид выреза: 0 — прозрачное стекло, 25 — полупрозрачное (по умолчанию),
+    /// 50 — матовое, 75 — темнее, 100 — сплошной чёрный.
     ///
     /// Число, а не набор ступеней: ползунком человек ищет своё, а не выбирает
-    /// из чужого списка. Границы и точку «как задумано» держит
-    /// `Surface.DensityScale`.
-    var notchDensity: Int {
+    /// из чужого списка. Границы держит `Surface.LookScale`.
+    var notchLook: Int {
         get {
-            if let stored = defaults.object(forKey: "notchDensity") as? Int {
-                return min(Surface.DensityScale.opaque, max(0, stored))
+            if let stored = defaults.object(forKey: "notchLook") as? Int {
+                return Surface.LookScale.snap(stored)
             }
-            // Два разовых переноса, оба с прежних средств управления тем же
-            // самым. Терять сделанный выбор оттого, что средство стало
-            // другим, нельзя.
-            //
-            // Сперва был переключатель «непрозрачный вырез», потом — список
-            // из четырёх ступеней. Обе крайности сходятся в одну точку шкалы.
-            if let step = defaults.string(forKey: "notchDensity") {
-                switch step {
-                case "clear": return 18
-                case "frosted": return 70
-                case "opaque": return Surface.DensityScale.opaque
-                default: return Surface.DensityScale.normal
-                }
-            }
-            return defaults.bool(forKey: "opaqueNotch")
-                ? Surface.DensityScale.opaque
-                : Surface.DensityScale.normal
+            return legacyNotchLook.map(Surface.LookScale.snap) ?? Surface.LookScale.standard
         }
         set {
-            store(min(Surface.DensityScale.opaque, max(0, newValue)), "notchDensity")
-            // Старый ключ стирается сразу. Оставленный, он однажды переспорил
-            // бы новый: стоит числу пропасть — и чтение снова уедет на него.
-            // На переносе настроек провайдеров это уже случалось.
-            defaults.removeObject(forKey: "opaqueNotch")
+            store(Surface.LookScale.snap(newValue), "notchLook")
+            // Прежние ключи стираются сразу: оставленные, они однажды
+            // переспорили бы новый, стоит тому пропасть.
+            for key in ["notchDensity", "notchClarity", "opaqueNotch"] {
+                defaults.removeObject(forKey: key)
+            }
         }
+    }
+
+    /// Перенос с прежних средств управления тем же самым — терять сделанный
+    /// выбор оттого, что средство стало другим, нельзя.
+    ///
+    /// Сперва был переключатель «непрозрачный вырез», потом список
+    /// из четырёх ступеней, потом два ползунка: затемнение (0…100,
+    /// «как обычно» — 40) и прозрачность (0 — матовое, 100 — стекло).
+    ///
+    /// `nil` — прежних ключей нет: ставим значение по умолчанию.
+    private var legacyNotchLook: Int? {
+        let keys = ["notchDensity", "notchClarity", "opaqueNotch"]
+        guard keys.contains(where: { defaults.object(forKey: $0) != nil }) else { return nil }
+        let density: Int
+        if let stored = defaults.object(forKey: "notchDensity") as? Int {
+            density = stored
+        } else if let step = defaults.string(forKey: "notchDensity") {
+            density = ["clear": 18, "frosted": 70, "opaque": 100][step] ?? 40
+        } else {
+            density = defaults.bool(forKey: "opaqueNotch") ? 100 : 40
+        }
+        guard density < 100 else { return Surface.LookScale.opaque }
+        // Темнее обычного — правая половина; светлее — остаётся матовым.
+        var look = Surface.LookScale.matte + max(0, density - 40) * 50 / 60
+        let clarity = defaults.object(forKey: "notchClarity") as? Int ?? 0
+        if clarity > 0 { look = min(look, Surface.LookScale.matte - clarity / 2) }
+        return min(Surface.LookScale.opaque - 1, max(0, look))
+    }
+
+    /// Вырез над экраном блокировки: погода, заряд, музыка.
+    var lockScreenEnabled: Bool {
+        get { flag("lockScreenEnabled", default: true) }
+        set { store(newValue, "lockScreenEnabled") }
     }
 
     /// Проверять новые версии на GitHub и скачивать их фоном.
@@ -878,8 +882,6 @@ final class Settings: ObservableObject {
         set { store(newValue, "caffeineLimitMinutes") }
     }
 
-    /// Сроки на выбор. Ноль в конце — «без ограничения».
-    static let caffeineLimits = [30, 60, 90, 120, 0]
 
     // MARK: - Сколько держатся плашки событий
 

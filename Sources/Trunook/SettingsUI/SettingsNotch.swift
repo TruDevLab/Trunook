@@ -46,21 +46,21 @@ extension SettingsView {
             section(t("Вид"), icon: "circle.lefthalf.filled") {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(t("Прозрачность выреза"))
+                        Text(t("Стекло выреза"))
                         Spacer()
                         // Слово рядом с ползунком: доля сама по себе
-                        // ничего не значит, мнение бывает о «матовее»,
+                        // ничего не значит, мнение бывает о «матовом»,
                         // а не о «шестидесяти процентах».
-                        Text(Surface.DensityScale.title(for: settings.notchDensity))
+                        Text(Surface.LookScale.title(for: settings.notchLook))
                             .foregroundStyle(SettingsStyle.secondary)
                     }
                     Slider(
                         value: Binding(
-                            get: { Double(settings.notchDensity) },
+                            get: { Double(settings.notchLook) },
                             set: {
-                                settings.notchDensity = Int($0.rounded())
+                                settings.notchLook = Int($0.rounded())
                                 // Вырез раскрывается на время правки:
-                                // иначе прозрачность настраивают вслепую —
+                                // иначе вид настраивают вслепую —
                                 // панель показывается по наведению,
                                 // а курсор держит ползунок.
                                 //
@@ -70,11 +70,10 @@ extension SettingsView {
                                 onPreviewNotch(2)
                             }
                         ),
-                        in: 0...Double(Surface.DensityScale.opaque),
-                        // Шаг, а не плавный ход: соседние доли на глаз
-                        // не различаются, и плавный ползунок обещал бы
-                        // разницу, которой нет.
-                        step: 5,
+                        in: 0...Double(Surface.LookScale.opaque),
+                        // Пять положений: каждое проверено снимком
+                        // на читаемость, промежуточные — нет.
+                        step: 25,
                         // Раскрыть и в тот миг, когда ползунок только
                         // взяли: человек мог взяться и держать, ничего
                         // ещё не сдвинув, — а смотреть уже начал.
@@ -85,10 +84,17 @@ extension SettingsView {
                     // Подпись — для диктора: видимое название стоит строкой
                     // выше, и без неё VoiceOver говорил «ползунок, 60 %»,
                     // не называя, чего.
-                    .accessibilityLabel(t("Прозрачность выреза"))
-                    .accessibilityValue(Surface.DensityScale.title(for: settings.notchDensity))
-                    hint(t("До упора вправо — сплошной чёрный вырез, как было."))
+                    .accessibilityLabel(t("Стекло выреза"))
+                    .accessibilityValue(Surface.LookScale.title(for: settings.notchLook))
+                    hint(t("Влево — прозрачное стекло, посередине — матовое, вправо — чёрный."))
                 }
+            }
+            section(t("Экран блокировки"), icon: "lock") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Вырез на экране блокировки"), isOn: settings.binding(\.lockScreenEnabled))
+                    hint(t("Погода, заряд и музыка поверх экрана блокировки."))
+                }
+                .accessibilityElement(children: .combine)
             }
             section(t("Живой вырез"), icon: "cat") {
                 VStack(alignment: .leading, spacing: 4) {
