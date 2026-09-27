@@ -46,7 +46,7 @@ final class WeekForecastExport {
             URLQueryItem(name: "latitude", value: String(latitude)),
             URLQueryItem(name: "longitude", value: String(longitude)),
             URLQueryItem(name: "hourly", value: "temperature_2m,weather_code,precipitation_probability"),
-            URLQueryItem(name: "daily", value: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"),
+            URLQueryItem(name: "daily", value: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset"),
             URLQueryItem(name: "past_days", value: "7"),
             URLQueryItem(name: "forecast_days", value: "8"),
             URLQueryItem(name: "timezone", value: "auto"),
@@ -108,13 +108,23 @@ final class WeekForecastExport {
         let maxima = numbers(daily, "temperature_2m_max")
         let minima = numbers(daily, "temperature_2m_min")
         let dayChances = numbers(daily, "precipitation_probability_max")
+        // Восход и закат — для темы «Небо» в Trudaybook; местные, как и часы.
+        let sunrises = (daily["sunrise"] as? [Any]) ?? []
+        let sunsets = (daily["sunset"] as? [Any]) ?? []
+        func absolute(_ list: [Any], _ index: Int) -> String? {
+            guard index < list.count, let raw = list[index] as? String, let time = local.date(from: raw) else { return nil }
+            return iso.string(from: time.addingTimeInterval(-offset))
+        }
         var days: [[String: Any]] = []
         for (index, date) in dayTimes.enumerated() {
             guard index < dayCodes.count, let code = dayCodes[index],
                   index < maxima.count, let max = maxima[index],
                   index < minima.count, let min = minima[index] else { continue }
-            days.append(["date": date, "code": Int(code), "max": max, "min": min,
-                         "precip": Int((index < dayChances.count ? dayChances[index] : nil) ?? 0)])
+            var day: [String: Any] = ["date": date, "code": Int(code), "max": max, "min": min,
+                                      "precip": Int((index < dayChances.count ? dayChances[index] : nil) ?? 0)]
+            if let sunrise = absolute(sunrises, index) { day["sunrise"] = sunrise }
+            if let sunset = absolute(sunsets, index) { day["sunset"] = sunset }
+            days.append(day)
         }
         guard !days.isEmpty || !hours.isEmpty else { return nil }
         var json: [String: Any] = ["version": 1, "updated": iso.string(from: now), "days": days, "hours": hours]

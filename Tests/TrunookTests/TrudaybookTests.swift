@@ -167,7 +167,8 @@ struct TrudaybookTests {
          "hourly":{"time":["2026-09-25T09:00","2026-09-25T10:00"],"temperature_2m":[10.44,null],
                    "weather_code":[61,3],"precipitation_probability":[70,10]},
          "daily":{"time":["2026-09-25"],"weather_code":[61],"temperature_2m_max":[14.2],
-                  "temperature_2m_min":[8.1],"precipitation_probability_max":[80]}}
+                  "temperature_2m_min":[8.1],"precipitation_probability_max":[80],
+                  "sunrise":["2026-09-25T06:44"],"sunset":["2026-09-25T18:43"]}}
         """
         let data = try #require(WeekForecastExport.export(from: Data(answer.utf8), now: now, place: "Москва"))
         let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -181,6 +182,8 @@ struct TrudaybookTests {
         let days = try #require(json["days"] as? [[String: Any]])
         #expect(days.first?["date"] as? String == "2026-09-25")
         #expect(days.first?["precip"] as? Int == 80)
+        #expect(days.first?["sunrise"] as? String == "2026-09-25T03:44:00Z")
+        #expect(days.first?["sunset"] as? String == "2026-09-25T15:43:00Z")
         #expect(WeekForecastExport.export(from: Data("{}".utf8), now: now, place: nil) == nil)
     }
 }

@@ -1,7 +1,8 @@
 import TrunookXPC
 import Foundation
 
-/// Отвечает Trudaybook моделью: пересказ письма и метки для разбора.
+/// Отвечает Trudaybook моделью: пересказ письма, метки для разбора,
+/// повестка дня и итоги недели или месяца по заметкам.
 ///
 /// Просьба — файл в `~/Library/Application Support/Trunook/mail-requests`,
 /// ответ — в `…/Trudaybook/trunook-answers/<номер>.json`. Путь ответа
@@ -49,6 +50,7 @@ final class MailModelService {
             DebugLog.write("почта для модели: папка не создана — \(error.localizedDescription)")
             return
         }
+        writeKinds()
         let descriptor = open(folder.path, O_EVTONLY)
         guard descriptor >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: .write, queue: .main)
@@ -64,6 +66,17 @@ final class MailModelService {
         source = nil
     }
 
+    /// Что мы умеем — скрытым файлом в папке просьб: Trudaybook не шлёт
+    /// просьбу, на которую мы не ответим. Скрытые файлы `drain` не читает.
+    private func writeKinds() {
+        let file = Self.folder.appendingPathComponent(".kinds.json")
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: ["version": MailModelProtocol.version, "kinds": MailModelProtocol.kinds], options: [.sortedKeys])
+        else { return }
+        try? data.write(to: file, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+
     /// Забрать всё, что лежит. Скрытые — недописанные, их не трогаем.
     private func drain() {
         let files = (try? FileManager.default.contentsOfDirectory(at: Self.folder, includingPropertiesForKeys: nil)) ?? []
@@ -71,7 +84,12 @@ final class MailModelService {
             let data = try? Data(contentsOf: file)
             try? FileManager.default.removeItem(at: file)
             guard let data, let request = MailModelProtocol.parse(data) else {
-                DebugLog.write("почта для модели: просьба не разобрана — пропущена")
+                if let data, let id = MailModelProtocol.unsupportedID(data) {
+                    DebugLog.write("почта для модели: вид просьбы незнаком — отказ")
+                    answer(id, ["ok": false, "code": "unsupported", "error": t("Этот Trunook не умеет такую просьбу — обновите Trunook.")])
+                } else {
+                    DebugLog.write("почта для модели: просьба не разобрана — пропущена")
+                }
                 continue
             }
             guard queue.count < Self.maxQueue else {
@@ -108,18 +126,31 @@ final class MailModelService {
 
         let prompt: String
         var keys: Set<String> = []
+        var names: [String: String] = [:]
+        let what: String
         switch request.kind {
         case let .summary(subject, from, _, text):
             prompt = MailModelProtocol.summaryPrompt(subject: subject, from: from, text: text, language: request.language)
+            what = "пересказ"
         case .labels(let letters):
             prompt = MailModelProtocol.labelsPrompt(letters, language: request.language)
             keys = Set(letters.map(\.key))
+            what = "метки \(keys.count)"
+        case .agenda(let agenda):
+            prompt = MailModelProtocol.agendaPrompt(agenda, language: request.language)
+            keys = Set(agenda.meetings.map(\.key))
+            for meeting in agenda.meetings { names[meeting.key] = meeting.title }
+            for letter in agenda.letters { names[letter.key] = letter.subject }
+            what = "повестка, встреч \(agenda.meetings.count)"
+        case let .digest(period, title, notes):
+            prompt = MailModelProtocol.digestPrompt(period: period, title: title, notes: notes, language: request.language)
+            what = "итоги \(period == "month" ? "месяца" : "недели"), заметок \(notes.count)"
         }
 
         busy = true
         let started = Date()
-        // Текст письма в журнал не пишется — только вид просьбы и время.
-        DebugLog.write("почта для модели: \(keys.isEmpty ? "пересказ" : "метки \(keys.count)") — \(model.name)")
+        // Текст писем и заметок в журнал не пишется — только вид просьбы и время.
+        DebugLog.write("почта для модели: \(what) — \(model.name)")
         client.stream(
             messages: [.user(prompt)],
             contextWindow: ModelClient.contextWindow(forCharacters: prompt.count),
@@ -131,16 +162,29 @@ final class MailModelService {
                 let seconds = Int(Date().timeIntervalSince(started))
                 switch result {
                 case .success(let text):
-                    if keys.isEmpty {
+                    switch request.kind {
+                    case .summary:
                         let summary = MailModelProtocol.withoutThinking(text)
                         DebugLog.write("почта для модели: пересказ готов за \(seconds) с")
                         self.answer(request.id, summary.isEmpty
                             ? ["ok": false, "code": "empty", "error": t("Модель вернула пустой ответ.")]
                             : ["ok": true, "summary": summary, "model": model.name])
-                    } else {
+                    case .labels:
                         let labels = MailModelProtocol.labels(in: text, keys: keys)
                         DebugLog.write("почта для модели: меток \(labels.count) из \(keys.count) за \(seconds) с")
                         self.answer(request.id, ["ok": true, "labels": labels, "model": model.name])
+                    case .agenda:
+                        let agenda = MailModelProtocol.agenda(in: text, keys: keys, names: names)
+                        DebugLog.write("почта для модели: повестка — главного \(agenda.focus.count), к встречам \(agenda.meetings.count) за \(seconds) с")
+                        self.answer(request.id, agenda.focus.isEmpty && agenda.meetings.isEmpty
+                            ? ["ok": false, "code": "empty", "error": t("Модель вернула пустой ответ.")]
+                            : ["ok": true, "agenda": ["focus": agenda.focus, "meetings": agenda.meetings], "model": model.name])
+                    case .digest:
+                        let digest = MailModelProtocol.withoutThinking(text)
+                        DebugLog.write("почта для модели: итоги готовы за \(seconds) с")
+                        self.answer(request.id, digest.isEmpty
+                            ? ["ok": false, "code": "empty", "error": t("Модель вернула пустой ответ.")]
+                            : ["ok": true, "text": digest, "model": model.name])
                     }
                 case .failure(let error):
                     DebugLog.write("почта для модели: модель не ответила — \(error.localizedDescription)")
