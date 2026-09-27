@@ -33,9 +33,11 @@ enum AgentTool: String, CaseIterable, Identifiable {
     case mailPriority = "mail_priority"
     case mailDone = "mail_done"
     case mailDraft = "mail_reply_draft"
+    /// Метка для разбора: важное, переписка, уведомление, рассылка.
+    case mailLabel = "mail_label"
 
     /// Инструменты почты.
-    static let mail: [AgentTool] = [.mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft]
+    static let mail: [AgentTool] = [.mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft, .mailLabel]
 
     var id: String { rawValue }
 
@@ -67,7 +69,7 @@ enum AgentTool: String, CaseIterable, Identifiable {
         // приоритет снимают, черновик закрывают не отправив. Всё видно
         // в Trudaybook, и карточка перед каждым шагом была бы лишней.
         case .startTimer, .stopTimer, .startStopwatch,
-             .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft: return .act
+             .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft, .mailLabel: return .act
         case .createEvent, .moveEvent, .cancelEvent, .createReminder, .createNote: return .write
         }
     }
@@ -98,6 +100,7 @@ enum AgentTool: String, CaseIterable, Identifiable {
         case .mailPriority: return t("Поставить приоритет письму")
         case .mailDone: return t("Отметить письмо разобранным")
         case .mailDraft: return t("Подготовить ответ")
+        case .mailLabel: return t("Поставить метку письму")
         }
     }
 
@@ -123,6 +126,7 @@ enum AgentTool: String, CaseIterable, Identifiable {
         case .mailPriority: return "exclamationmark.2"
         case .mailDone: return "checkmark.circle"
         case .mailDraft: return "arrowshape.turn.up.left"
+        case .mailLabel: return "tag"
         }
     }
 
@@ -149,7 +153,7 @@ enum AgentTool: String, CaseIterable, Identifiable {
         case .appHelp: return true
         // Своей настройки нет: разрешение даёт сам Trudaybook, и пока
         // оно есть и Trudaybook запущен, его сводка говорит об этом.
-        case .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft:
+        case .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft, .mailLabel:
             return TrudaybookFeed.shared.current()?.acceptsCommands == true
         }
     }
@@ -170,7 +174,7 @@ enum AgentTool: String, CaseIterable, Identifiable {
         case .weatherNow: return t("Погода выключена в настройках.")
         case .searchNotes, .createNote: return t("Заметки выключены в настройках.")
         case .appHelp: return nil
-        case .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft:
+        case .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft, .mailLabel:
             return t("Trudaybook не запущен или в нём не разрешено помощнику работать с почтой.")
         }
     }
@@ -231,6 +235,8 @@ enum AgentTool: String, CaseIterable, Identifiable {
             return t("Отметить письмо разобранным.")
         case .mailDraft:
             return t("Подготовить ответ на письмо: текст откроется черновиком в Trudaybook, отправит его сам человек. Пиши ответ целиком, от первого лица, без подписи.")
+        case .mailLabel:
+            return t("Поставить письму метку для разбора: important — ждёт ответа или решения, conversation — переписка с людьми, notification — автоматическое от сервисов, newsletter — рассылка и реклама; none — снять. Чтобы разобрать почту, сначала возьми список, потом ставь метки по одной.")
         }
     }
 
@@ -293,6 +299,7 @@ enum AgentTool: String, CaseIterable, Identifiable {
                 .init(name: "from", kind: .string, description: t("От кого — имя или фамилия. Не спрашивали про отправителя — не указывай."), isRequired: false),
                 .init(name: "important_only", kind: .boolean, description: t("Только важные."), isRequired: false),
                 .init(name: "limit", kind: .integer, description: t("Сколько писем, от 1 до 30. По умолчанию 10."), isRequired: false),
+                .init(name: "label", kind: .string, description: t("Только с этой меткой: important, conversation, notification или newsletter. Не спрашивали — не указывай."), isRequired: false),
             ]
         case .mailOpen, .mailDone:
             return [letterParameter]
@@ -312,6 +319,11 @@ enum AgentTool: String, CaseIterable, Identifiable {
             return [
                 letterParameter,
                 .init(name: "text", kind: .string, description: t("Текст ответа целиком."), isRequired: true),
+            ]
+        case .mailLabel:
+            return [
+                letterParameter,
+                .init(name: "label", kind: .string, description: t("Метка: important, conversation, notification, newsletter или none — снять."), isRequired: true),
             ]
         }
     }

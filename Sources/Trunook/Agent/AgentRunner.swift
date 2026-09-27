@@ -82,7 +82,7 @@ final class AgentRunner {
         switch tool {
         case .upcoming, .dayAgenda, .weatherNow, .searchNotes, .appHelp,
              .startTimer, .stopTimer, .startStopwatch,
-             .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft:
+             .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft, .mailLabel:
             return .run(tool, call)
         case .createEvent:
             return prepareEvent(call, now: now, calendar: day)
@@ -111,7 +111,7 @@ final class AgentRunner {
         case .startTimer: completion(startTimer(call))
         case .stopTimer: completion(stopTimer())
         case .startStopwatch: completion(startStopwatch())
-        case .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft:
+        case .mailUnread, .mailOpen, .mailSnooze, .mailPriority, .mailDone, .mailDraft, .mailLabel:
             runMail(tool, call, now: now, completion: completion)
         case .createEvent, .moveEvent, .cancelEvent, .createReminder, .createNote:
             // Сюда не попасть: пишущее готовится карточкой.
@@ -679,6 +679,7 @@ final class AgentRunner {
             command = ["action": "list", "limit": AgentTime.minutes(call.integer("limit"), default: 10, in: 1...30),
                        "important_only": call.flag("important_only")]
             if let from = call.string("from") { command["from"] = from }
+            if let label = call.string("label") { command["label"] = label.lowercased() }
         default:
             guard let letter = call.string("letter") else {
                 return completion(AgentToolResult(text: t("Не сказано, какое письмо."), label: tool.title))
@@ -690,6 +691,9 @@ final class AgentRunner {
             case .mailPriority:
                 command["action"] = "priority"
                 command["level"] = call.string("level")?.lowercased() ?? ""
+            case .mailLabel:
+                command["action"] = "label"
+                command["label"] = call.string("label")?.lowercased() ?? "none"
             case .mailDraft:
                 guard let text = call.string("text") else {
                     return completion(AgentToolResult(text: t("Нет текста ответа."), label: tool.title))
@@ -743,6 +747,7 @@ final class AgentRunner {
                 line += " · " + AgentTime.stamp(now: time)
             }
             if (letter["important"] as? NSNumber)?.boolValue == true { line += " · " + t("важное") }
+            if let label = letter["label"] as? String, !label.isEmpty { line += " · " + label }
             if let snippet = letter["snippet"] as? String, !snippet.isEmpty { line += "\n   " + snippet }
             return line
         }

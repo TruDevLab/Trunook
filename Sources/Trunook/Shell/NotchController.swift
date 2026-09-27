@@ -37,6 +37,8 @@ final class NotchController {
     private lazy var focusBeacon = FocusBeacon(timer: timer)
     /// Заметка дня, общая с Trudaybook.
     private lazy var dayNotes = DayNoteSync(notes: notes)
+    /// Пересказ писем и метки для Trudaybook — местной моделью.
+    private let mailModel = MailModelService()
     /// Прогноз недели для Trudaybook.
     private lazy var weekForecast = WeekForecastExport()
     /// Надиктовать текст в поле — своим слушателем, не тем, которым
@@ -671,6 +673,7 @@ final class NotchController {
         if TrudaybookFeed.isInstalled {
             TrudaybookFeed.shared.start()
             dayNotes.start()
+            mailModel.start()
         }
         focusBeacon.start()
 
