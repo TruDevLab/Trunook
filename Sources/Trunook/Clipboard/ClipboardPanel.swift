@@ -1,13 +1,19 @@
 import AppKit
 import SwiftUI
 
-/// История буфера обмена строками, прямо в вырезе.
+/// История буфера обмена: слева список строками, справа превью записи.
 ///
 /// Строками, а не плитками: у записи важен текст, а он длинный. В плитке
 /// от него осталось бы два слова, и отличить одну запись от другой стало бы
-/// невозможно.
+/// невозможно. А чтобы прочесть запись целиком, не вставляя её, — превью
+/// справа (7 октября, просьба пользователя): текст или изображение, откуда
+/// и когда скопировано, сколько знаков, и кнопки действий. Показывает
+/// подсвеченную клавишами строку, иначе ту, что под курсором, иначе
+/// самую свежую (`ClipboardService.previewEntry`). Нажатие по строке
+/// по-прежнему вставляет — превью только смотрят.
 struct ClipboardPanel: View {
-    let entries: [ClipboardEntry]
+    @ObservedObject var clipboard: ClipboardService
+    private var entries: [ClipboardEntry] { clipboard.entries }
     /// Подтверждение сохранения — своё, а не плашкой в вырезе: накладка
     /// важнее плашки по расчёту состояния, и из-под открытой панели плашки
     /// не видно вовсе.
@@ -18,7 +24,7 @@ struct ClipboardPanel: View {
     let slotHint: String?
     let notesEnabled: Bool
     /// Какая строка подсвечена с клавиатуры. `nil` — ни одна.
-    let highlighted: Int64?
+    private var highlighted: Int64? { clipboard.highlighted }
     let onUse: (ClipboardEntry) -> Void
     let onSaveToNotes: (ClipboardEntry) -> Void
     let onDelete: (ClipboardEntry) -> Void
@@ -46,7 +52,10 @@ struct ClipboardPanel: View {
     /// затем, чтобы о клавишах узнали.
     /// Прежняя ширина — теперь нижняя граница: у́же панель не станет,
     /// даже если крылу столько и не нужно.
-    private static var minimumWidth: CGFloat { NotchStyle.scaled(440) }
+    private static var minimumWidth: CGFloat { NotchStyle.scaled(680) }
+
+    /// Доля списка в ширине содержимого — левая половина.
+    static let listShare: CGFloat = 0.5
 
     static func width(notchWidth: CGFloat) -> CGFloat {
         max(
@@ -70,8 +79,11 @@ struct ClipboardPanel: View {
     /// Сколько строк видно без прокрутки. Больше — вырез закрывал бы
     /// половину экрана, меньше — список не читается как список.
     static let visibleRows = 6
+    /// Превью не короче шести строк списка: при одной записи в истории
+    /// панель иначе сжалась бы до строки, и превью было бы негде встать.
     static func height(notchHeight: CGFloat, rows: Int) -> CGFloat {
-        NotchStyle.height(notchHeight: notchHeight, contentHeight: listHeight(rows: rows))
+        let content = rows == 0 ? listHeight(rows: 1) : listHeight(rows: visibleRows)
+        return NotchStyle.height(notchHeight: notchHeight, contentHeight: content)
     }
 
     /// Высота видимой части списка.
@@ -112,7 +124,26 @@ struct ClipboardPanel: View {
             }
         } content: {
             Group {
-                if entries.isEmpty { empty } else { list }
+                if entries.isEmpty {
+                    empty
+                } else {
+                    HStack(alignment: .top, spacing: NotchStyle.gridSpacing) {
+                        list
+                            .frame(width: listWidth)
+                        if let entry = clipboard.previewEntry {
+                            ClipboardPreview(
+                                entry: entry,
+                                imageData: clipboard.imageData(for:),
+                                notesEnabled: notesEnabled,
+                                onUse: onUse,
+                                onSaveToNotes: onSaveToNotes,
+                                onReveal: clipboard.reveal,
+                                onDelete: onDelete
+                            )
+                            .frame(height: Self.listHeight(rows: Self.visibleRows))
+                        }
+                    }
+                }
             }
             .overlay(alignment: .bottomTrailing) { PanelFlashPill(flash: flash) }
         }
@@ -140,7 +171,7 @@ struct ClipboardPanel: View {
                     }
                 }
             }
-            .frame(height: Self.listHeight(rows: entries.count))
+            .frame(height: Self.listHeight(rows: Self.visibleRows), alignment: .top)
             // Список едет за подсветкой наименьшим движением: строк в истории
             // до полусотни, а видно шесть, — без этого подсветка уходила бы
             // за край, и Enter вставлял бы то, чего не видно.
@@ -162,7 +193,17 @@ struct ClipboardPanel: View {
 
     private func row(_ entry: ClipboardEntry, index: Int) -> some View {
         let isHighlighted = entry.id == highlighted
+        let isPreviewed = entry.id == clipboard.previewEntry?.id && !isHighlighted
         return rowBody(entry, index: index)
+            .onHover { inside in
+                if inside { clipboard.hovered = entry.id }
+            }
+            // Что сейчас в превью — тонкой обводкой; подсветка клавишами —
+            // своей, толще и цветом буфера.
+            .overlay(
+                RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
+                    .strokeBorder(isPreviewed ? .white.opacity(0.22) : .clear, lineWidth: 1)
+            )
             // Обводкой, а не заливкой: заливка у плитки уже занята
             // наведением, и строка бывает подсвечена клавишей и мышью разом —
             // одной заливкой они слились бы в одно.
@@ -205,7 +246,7 @@ struct ClipboardPanel: View {
 
                         Spacer(minLength: 8)
 
-                        Text(subtitle(entry))
+                        Text(entry.age())
                             .font(.system(size: NotchStyle.font(9.5)))
                             .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
                             .lineLimit(1)
@@ -266,7 +307,12 @@ struct ClipboardPanel: View {
 
     @ViewBuilder
     private func preview(_ entry: ClipboardEntry) -> some View {
-        if let image = entry.image {
+        if let file = entry.imageFiles.first, let thumb = ClipboardThumbnails.image(at: file, maxSide: 48) {
+            Image(nsImage: thumb)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .clipShape(RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous))
+        } else if let image = entry.image {
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
@@ -281,8 +327,167 @@ struct ClipboardPanel: View {
         }
     }
 
-    private func subtitle(_ entry: ClipboardEntry) -> String {
-        guard let source = entry.source else { return entry.age() }
-        return "\(source) · \(entry.age())"
+    /// Ширина списка — половина содержимого.
+    private var listWidth: CGFloat {
+        let content = Self.width(notchWidth: metrics.notchWidth)
+            - 2 * (NotchStyle.bottomPadding + NotchStyle.shoulderInset)
+        return (content - NotchStyle.gridSpacing) * Self.listShare
     }
 }
+
+/// Правая половина панели буфера: запись целиком, сведения и действия.
+struct ClipboardPreview: View {
+    let entry: ClipboardEntry
+    let imageData: (ClipboardEntry) -> Data?
+    let notesEnabled: Bool
+    let onUse: (ClipboardEntry) -> Void
+    let onSaveToNotes: (ClipboardEntry) -> Void
+    let onReveal: (ClipboardEntry) -> Void
+    let onDelete: (ClipboardEntry) -> Void
+
+    private static var buttonHeight: CGFloat { NotchStyle.scaled(26) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
+                        .fill(.white.opacity(NotchStyle.tileFill))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
+            Text(Self.info(entry, imageData: imageData))
+                .font(.system(size: NotchStyle.captionFontSize))
+                .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            actions
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch entry.kind {
+        case .text:
+            ScrollView(.vertical, showsIndicators: false) {
+                Text(entry.text)
+                    .font(.system(size: NotchStyle.captionFontSize + 1))
+                    .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
+                    .lineSpacing(2)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(9)
+            }
+        case .image:
+            if let data = imageData(entry), let image = NSImage(data: data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .padding(6)
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: NotchStyle.font(22)))
+                    .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+            }
+        case .files where !entry.imageFiles.isEmpty:
+            // Файл-картинка — сама картинка; несколько — первая, а имена
+            // остальных в строке сведений.
+            if let image = ClipboardThumbnails.image(at: entry.imageFiles[0], maxSide: 900) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .padding(6)
+            }
+        case .files:
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(entry.fileURLs, id: \.self) { url in
+                        HStack(spacing: 7) {
+                            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                                .resizable()
+                                .frame(width: 18, height: 18)
+                            Text(url.lastPathComponent)
+                                .font(.system(size: NotchStyle.captionFontSize + 1))
+                                .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(9)
+            }
+        }
+    }
+
+    /// Строка сведений: откуда, когда и сколько.
+    static func info(_ entry: ClipboardEntry, imageData: (ClipboardEntry) -> Data?, now: Date = Date()) -> String {
+        var parts: [String] = []
+        if let source = entry.source, !source.isEmpty { parts.append(source) }
+        parts.append(entry.age(from: now))
+        switch entry.kind {
+        case .text:
+            let words = entry.text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+            parts.append(tf("%d знаков", entry.text.count))
+            parts.append(tf("%d слов", words))
+        case .image:
+            parts.append(entry.text)
+            if let data = imageData(entry) {
+                parts.append(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))
+            }
+        case .files:
+            let images = entry.imageFiles
+            if images.count == 1, entry.fileURLs.count == 1 {
+                parts.append(images[0].lastPathComponent)
+                if let size = ClipboardThumbnails.pixelSize(at: images[0]) {
+                    parts.append("\(Int(size.width))×\(Int(size.height))")
+                }
+                if let bytes = (try? images[0].resourceValues(forKeys: [.fileSizeKey]))?.fileSize {
+                    parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+                }
+            } else {
+                parts.append(tf("файлов: %d", entry.fileURLs.count))
+            }
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var actions: some View {
+        HStack(spacing: 6) {
+            button(t("Вставить"), symbol: "doc.on.clipboard", primary: true) { onUse(entry) }
+            if notesEnabled, entry.notesText != nil {
+                button(t("В заметки"), symbol: "tray.and.arrow.down") { onSaveToNotes(entry) }
+            }
+            if entry.kind == .files {
+                button(t("В Finder"), symbol: "folder") { onReveal(entry) }
+            }
+            Spacer(minLength: 0)
+            Button { onDelete(entry) } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: NotchStyle.font(10), weight: .semibold))
+                    .foregroundStyle(Palette.negative)
+                    .frame(width: Self.buttonHeight, height: Self.buttonHeight)
+                    .background(Circle().fill(Palette.negative.opacity(0.14)))
+            }
+            .buttonStyle(PressableStyle())
+            .notchHint(t("Удалить запись"))
+        }
+        .frame(height: Self.buttonHeight)
+    }
+
+    private func button(_ title: String, symbol: String, primary: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: NotchStyle.font(10.5), weight: .semibold))
+                .foregroundStyle(primary ? Palette.clipboard : .white)
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .frame(height: Self.buttonHeight)
+                .background(Capsule().fill(primary ? Palette.clipboard.opacity(0.2) : .white.opacity(0.12)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(PressableStyle())
+        .fixedSize()
+    }
+}
+

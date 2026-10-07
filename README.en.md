@@ -115,14 +115,17 @@ commands — one in the 1×1 size. Select text in another window, click
 
 - **Clipboard history.** Everything you copied within reach: paste by number
   from the keyboard, and in the open list ↑↓ walk the rows while Enter
-  pastes.
+  pastes. Next to the list is a preview: the whole text, the image or the
+  copied files, where and when they were copied, and action buttons.
+  History keeps up to two hundred entries.
 - **A shelf for files.** Drop files on the notch and they land on the shelf;
   drag one into any window and the file moves there. Over the notch you can
   drop a file straight into a zone: zip or unzip it, put an iCloud link on
   the clipboard, send it to the Trash.
 - **Notes.** A multi-line field with formatting and checklists; the model
   comes up with the title. A list with word search, export to Markdown, and
-  up to three notes pinned to the top. Someone else's text gets in without
+  up to three notes pinned to the top; the list shows as rows or tiles, and
+  a filter separates Trudaybook's day notes. Someone else's text gets in without
   retyping: the selection from any window and whatever you copied both go
   into notes with their own shortcuts. Turn on Obsidian sync and your notes
   live in a subfolder of your vault, editable from both sides, while the
@@ -200,7 +203,8 @@ commands — one in the 1×1 size. Select text in another window, click
 - **Several monitors.** The Screens setting: the island only on the screen
   with the notch, on the screen under the cursor, or on all of them at once.
   Screens without a notch draw nothing at rest, and in "All screens" mode
-  a thin strip — hovering it opens the island there.
+  a thin strip — hovering it opens the island there. Any display can be the
+  island's main screen.
 - **Glass.** The panel under the notch lets the wallpaper through while the
   notch itself stays black: the island does not float above the screen, it
   flows out of the hardware. One slider sets the look: clear glass on the
@@ -221,7 +225,8 @@ commands — one in the 1×1 size. Select text in another window, click
 - **Coffee cup.** While it is on, the screen neither dims nor locks. The
   duration is chosen in the notch with a dial, like the timer — from five
   minutes to eight hours — or no limit; while the cup is on, the time left
-  shows in the notch itself.
+  shows in the notch itself. Optionally the Mac stays awake with the lid
+  closed too — macOS asks for an administrator password for that.
 - **Keyboard cleaning.** Locks the keyboard for 30, 60 or 90 seconds — wipe
   it without typing anything. The mouse keeps working: the notch shows the
   countdown and an Unlock button. Needs Accessibility access.

@@ -62,9 +62,9 @@ enum Surface {
     enum LookScale {
         /// Прозрачное стекло с линзой.
         static let glass = 0
-        /// Стекло с линзой и дымкой под ним — по умолчанию.
+        /// Стекло с линзой и дымкой под ним.
         static let hazy = 25
-        /// Матовое стекло — прежний вид.
+        /// Матовое стекло — по умолчанию: текст на нём читается на любых обоях.
         static let matte = 50
         /// Матовое темнее.
         static let dark = 75
@@ -74,7 +74,7 @@ enum Surface {
         static let steps = [glass, hazy, matte, dark, opaque]
 
         /// Что стоит, пока человек не выбрал сам.
-        static let standard = hazy
+        static let standard = matte
 
         /// Ближайшее из пяти положений.
         static func snap(_ level: Int) -> Int {

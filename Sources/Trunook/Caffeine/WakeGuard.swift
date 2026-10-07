@@ -26,10 +26,21 @@ final class WakeGuard: ObservableObject {
 
     /// Срок, с которым включили в этот раз, в минутах. Ноль — без ограничения.
     ///
-    /// Отдельно от `limitMinutes`: тот отвечает, что предложено по умолчанию,
+    /// Отдельно от `draftMinutes`: тот — что стоит на шкале выбора,
     /// а этот — с чем чашка горит сейчас. Разойтись они могут с того момента,
     /// как срок стало можно выбрать на месте.
     @Published private(set) var activeLimitMinutes = 0
+
+    /// Срок на шкале выбора. Не настройка: шкала каждый раз встаёт на
+    /// полчаса (`defaultMinutes`) — так попросил пользователь; прошлый выбор
+    /// под прошлое дело не годится для следующего.
+    @Published var draftMinutes = WakeGuard.defaultMinutes
+
+    /// Сон по закрытой крышке выключен нами (`LidSleep`) на это включение.
+    @Published private(set) var holdsLid = false
+
+    /// Срок по умолчанию — полчаса.
+    static let defaultMinutes = 30
 
     /// Срок вышел, и удержание снялось само. Отдельно от обычного выключения:
     /// человек этого не нажимал, и не сказать ему значит оставить его гадать,
@@ -52,8 +63,11 @@ final class WakeGuard: ObservableObject {
         self.settings = settings
     }
 
-    /// Заданный срок в минутах. Ноль — без ограничения.
-    var limitMinutes: Int { settings.caffeineLimitMinutes }
+    /// Срок, если его не выбрали: полчаса.
+    var limitMinutes: Int { Self.defaultMinutes }
+
+    /// Шкала — снова на полчаса. Зовут при открытии панели у погасшей чашки.
+    func resetDraft() { draftMinutes = Self.defaultMinutes }
 
     /// Имя, которое показывают `pmset -g assertions` и Мониторинг системы
     /// в столбце «Препятствует переходу в режим сна». По нему человек поймёт,
@@ -105,6 +119,7 @@ final class WakeGuard: ObservableObject {
         }
         assertion = identifier
         isOn = true
+        if settings.caffeineLidClosed { holdLid() }
         let limit = minutes ?? limitMinutes
         scheduleLimit(minutes: limit)
         DebugLog.write("бодрость: экран удерживается"
@@ -136,6 +151,7 @@ final class WakeGuard: ObservableObject {
     private func expire() {
         guard isOn else { return }
         release()
+        releaseLid()
         isOn = false
         limitTimer = nil
         endsAt = nil
@@ -151,8 +167,48 @@ final class WakeGuard: ObservableObject {
         endsAt = nil
         activeLimitMinutes = 0
         release()
+        releaseLid()
         isOn = false
         DebugLog.write("бодрость: экран отпущен")
+    }
+
+    // MARK: - Закрытая крышка
+
+    /// Переключатель «С закрытой крышкой». У горящей чашки действует сразу.
+    func setLidClosed(_ on: Bool) {
+        settings.caffeineLidClosed = on
+        guard isOn else { return }
+        if on { holdLid() } else { releaseLid() }
+    }
+
+    /// Чем кончилось включение: `false` — пароль не дали, крышка усыпит Mac.
+    var onLidRefused: (() -> Void)?
+
+    private func holdLid() {
+        guard !holdsLid else { return }
+        LidSleep.set(true) { [weak self] ok in
+            guard let self else { return }
+            // Пока спрашивали пароль, чашку могли погасить — тогда вернуть.
+            guard self.isOn else {
+                if ok { LidSleep.set(false) { _ in } }
+                return
+            }
+            self.holdsLid = ok
+            if !ok { self.onLidRefused?() }
+        }
+    }
+
+    private func releaseLid() {
+        guard holdsLid else { return }
+        holdsLid = false
+        LidSleep.set(false) { _ in }
+    }
+
+    /// При выходе из приложения — дождаться, иначе сон останется выключенным.
+    func releaseLidNow() {
+        guard holdsLid else { return }
+        holdsLid = false
+        LidSleep.setNow(false)
     }
 
     /// Отпустить ассерцию, не трогая наблюдаемое состояние: нужно и обычному

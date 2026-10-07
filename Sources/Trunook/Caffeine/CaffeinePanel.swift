@@ -16,8 +16,7 @@ import SwiftUI
 /// как часть расписания.
 struct CaffeinePanel: View {
     @ObservedObject var wake: WakeGuard
-    /// Срок на шкале — он же срок по умолчанию в настройках: что вытянули
-    /// в прошлый раз, то и предложено в следующий.
+    /// Переключатель «С закрытой крышкой» читает настройку.
     @ObservedObject var settings: Settings
     let metrics: NotchMetrics
     let onChoose: (Int) -> Void
@@ -74,27 +73,51 @@ struct CaffeinePanel: View {
 
     // MARK: - Что происходит сейчас
 
-    /// Строка состояния.
+    /// Строка состояния и переключатель закрытой крышки справа.
     private var status: some View {
-        Text(wake.isOn
-             ? (wake.endsAt == nil ? t("Экран не гаснет — без ограничения") : t("Экран не гаснет"))
-             : t("Экран гаснет как обычно"))
-            .font(.system(size: NotchStyle.rowFontSize))
-            .foregroundStyle(.white.opacity(
-                wake.isOn ? NotchStyle.primaryOpacity : NotchStyle.secondaryOpacity
-            ))
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: Self.statusHeight)
+        HStack(spacing: 8) {
+            Text(wake.isOn
+                 ? (wake.endsAt == nil ? t("Экран не гаснет — без ограничения") : t("Экран не гаснет"))
+                 : t("Экран гаснет как обычно"))
+                .font(.system(size: NotchStyle.rowFontSize))
+                .foregroundStyle(.white.opacity(
+                    wake.isOn ? NotchStyle.primaryOpacity : NotchStyle.secondaryOpacity
+                ))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            lidSwitch
+        }
+        .frame(height: Self.statusHeight)
+    }
+
+    /// «С закрытой крышкой»: Mac не засыпает, и когда крышку закрыли.
+    /// Пароль администратора спросит сама macOS — при включении чашки
+    /// и при выключении (`LidSleep`). Горит цветом чашки, пока сон и правда
+    /// выключен; включено, а пароля не дали — только обводка.
+    private var lidSwitch: some View {
+        let on = settings.caffeineLidClosed
+        return Button { wake.setLidClosed(!on) } label: {
+            Label(t("С закрытой крышкой"), systemImage: on ? "laptopcomputer.slash" : "laptopcomputer")
+                .font(.system(size: NotchStyle.font(10), weight: .medium))
+                .foregroundStyle(on ? Palette.caffeine : .white.opacity(NotchStyle.secondaryOpacity))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(wake.holdsLid ? Palette.caffeine.opacity(0.22) : .white.opacity(0.08)))
+                .overlay(Capsule().strokeBorder(on ? Palette.caffeine.opacity(0.6) : .clear, lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(PressableStyle())
+        .fixedSize()
+        .notchHint(on
+            ? t("Mac не уснёт с закрытой крышкой — спросит пароль администратора")
+            : t("Не засыпать и с закрытой крышкой"))
     }
 
     // MARK: - Цифры и шкала
 
-    /// Выбранный на шкале срок. Ноль в настройках — «без срока»: на шкале
-    /// его нет, и она встаёт на час.
+    /// Выбранный на шкале срок — по умолчанию полчаса (`WakeGuard.defaultMinutes`).
     private var draftMinutes: Int {
-        let stored = settings.caffeineLimitMinutes
-        return stored > 0 ? min(max(stored, Self.range.lowerBound), Self.range.upperBound) : 60
+        min(max(wake.draftMinutes, Self.range.lowerBound), Self.range.upperBound)
     }
 
     /// Шкалу везёт сама чашка, пока горит со сроком — как идущий таймер.
@@ -118,7 +141,7 @@ struct CaffeinePanel: View {
                 TimerDial(
                     centerMinutes: isCounting ? (left ?? 0) / 60 : Double(draftMinutes),
                     range: isCounting ? 0...Self.range.upperBound : Self.range,
-                    onScrub: isCounting ? nil : { settings.caffeineLimitMinutes = $0 },
+                    onScrub: isCounting ? nil : { wake.draftMinutes = $0 },
                     unit: Self.unit,
                     majorEvery: Self.majorEvery,
                     label: Self.dialLabel,
@@ -137,10 +160,12 @@ struct CaffeinePanel: View {
 
     // MARK: - Кнопки
 
+    /// Включение и выключение — справа и цветом: жёлтая «Включить»,
+    /// красная «Выключить». Это главное действие панели, и искать его
+    /// среди сроков не должно приходиться. Слева — сроки.
     private var controls: some View {
         HStack(spacing: 6) {
             if wake.isOn {
-                action(t("Выключить"), symbol: "power", tint: Palette.negative, action: onDisable)
                 if isCounting {
                     action(tf("+%d мин", Self.extendMinutes), symbol: "plus") {
                         let left = (wake.endsAt?.timeIntervalSinceNow ?? 0) / 60
@@ -151,13 +176,40 @@ struct CaffeinePanel: View {
                         onChoose(draftMinutes)
                     }
                 }
+                Spacer(minLength: 0)
+                power(t("Выключить"), symbol: "power", fill: Self.offTint, label: .white, action: onDisable)
             } else {
-                action(t("Включить"), symbol: "play.fill", isPrimary: true) { onChoose(draftMinutes) }
                 action(t("Без срока"), symbol: "infinity") { onChoose(0) }
+                Spacer(minLength: 0)
+                power(t("Включить"), symbol: "play.fill", fill: Self.onTint, label: .black, action: { onChoose(draftMinutes) })
             }
-            Spacer(minLength: 0)
         }
         .frame(height: Self.rowHeight)
+    }
+
+    /// Жёлтый «Включить» и красный «Выключить».
+    static let onTint = Color(red: 1.0, green: 0.84, blue: 0.2)
+    static var offTint: Color { Palette.negative }
+
+    /// Главная кнопка — заливкой своего цвета, а не стеклом.
+    private func power(
+        _ title: String,
+        symbol: String,
+        fill: Color,
+        label: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: NotchStyle.font(11), weight: .semibold))
+                .foregroundStyle(label)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(fill))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(PressableStyle())
+        .fixedSize()
     }
 
     /// Ноль — «без срока». Круглые часы подписаны часами: «120 мин» человек

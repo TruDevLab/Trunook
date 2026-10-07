@@ -41,6 +41,27 @@ struct NotchScreensTests {
         #expect(NotchScreenChoice.home(screens) == 1)
     }
 
+    @Test("Главным можно назначить внешний монитор")
+    func назначенныйГлавный() {
+        var outer = monitor
+        outer.key = "MONITOR-UUID"
+        var inner = laptop
+        inner.key = "LAPTOP-UUID"
+        let both = [outer, inner]
+        #expect(NotchScreenChoice.home(both, preferred: "MONITOR-UUID") == 2)
+        #expect(NotchScreenChoice.windows(mode: .notched, screens: both, preferred: "MONITOR-UUID") == [2])
+        // Курсор на ноутбуке, режим «Только главный» — остров на мониторе.
+        #expect(NotchScreenChoice.host(
+            mode: .notched, screens: both, cursor: CGPoint(x: 700, y: 500),
+            current: nil, isBusy: false, preferred: "MONITOR-UUID"
+        ) == 2)
+        // Назначенный отключён — главным снова экран с вырезом.
+        #expect(NotchScreenChoice.home([inner], preferred: "MONITOR-UUID") == 1)
+        // Не назначен — как прежде.
+        #expect(NotchScreenChoice.home(both, preferred: nil) == 1)
+        #expect(NotchScreenChoice.home(both, preferred: "") == 1)
+    }
+
     @Test("Остров переезжает на экран курсора")
     func заКурсором() {
         #expect(host(.cursor, cursor: CGPoint(x: 2000, y: 700), current: 1) == 2)

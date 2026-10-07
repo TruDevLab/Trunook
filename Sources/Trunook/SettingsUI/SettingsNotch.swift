@@ -28,6 +28,25 @@ extension SettingsView {
                 .accessibilityElement(children: .combine)
 
                 VStack(alignment: .leading, spacing: 4) {
+                    Picker(t("Главный экран"), selection: Binding(
+                        get: { settings.notchHomeScreen ?? "" },
+                        set: { key in
+                            settings.notchHomeScreen = key.isEmpty ? nil : key
+                            settings.notchHomeScreenName = homeScreenChoices
+                                .first { $0.key == key }?.name ?? ""
+                        }
+                    )) {
+                        Text(t("С вырезом")).tag("")
+                        ForEach(homeScreenChoices, id: \.key) { choice in
+                            Text(choice.title).tag(choice.key)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    hint(t("На главном экране — полный остров и плашки событий."))
+                }
+                .accessibilityElement(children: .combine)
+
+                VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(t("Раскрыть панель"))
                         Spacer()
@@ -125,5 +144,34 @@ extension SettingsView {
                 .accessibilityElement(children: .combine)
 }
         }
+    }
+}
+
+/// Экран в списке «Главный экран».
+struct HomeScreenChoice {
+    let key: String
+    let name: String
+    let title: String
+}
+
+extension SettingsView {
+    /// Подключённые экраны и назначенный, если он сейчас отключён.
+    ///
+    /// Одинаковые мониторы могут называться одинаково,
+    /// — поэтому к повторному имени дописывается номер по порядку.
+    var homeScreenChoices: [HomeScreenChoice] {
+        let slots = NSScreen.screens.map(NotchGeometry.slot(of:)).filter { !$0.key.isEmpty }
+        var seen: [String: Int] = [:]
+        var choices = slots.map { slot -> HomeScreenChoice in
+            seen[slot.name, default: 0] += 1
+            let repeated = slots.filter { $0.name == slot.name }.count > 1
+            let name = repeated ? "\(slot.name) · \(seen[slot.name] ?? 1)" : slot.name
+            return HomeScreenChoice(key: slot.key, name: name, title: name)
+        }
+        if let saved = settings.notchHomeScreen, !choices.contains(where: { $0.key == saved }) {
+            let name = settings.notchHomeScreenName.isEmpty ? t("Монитор") : settings.notchHomeScreenName
+            choices.append(HomeScreenChoice(key: saved, name: name, title: name + " — " + t("не подключён")))
+        }
+        return choices
     }
 }

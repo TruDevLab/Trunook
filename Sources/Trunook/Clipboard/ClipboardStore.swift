@@ -147,7 +147,11 @@ final class ClipboardStore {
 
     // MARK: - Чтение
 
-    func recent(limit: Int) -> [ClipboardEntry] {
+    /// Свежие записи. Изображения целиком — только у первых `fullData`:
+    /// история бывает на двести записей, а картинка — до шести мегабайт,
+    /// и держать их все в памяти ради невидимых строк незачем. Остальным
+    /// данные достаются по требованию — `data(id:)`.
+    func recent(limit: Int, fullData: Int = 30) -> [ClipboardEntry] {
         queue.sync {
             guard let database else { return [] }
             var statement: OpaquePointer?
@@ -163,10 +167,25 @@ final class ClipboardStore {
 
             var result: [ClipboardEntry] = []
             while sqlite3_step(statement) == SQLITE_ROW {
-                guard let entry = read(statement) else { continue }
+                guard var entry = read(statement) else { continue }
+                if result.count >= fullData, entry.kind == .image { entry.data = nil }
                 result.append(entry)
             }
             return result
+        }
+    }
+
+    /// Данные одной записи — изображение, не загруженное списком.
+    func data(id: Int64) -> Data? {
+        queue.sync {
+            guard let database else { return nil }
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(database, "SELECT data FROM entries WHERE id = ?;", -1, &statement, nil)
+                == SQLITE_OK else { return nil }
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, id)
+            guard sqlite3_step(statement) == SQLITE_ROW, let blob = sqlite3_column_blob(statement, 0) else { return nil }
+            return Data(bytes: blob, count: Int(sqlite3_column_bytes(statement, 0)))
         }
     }
 

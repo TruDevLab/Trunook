@@ -450,6 +450,53 @@ struct NotesTests {
     /// которой подобрана на одной, обрезает кнопку на другой.
     private let notchWidths: [CGFloat] = [160, 185, 200, 220]
 
+    @Test("Фильтр списка: Trudaybook отдельно, свои — без заметок хранилища")
+    func фильтрСписка() {
+        func note(_ origin: Note.Origin) -> Note {
+            Note(id: 1, title: "т", rtf: Data(), plain: "т", createdAt: Date(), updatedAt: Date(),
+                 origin: origin, titleByModel: false)
+        }
+        #expect(NoteFilter.all.matches(note(.obsidian)))
+        #expect(NoteFilter.trudaybook.matches(note(.trudaybook)))
+        #expect(!NoteFilter.trudaybook.matches(note(.typed)))
+        #expect(NoteFilter.trunook.matches(note(.typed)))
+        #expect(NoteFilter.trunook.matches(note(.recording)))
+        #expect(!NoteFilter.trunook.matches(note(.trudaybook)))
+        #expect(!NoteFilter.trunook.matches(note(.obsidian)))
+    }
+
+    @Test("Без заметок Trudaybook фильтр не прячет список, выбор запоминается")
+    func фильтрБезTrudaybook() {
+        let notes = service()
+        notes.start()
+        notes.save(plain("Купить молоко"), origin: .typed)
+        notes.filter = .trudaybook
+        // Заметок Trudaybook нет — выбирать не из чего, видно всё.
+        #expect(notes.activeFilter == .all)
+        #expect(notes.shown.count == 1)
+
+        notes.save(plain("План дня"), origin: .trudaybook, title: "Trudaybook · 7 октября")
+        #expect(notes.trudaybookCount == 1)
+        #expect(notes.shown.map(\.title) == ["Trudaybook · 7 октября"])
+        notes.filter = .trunook
+        #expect(notes.shown.map(\.plain) == ["Купить молоко"])
+        // Сам список не сужается: им пользуются «@» и плитка.
+        #expect(notes.notes.count == 2)
+    }
+
+    @Test("Плитки: ряд — две строки списка, текст без повтора имени")
+    func плиткиЗаметок() {
+        #expect(NotesPanel.rows(count: 5, layout: .list) == 5)
+        #expect(NotesPanel.rows(count: 0, layout: .tiles) == 0)
+        #expect(NotesPanel.rows(count: 1, layout: .tiles) == 2)
+        #expect(NotesPanel.rows(count: 3, layout: .tiles) == 2)
+        #expect(NotesPanel.rows(count: 4, layout: .tiles) == 4)
+        #expect(NotesPanel.tileHeight == 2 * NotesPanel.rowHeight + NotesPanel.rowSpacing)
+        let note = Note(id: 1, title: "Покупки", rtf: Data(), plain: "Покупки\n\nмолоко\n  \nхлеб",
+                        createdAt: Date(), updatedAt: Date(), origin: .typed, titleByModel: false)
+        #expect(NotesPanel.tileText(note) == "молоко\nхлеб")
+    }
+
     @Test("Окно вмещает обе панели")
     func окноВмещаетПанели() {
         // Панель, не вписанная в потолок окна, рисуется — и обрезается
@@ -481,14 +528,15 @@ struct NotesTests {
                 "чёлка \(notchWidth): крыло панели модели \(assistant) не вмещает кнопки"
             )
 
-            // В крыле списка две: выгрузка и крестик.
+            // В крыле списка переключатель фильтра и три кнопки: вид,
+            // выгрузка и крестик.
             let list = wing(
                 panelWidth: NotesPanel.width(notchWidth: notchWidth),
                 notchWidth: notchWidth
             )
             #expect(
-                list >= NotchStyle.wingRow(buttons: 2),
-                "чёлка \(notchWidth): крыло списка \(list) не вмещает две кнопки"
+                list >= NotchStyle.wingRow(buttons: 3, reserved: NotesFilterSwitch.width),
+                "чёлка \(notchWidth): крыло списка \(list) не вмещает фильтр и три кнопки"
             )
         }
     }
@@ -727,6 +775,23 @@ struct AssistantInputTests {
     }
 
     // MARK: - Запись буфера в заметки
+
+    @Test("Превью буфера: строка сведений — откуда, когда, сколько")
+    func сведенияПревью() {
+        let now = Date()
+        let text = ClipboardEntry(id: 1, kind: .text, text: "Два слова", source: "Safari", copiedAt: now)
+        let info = ClipboardPreview.info(text, imageData: { _ in nil }, now: now)
+        #expect(info.hasPrefix("Safari · "))
+        #expect(info.contains(tf("%d знаков", 9)) && info.contains(tf("%d слов", 2)))
+        // Файл-картинка узнаётся по расширению и только если он есть.
+        let png = FileManager.default.temporaryDirectory.appendingPathComponent("clip-\(UUID().uuidString).png")
+        try? Data([0x89, 0x50]).write(to: png)
+        defer { try? FileManager.default.removeItem(at: png) }
+        let shot = ClipboardEntry(id: 3, kind: .files, text: png.path + "\n/tmp/нет-такого.png", copiedAt: now)
+        #expect(shot.imageFiles == [png])
+        let files = ClipboardEntry(id: 2, kind: .files, text: "/tmp/a.txt\n/tmp/b.txt", copiedAt: now)
+        #expect(ClipboardPreview.info(files, imageData: { _ in nil }, now: now).contains(tf("файлов: %d", 2)))
+    }
 
     private func entry(_ kind: ClipboardEntry.Kind, _ text: String) -> ClipboardEntry {
         ClipboardEntry(id: 7, kind: kind, text: text, copiedAt: Date())

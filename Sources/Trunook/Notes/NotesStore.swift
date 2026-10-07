@@ -407,6 +407,31 @@ final class NotesStore {
         }
     }
 
+    /// Сменить происхождение — для заметок дня Trudaybook, заведённых
+    /// раньше, чем у них появился свой вид. Время правки не трогается.
+    func setOrigin(id: Int64, to origin: Note.Origin, from previous: Note.Origin) {
+        run("UPDATE notes SET origin = ? WHERE id = ? AND origin = ?;") { statement in
+            sqlite3_bind_text(statement, 1, origin.rawValue, -1, Self.transient)
+            sqlite3_bind_int64(statement, 2, id)
+            sqlite3_bind_text(statement, 3, previous.rawValue, -1, Self.transient)
+        }
+    }
+
+    /// Сколько заметок такого происхождения.
+    func count(origin: Note.Origin) -> Int {
+        queue.sync {
+            guard let database else { return 0 }
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(database, "SELECT COUNT(*) FROM notes WHERE origin = ?;", -1, &statement, nil) == SQLITE_OK else {
+                return 0
+            }
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_text(statement, 1, origin.rawValue, -1, Self.transient)
+            guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
+            return Int(sqlite3_column_int(statement, 0))
+        }
+    }
+
     func setKeepAudio(id: Int64, keep: Bool) {
         run("UPDATE notes SET keepAudio = ? WHERE id = ?;") { statement in
             sqlite3_bind_int(statement, 1, keep ? 1 : 0)

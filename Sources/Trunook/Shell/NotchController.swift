@@ -112,6 +112,8 @@ final class NotchController {
     let keyboardLock = KeyboardLock()
     /// Журнал воды: общий с плиткой главного экрана.
     let water = WaterLog.shared
+    /// Письмо, открытое превью из плашки Trudaybook.
+    let letter = LetterPreviewModel()
 
     private let alerts = EventAlertScheduler()
     /// Отдельное окно приёма файлов: сам вырез принимать их не может,
@@ -234,6 +236,7 @@ final class NotchController {
         // Экран отпускаем явно: система сделала бы это и сама вместе
         // с процессом, но полагаться на это, когда выключение штатное,
         // незачем.
+        wake.releaseLidNow()
         wake.disable()
         keyboardLock.unlock()
         HotKeyCenter.shared.stop()
@@ -402,6 +405,7 @@ final class NotchController {
         guard !screenLocked else { return }
         screens.place(
             mode: settings.notchScreenMode,
+            preferred: settings.notchHomeScreen,
             host: host,
             isBusy: state.overlay != nil || state.isPinnedOpen || state.isHovered
                 || ring.isOpen || voice.phase != nil || state.isDraggingOut,
@@ -485,8 +489,8 @@ final class NotchController {
         }
         input.onQuickRingOpen = { [weak self] in self?.openQuickRing() }
         input.onQuickRingMove = { [weak self] point in
-            guard let self else { return }
-            let count = HubEntry.ringCases.count
+            guard let self, !self.debugRingFrozen else { return }
+            let count = HubEntry.ringCases(self.settings).count
             // Удержание выбирает направлением руки, щелчок — попаданием:
             // см. `QuickRingLayout.circleIndex`.
             let picked = self.ring.isSticky
@@ -631,6 +635,10 @@ final class NotchController {
         // Срок удержания экрана вышел — говорим об этом плашкой. Молча
         // отпустить экран значило бы оставить человека гадать, почему тот
         // вдруг снова гаснет.
+        wake.onLidRefused = { [weak self] in
+            self?.activities.present(.command(text: t("Без пароля Mac уснёт при закрытой крышке"), state: .failed))
+        }
+        LidSleep.recoverIfNeeded()
         wake.onExpired = { [weak self] in
             self?.activities.present(.caffeine(change: .expired))
         }
@@ -1166,6 +1174,8 @@ final class NotchController {
             feedChip: feedChip,
             activity: activities.current,
             track: music.nowPlaying,
+            previewSelection: state.previewSelection,
+            caffeineEndsAt: wake.endsAt,
             // Ближайшие встречи подряд, а не «ближайшее время и следующее»:
             // так было у прежней панели, и плитка высотой в два ряда показывала
             // две встречи при месте под три — третье время отбрасывалось.
@@ -1197,7 +1207,7 @@ final class NotchController {
             shelfCount: state.isShelfDropTarget
                 ? ShelfPanel.columns * ShelfPanel.visibleRows
                 : shelf.items.count,
-            notesRows: notes.notes.count,
+            notesRows: NotesPanel.rows(count: notes.shown.count, layout: notes.layout),
             notesEnabled: settings.notesEnabled,
             voicePhase: voice.phase,
             isQuickRingOpen: ring.isOpen,
@@ -1244,7 +1254,7 @@ final class NotchController {
             host.updateInteractiveRect()
             return
         }
-        let entries = HubEntry.ringCases
+        let entries = HubEntry.ringCases(settings)
         guard picked < entries.count else { return }
         let entry = entries[picked]
         guard entry.isEnabled(settings) else {
@@ -1301,6 +1311,7 @@ final class NotchController {
 
         if hovered {
             state.hoverStartedAt = Date()
+            state.previewSelection = nil
             Haptics.tap()
             music.refresh()
             // Задачу заводят и тут же открывают вырез посмотреть, появилась ли
@@ -2122,19 +2133,97 @@ final class NotchController {
     /// Образец нового письма — той же плашкой, какую шлёт Trudaybook,
     /// и через тот же разбор словаря, что у настоящих входящих. Подписи
     /// без перевода, как у прочих отладочных пунктов.
+    /// Подсветка кружка держится, пока кольцо открыто отладочным `ringPick`:
+    /// иначе опрос курсора сбросил бы её в тот же такт.
+    private var debugRingFrozen = false
+
+    /// Следующий кружок кольца — под снимок миниатюры: вести руку из сессии
+    /// нечем. Повтор переходит к следующему, `ringMenu` закрывает.
+    func debugRingPick() {
+        if !ring.isOpen { openRingMenu() }
+        debugRingFrozen = true
+        let count = HubEntry.ringCases(settings).count
+        guard count > 0 else { return }
+        ring.move(to: ((ring.highlighted ?? -1) + 1) % count)
+        DebugLog.write("кольцо: подсвечен \(ring.highlighted ?? -1) из \(count)")
+    }
+
     func debugMailNotice() {
+        guard let notice = Self.debugMailSample else { return }
+        present(notice)
+    }
+
+    /// Превью письма сразу: нажать «Показать превью» на плашке из сессии нечем.
+    func debugLetterPreview() {
+        guard let notice = Self.debugMailSample else { return }
+        activities.dismiss()
+        openLetter(notice)
+    }
+
+    /// Превью приглашения с пересечением — под снимок шкалы.
+    func debugInvitePreview() {
+        let iso = ISO8601DateFormatter()
+        let calendar = Calendar.current
+        let base = calendar.date(bySettingHour: 15, minute: 0, second: 0, of: Date().addingTimeInterval(86_400)) ?? Date()
+        func at(_ minutes: Int) -> String { iso.string(from: base.addingTimeInterval(TimeInterval(minutes * 60))) }
         guard let notice = ExternalNotice(json: [
+            "source": "Приглашение",
+            "title": "Иван Козлов — Разбор квартала",
+            "icon": "calendar",
+            "optional": true,
+            "actions": [
+                ["id": "open", "title": "Открыть в Trudaybook", "positive": true, "icon": "open", "opens": true],
+                ["id": "preview", "title": "Показать превью", "icon": "eye"],
+            ],
+            "preview": [
+                "from": "Иван Козлов <ivan@example.com>",
+                "subject": "Разбор квартала",
+                "date": "завтра, 15:00",
+                "text": "Коллеги, обсудим итоги квартала и планы на следующий.",
+                "meeting": [
+                    "start": at(0), "end": at(60), "allDay": false, "location": "Переговорная 3",
+                    "events": [
+                        ["title": "Планёрка", "start": at(-60), "end": at(-30)],
+                        ["title": "Созвон с подрядчиком", "start": at(30), "end": at(90)],
+                        ["title": "Обед", "start": at(120), "end": at(150)],
+                    ],
+                ],
+                "actions": [
+                    ["id": "accept", "title": "Принять", "positive": true, "icon": "check"],
+                    ["id": "decline", "title": "Отклонить", "icon": "cross"],
+                ],
+            ],
+        ], id: "debug-invite") else { return }
+        activities.dismiss()
+        openLetter(notice)
+    }
+
+    /// Образец плашки нового письма — как её шлёт Trudaybook. Без файла
+    /// ответа: нажатие из проверки не должно никуда писать.
+    private static var debugMailSample: ExternalNotice? {
+        ExternalNotice(json: [
             "source": "Почта",
             "title": "Анна Петрова: Бюджет на октябрь",
             "icon": "mail",
             "hold": 12,
             "optional": true,
             "actions": [
-                ["id": "reply", "title": "Ответить", "positive": true, "icon": "message"],
-                ["id": "archive", "title": "В архив", "icon": "check"],
+                ["id": "open", "title": "Открыть в Trudaybook", "positive": true, "icon": "open", "opens": true],
+                ["id": "preview", "title": "Показать превью", "icon": "eye"],
             ],
-        ], id: "debug-mail") else { return }
-        present(notice)
+            "preview": [
+                "from": "Анна Петрова <anna@example.com>",
+                "subject": "Бюджет на октябрь",
+                "date": "сегодня, 10:42",
+                "text": "Добрый день!\n\nПрисылаю черновик бюджета на октябрь. Посмотрите, пожалуйста, строки по подрядчикам и командировкам — там мы вышли за план.\n\nСможете ли вы согласовать его до пятницы? И нужен ли отдельный созвон с финансовым отделом?\n\nСпасибо!\nАнна",
+                "actions": [
+                    ["id": "replyAll", "title": "Ответить всем", "icon": "replyAll", "opens": true],
+                    ["id": "archive", "title": "В архив", "icon": "archive"],
+                    ["id": "forward", "title": "Переслать", "icon": "forward", "opens": true],
+                    ["id": "snooze1h", "title": "Через 1 ч", "icon": "snooze"],
+                ],
+            ],
+        ], id: "debug-mail")
     }
 
     /// Образец наступившего напоминания — с «готово» и «через 15 минут».
@@ -4113,8 +4202,42 @@ final class NotchController {
         waitingNotice = nil
         let action = yes ? notice.actions.first : notice.actions.dropFirst().first
         guard let action else { return }
+        // «Показать превью» — письмо прямо здесь, а не ответ: решать,
+        // что с ним делать, можно только прочитав.
+        if notice.isLocal(action) {
+            openLetter(notice)
+            return
+        }
+        sendExternalAnswer(notice, action)
+    }
+
+    private func sendExternalAnswer(_ notice: ExternalNotice, _ action: ExternalNotice.Action) {
         let written = inbox.reply(to: notice, answer: action.id)
         flash.show(written ? tf("Ответ отправлен: %@", action.title) : action.title)
+    }
+
+    // MARK: - Превью письма
+
+    /// Письмо из плашки — накладкой с текстом и кнопкой «Открыть в Trudaybook».
+    func openLetter(_ notice: ExternalNotice) {
+        letter.notice = notice
+        DebugLog.write("превью письма: \(notice.source)")
+        router.set(.letter)
+    }
+
+    /// Кнопка под превью: ответ уходит тем же путём, что с плашки.
+    private func answerLetter(_ notice: ExternalNotice, _ action: ExternalNotice.Action) {
+        router.close()
+        Haptics.tap(.levelChange)
+        sendExternalAnswer(notice, action)
+        // Письмо открывается в Trudaybook — туда человек и идёт. Вперёд его
+        // выводим мы: нажатие было у нас, и macOS отдаст фокус охотнее,
+        // чем приложению, которое само себя поднимает из фона.
+        if action.opensApp || action.id == "open",
+           notice.replyPath?.contains("/Trudaybook/") == true,
+           let app = NSRunningApplication.runningApplications(withBundleIdentifier: TrudaybookFeed.bundleID).first {
+            app.activate()
+        }
     }
 
     /// Нажали «Ответить» или «Отклонить» на входящем звонке.
@@ -4909,6 +5032,7 @@ final class NotchController {
     /// нажатие мимо кружков.
     func openRingMenu() {
         guard !ring.isOpen else {
+            debugRingFrozen = false
             _ = ring.close()
             updateWindowInteractivity()
             host.updateInteractiveRect()
@@ -4931,6 +5055,7 @@ final class NotchController {
     /// дело, и срок у каждого дела свой — ходить за ним в отдельное окно
     /// дороже самого дела.
     func openAwake() {
+        if !wake.isOn { wake.resetDraft() }
         router.set(.caffeine)
     }
 
@@ -5205,10 +5330,11 @@ final class NotchController {
     }
 
     /// Открывает ссылку встречи. Ссылки берутся из полей события, а не
-    /// из содержимого страниц, поэтому открываем как есть.
+    /// из содержимого страниц, поэтому открываем как есть — Zoom, Teams
+    /// и Телемост сразу в их приложении, если оно стоит (`MeetingOpener`).
     func join(_ url: URL) {
         DebugLog.write("открываю ссылку встречи: \(url.host ?? url.absoluteString)")
-        NSWorkspace.shared.open(url)
+        MeetingOpener.open(url)
     }
 
     // MARK: - Вёрстка
@@ -5241,6 +5367,7 @@ final class NotchController {
             wake: wake,
             keyboardLock: keyboardLock,
             water: water,
+            letter: letter,
             critter: critter,
             weatherScenes: weatherScenes,
             digest: digest,
@@ -5370,6 +5497,7 @@ final class NotchController {
             onOpenWater: { [weak self] in self?.openWater() },
             onRecordWater: { [weak self] in self?.recordWater() },
             onUndoWater: { [weak self] in self?.undoWater() },
+            onLetterAction: { [weak self] notice, action in self?.answerLetter(notice, action) },
             onOpenFeeds: { [weak self] in self?.openFeeds() },
             onOpenFeedsTab: { [weak self] tab in self?.openFeeds(tab: tab) },
             onOpenFeedsSettings: { [weak self] in

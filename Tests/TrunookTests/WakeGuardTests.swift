@@ -93,16 +93,27 @@ struct WakeGuardTests {
         #expect(!guardian.isOn)
     }
 
-    /// Срок читается из настроек в момент включения: поменянный при горящей
-    /// чашке он не должен обрывать нынешнее удержание на полпути.
-    @Test("Срок берётся из настроек")
-    func срокИзНастроек() {
+    /// Шкала каждый раз встаёт на полчаса, а не на прошлый выбор.
+    @Test("По умолчанию полчаса, и шкала возвращается к ним")
+    func полчасаПоУмолчанию() {
         let defaults = UserDefaults(suiteName: "trunook-tests-\(UUID().uuidString)")!
         let settings = Settings(defaults: defaults)
         let guardian = WakeGuard(settings: settings)
-        #expect(guardian.limitMinutes == 0, "по умолчанию ограничения быть не должно")
-        settings.caffeineLimitMinutes = 90
-        #expect(guardian.limitMinutes == 90)
+        #expect(guardian.limitMinutes == 30)
+        #expect(guardian.draftMinutes == 30)
+        guardian.draftMinutes = 90
+        guardian.resetDraft()
+        #expect(guardian.draftMinutes == 30)
+        #expect(!settings.caffeineLidClosed, "крышка по умолчанию не держится")
+    }
+
+    @Test("Крышка: состояние сна читается из pmset, команда — только одна из двух")
+    func крышка() {
+        #expect(LidSleep.parseDisabled(" standby             1\n SleepDisabled\t\t1\n hibernatemode 3"))
+        #expect(!LidSleep.parseDisabled(" SleepDisabled\t\t0\n"))
+        #expect(!LidSleep.parseDisabled("System-wide power settings:\n"))
+        #expect(LidSleep.script(disabled: true).contains("/usr/bin/pmset -a disablesleep 1"))
+        #expect(LidSleep.script(disabled: false).contains("disablesleep 0\" with administrator privileges"))
     }
 
     /// Срок со сроком не отменяет самого удержания: будильник только заводится.
@@ -110,7 +121,6 @@ struct WakeGuardTests {
     func соСрокомУдерживается() {
         let defaults = UserDefaults(suiteName: "trunook-tests-\(UUID().uuidString)")!
         let settings = Settings(defaults: defaults)
-        settings.caffeineLimitMinutes = 30
         let guardian = WakeGuard(settings: settings)
         guardian.enable()
         #expect(guardian.isOn)
@@ -124,7 +134,6 @@ struct WakeGuardTests {
     func срокОтпускает() {
         let defaults = UserDefaults(suiteName: "trunook-tests-\(UUID().uuidString)")!
         let settings = Settings(defaults: defaults)
-        settings.caffeineLimitMinutes = 30
         let guardian = WakeGuard(settings: settings)
         var told = false
         guardian.onExpired = { told = true }

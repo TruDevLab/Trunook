@@ -119,7 +119,7 @@ struct QuickRingTests {
     @Test("Короткий список не растягивает веер")
     func короткийСписокНеРастёт() {
         #expect(QuickRingLayout.radius(count: 8) == QuickRingLayout.radius)
-        #expect(QuickRingLayout.radius(count: HubEntry.ringCases.count) >= QuickRingLayout.radius)
+        #expect(QuickRingLayout.radius(count: HubEntry.allCases.count) >= QuickRingLayout.radius)
     }
 
     @Test("Пустое кольцо не выбирает ничего")
@@ -183,5 +183,25 @@ struct QuickRingTests {
         #expect(!ring.isOpen && !ring.isSticky && ring.highlighted == nil)
         ring.open()
         #expect(ring.isOpen && !ring.isSticky)
+    }
+
+    @Test("Миниатюра посреди веера не задевает кружков ни при каком составе")
+    func миниатюраВмещается() {
+        let reach = QuickRingLayout.circle * 1.18 / 2 + 4
+        for count in 1...HubEntry.allCases.count {
+            let scale = QuickRingLayout.miniatureScale(count: count)
+            #expect(scale >= 0.5 && scale <= 1)
+            let size = QuickRingMiniature.size
+            let rect = CGRect(x: -size.width * scale / 2, y: QuickRingLayout.miniatureTop,
+                              width: size.width * scale, height: size.height * scale)
+            for center in QuickRingLayout.offsets(count: count) {
+                let dx = max(rect.minX - center.x, 0, center.x - rect.maxX)
+                let dy = max(rect.minY - center.y, 0, center.y - rect.maxY)
+                #expect(hypot(dx, dy) >= reach - 0.001 || scale == 0.5, "кружков \(count): миниатюра задевает кружок")
+            }
+        }
+        // Полный веер широкий — миниатюра в полный рост.
+        #expect(QuickRingLayout.miniatureScale(count: HubEntry.allCases.count) == 1)
+        #expect(HubEntry.allCases.allSatisfy { !$0.blurb.isEmpty })
     }
 }

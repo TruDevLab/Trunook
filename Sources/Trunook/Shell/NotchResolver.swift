@@ -1,3 +1,4 @@
+import Foundation
 import CoreGraphics
 import TrunookXPC
 
@@ -52,6 +53,10 @@ struct NotchInputs: Equatable {
     var feedChip: FeedChip?
     var activity: Activity?
     var track: NowPlaying?
+    /// Что выбрано в мини-виде — от этого его ширина.
+    var previewSelection: PreviewItem?
+    /// До какого времени горит чашка — её строка в мини-виде.
+    var caffeineEndsAt: Date?
     var events: [CalendarItem] = []
     var taskCount = 0
     var meetingActions = 0
@@ -169,6 +174,7 @@ struct NotchInputs: Equatable {
         case .eventEditor: return .eventEditor
         case .feeds: return .feeds
         case .windowSnap: return .windowSnap
+        case .letter: return .letter
         case nil: break
         }
         // Кольцо выше всего, кроме накладок: его держат рукой прямо сейчас,
@@ -199,6 +205,8 @@ struct NotchInputs: Equatable {
         NotchContent(
             activity: activity,
             track: track,
+            previewSelection: previewSelection,
+            caffeineEndsAt: caffeineEndsAt,
             chip: chip,
             recordingChip: recordingChip,
             timerChip: timerChip,

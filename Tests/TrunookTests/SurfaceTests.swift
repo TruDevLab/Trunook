@@ -134,8 +134,8 @@ struct SurfaceTests {
     func шкалаВида() {
         typealias Scale = Surface.LookScale
         #expect(Scale.steps == [0, 25, 50, 75, 100])
-        // По умолчанию — полупрозрачное.
-        #expect(Scale.standard == Scale.hazy)
+        // По умолчанию — матовое.
+        #expect(Scale.standard == Scale.matte)
         // Промежуточное значение прилипает к ближайшему положению.
         #expect(Scale.snap(40) == Scale.matte)
         #expect(Scale.snap(10) == Scale.glass)

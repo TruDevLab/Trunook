@@ -34,8 +34,18 @@ struct NotchGeometry {
             id: geometry.displayID,
             frame: screen.frame,
             hasNotch: geometry.isHardware,
-            trigger: geometry.openTrigger
+            trigger: geometry.openTrigger,
+            key: screenKey(geometry.displayID),
+            name: screen.localizedName
         )
+    }
+
+    /// Постоянный номер экрана. Не `CGDirectDisplayID`: тот выдаётся заново
+    /// при переподключении монитора, а этот держится за сам монитор.
+    static func screenKey(_ id: CGDirectDisplayID) -> String {
+        guard let uuid = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue(),
+              let text = CFUUIDCreateString(nil, uuid) as String? else { return "" }
+        return text
     }
 
     /// Зона раскрытия по наведению: вырез с запасом по бокам.

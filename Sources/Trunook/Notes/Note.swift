@@ -31,6 +31,10 @@ struct Note: Identifiable, Equatable {
         case agent
         /// Сводка новостей, отложенная в заметки из панели сводок.
         case digest
+        /// Заметка дня, общая с Trudaybook (`DayNoteSync`). Своим видом,
+        /// а не по имени «Trudaybook · …»: имя человек может и переписать,
+        /// а фильтр списка «Из Trudaybook» держится за происхождение.
+        case trudaybook
 
         var symbol: String {
             switch self {
@@ -42,6 +46,7 @@ struct Note: Identifiable, Equatable {
             case .recording: return "waveform"
             case .agent: return "wand.and.stars"
             case .digest: return "newspaper"
+            case .trudaybook: return "calendar"
             }
         }
     }
@@ -178,6 +183,56 @@ extension String {
     var folded: String {
         folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
+}
+
+/// Какие заметки показывает список: переключатель в правом крыле панели.
+///
+/// Заметки дня из Trudaybook заводятся каждый день и быстро вытесняли
+/// из списка записанное здесь — отсюда разделение по происхождению.
+enum NoteFilter: String, CaseIterable, Identifiable {
+    case all
+    case trudaybook
+    /// Заведённые здесь — всё, кроме заметок дня Trudaybook и чужих
+    /// заметок хранилища Obsidian.
+    case trunook
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return t("Все")
+        case .trudaybook: return t("Из Trudaybook")
+        case .trunook: return t("Из Trunook")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: return "tray.full"
+        case .trudaybook: return "calendar"
+        case .trunook: return "rectangle.topthird.inset.filled"
+        }
+    }
+
+    func matches(_ note: Note) -> Bool {
+        switch self {
+        case .all: return true
+        case .trudaybook: return note.origin == .trudaybook
+        case .trunook: return note.origin != .trudaybook && note.origin != .obsidian
+        }
+    }
+}
+
+/// Список заметок строками или плитками.
+enum NotesLayout: String {
+    case list
+    case tiles
+
+    var other: NotesLayout { self == .list ? .tiles : .list }
+
+    /// Значок кнопки — того вида, на который она переключит.
+    var symbol: String { self == .list ? "list.bullet" : "square.grid.3x2" }
+    var switchHint: String { self == .list ? t("Показать списком") : t("Показать плитками") }
 }
 
 /// Откуда берутся заметки в списке и в поиске.

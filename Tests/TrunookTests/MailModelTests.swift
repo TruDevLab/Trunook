@@ -244,4 +244,34 @@ struct MailModelTests {
         #expect(MailModelProtocol.unsupportedID(data(["version": 1, "id": "../x", "kind": "translate"])) == nil)
         #expect(MailModelProtocol.unsupportedID(data(["version": 1, "id": id, "kind": "summary"])) == nil)
     }
+
+    @Test("Шаблон ответа: просьба, история не длиннее предела, промт не решает за человека")
+    func шаблонОтвета() throws {
+        let history: [[String: Any]] = (1...6).map {
+            ["from": "Анна", "date": "2026-09-2\($0)T09:00:00Z", "text": String(repeating: "т", count: 2_000), "mine": $0 % 2 == 0]
+        }
+        let request = try #require(MailModelProtocol.parse(data([
+            "version": 1, "id": id, "kind": "reply", "language": "ru", "me": "me@example.com",
+            "letter": ["subject": "Договор", "from": "Анна <anna@example.com>", "text": "Когда подпишем? И кто приедет?"],
+            "history": history,
+        ])))
+        guard case .reply(let reply) = request.kind else {
+            Issue.record("не шаблон ответа")
+            return
+        }
+        #expect(reply.history.count == 3)
+        #expect(reply.history.reduce(0) { $0 + $1.text.count } <= MailModelProtocol.maxReplyHistoryText)
+        let prompt = MailModelProtocol.replyPrompt(reply, language: "ru")
+        #expect(prompt.contains("Решений не принимай"))
+        #expect(prompt.contains("Когда подпишем?"))
+        #expect(prompt.contains("=== Я ·"))
+        #expect(MailModelProtocol.kinds.contains("reply"))
+    }
+
+    @Test("Шаблон ответа: без темы, обёртки и рассуждения")
+    func текстШаблона() {
+        let raw = "<think>думаю</think>\n```\nТема: Re: Договор\n\nАнна, добрый день!\nПодпишем [срок].\n```"
+        #expect(MailModelProtocol.replyText(raw) == "Анна, добрый день!\nПодпишем [срок].")
+        #expect(MailModelProtocol.parse(data(["version": 1, "id": id, "kind": "reply", "letter": ["text": " "]])) == nil)
+    }
 }

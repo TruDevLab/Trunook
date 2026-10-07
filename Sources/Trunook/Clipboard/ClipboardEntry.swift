@@ -1,6 +1,41 @@
 import AppKit
 import CryptoKit
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
+
+/// Уменьшенные копии картинок из файлов — для превью буфера.
+///
+/// `CGImageSource` с потолком стороны: файл не читается целиком
+/// и не раскладывается в полный размер, а кэш по пути и размеру не даёт
+/// делать это на каждой перерисовке.
+enum ClipboardThumbnails {
+    private static let cache = NSCache<NSString, NSImage>()
+
+    static func image(at url: URL, maxSide: CGFloat) -> NSImage? {
+        let key = "\(url.path)#\(Int(maxSide))" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(maxSide),
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        let image = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        cache.setObject(image, forKey: key)
+        return image
+    }
+
+    /// Размер картинки в точках файла — для строки сведений.
+    static func pixelSize(at url: URL) -> CGSize? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? Int,
+              let height = props[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        return CGSize(width: width, height: height)
+    }
+}
 
 /// Одна запись истории буфера обмена.
 struct ClipboardEntry: Identifiable, Equatable {
@@ -75,6 +110,17 @@ struct ClipboardEntry: Identifiable, Equatable {
     var image: NSImage? {
         guard kind == .image, let data else { return nil }
         return NSImage(data: data)
+    }
+
+    /// Скопированные файлы, которые сами изображения: PNG из снимка экрана,
+    /// фото из Finder. Их превью — сама картинка, а не имя файла: снимки
+    /// экрана нередко кладут в буфер именно файл, и «превью
+    /// не показывает картинку» было ровно про это.
+    var imageFiles: [URL] {
+        fileURLs.filter { url in
+            guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+            return type.conforms(to: .image) && FileManager.default.fileExists(atPath: url.path)
+        }
     }
 
     /// Отпечаток содержимого — по нему ловятся повторы.

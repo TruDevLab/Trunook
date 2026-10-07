@@ -76,6 +76,31 @@ struct ActivityLayout {
     }
 }
 
+/// Подключиться к встрече — круглой кнопкой с камерой, той же, что
+/// в плашке встречи. Одна кнопка на все места: плашка, мини-вид при
+/// наведении, плитка встреч. Пока это была капсула со словом
+/// «Подключиться» в одних местах и круг в других, одна и та же встреча
+/// выглядела по-разному в зависимости от того, где на неё смотрели.
+struct MeetingJoinButton: View {
+    let url: URL
+    var provider: String? = nil
+    var diameter: CGFloat = ActivityView.answerDiameter
+    let action: (URL) -> Void
+
+    var body: some View {
+        Button { action(url) } label: {
+            Image(systemName: "video.fill")
+                .font(.system(size: NotchStyle.font(diameter > 24 ? 11 : 10), weight: .bold))
+                .foregroundStyle(Palette.positive)
+                .frame(width: diameter, height: diameter)
+                .background(Circle().fill(Palette.positive.opacity(0.18)))
+        }
+        .buttonStyle(NotchButtonStyle(diameter: diameter))
+        .notchHint(provider.map { t("Подключиться") + " · " + $0 } ?? t("Подключиться"))
+        .fixedSize()
+    }
+}
+
 /// Плашка события — компактная панель, выпадающая из-под выреза.
 /// Что делает кнопка-капсула справа в плашке.
 enum ActivityButton: Equatable {

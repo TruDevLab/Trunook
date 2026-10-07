@@ -37,8 +37,15 @@ enum HubEntry: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// Что показывает кольцо быстрого доступа — всё, что есть.
-    static var ringCases: [HubEntry] { allCases }
+    /// Что показывает кольцо быстрого доступа — только включённое.
+    ///
+    /// Раньше выключенное стояло в кольце бледным, чтобы не казалось, что
+    /// функцию убрали совсем. Пользователь решил иначе: кружок, который
+    /// ничего не открывает, только отодвигает нужные. Включают функцию
+    /// в настройках — там её и видно.
+    static func ringCases(_ settings: Settings) -> [HubEntry] {
+        allCases.filter { $0.isEnabled(settings) }
+    }
 
     var title: String {
         switch self {
@@ -101,9 +108,8 @@ enum HubEntry: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Выключенная в настройках функция остаётся в меню, но недоступной:
-    /// исчезающая плитка читается как «функцию убрали совсем», хотя её всего
-    /// лишь выключили, — а вернуть её тогда неоткуда.
+    /// Включена ли функция в настройках. Выключенной нет в кольце
+    /// (`ringCases`), а плитка главного экрана с ней остаётся бледной.
     func isEnabled(_ settings: Settings) -> Bool {
         switch self {
         // Не `quickCommandsEnabled`: плитка открывает разговор, а команды

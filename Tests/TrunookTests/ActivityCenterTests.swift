@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import Trunook
+import TrunookXPC
 
 @Suite("Плашки событий")
 struct ActivityCenterTests {
@@ -203,6 +204,32 @@ struct PreviewJoinTests {
         let with = PreviewPanel.layout(track: nil, event: Self.event(link: url), metrics: metrics)
         let without = PreviewPanel.layout(track: nil, event: Self.event(link: nil), metrics: metrics)
         #expect(with.textWidth < without.textWidth || with.panelWidth > without.panelWidth)
+    }
+
+    @Test("Активные события разом: одно на виду, остальные в крыльях, ширина одна")
+    func несколькоСобытий() {
+        let url = URL(string: "https://telemost.yandex.ru/j/123")!
+        let track = NowPlaying(title: "Песня", artist: "Группа", isPlaying: true)
+        let event = Self.event(link: url)
+        let cup = CaffeineChip(showsHours: false, isEndless: true)
+        let metrics = NotchMetrics(notchWidth: 185, notchHeight: 32)
+        let items = PreviewItem.items(track: track, event: event, caffeine: cup)
+        #expect(items == [.music, .caffeine, .meeting])
+        #expect(PreviewItem.shown(in: items, selection: nil) == .music)
+        #expect(PreviewItem.shown(in: items, selection: .meeting) == .meeting)
+        // Выбранного больше нет — снова первое.
+        #expect(PreviewItem.shown(in: [.music], selection: .caffeine) == .music)
+        #expect(PreviewItem.alternates(in: items, shown: .caffeine) == [.music, .meeting])
+        #expect(PreviewItem.items(track: nil, event: nil, caffeine: cup) == [.caffeine])
+        // Переключение не меняет ширину: миниатюра не уезжает из-под курсора.
+        let widths = [PreviewItem.music, .caffeine, .meeting].map {
+            PreviewPanel.layout(track: track, event: event, caffeine: cup, selection: $0, metrics: metrics).panelWidth
+        }
+        #expect(Set(widths).count == 1)
+        // Крыльям хватает места под миниатюры по обе стороны чёлки.
+        #expect(widths[0] >= metrics.notchWidth + 2 * PreviewPanel.alternateSize)
+        #expect(PreviewPanel.caffeineText(endsAt: nil) == t("Экран не гаснет · без срока"))
+        #expect(Activity(kind: .caffeine(change: .on(minutes: 30))).isInteractive)
     }
 
     @Test("Без ссылки кнопки нет")

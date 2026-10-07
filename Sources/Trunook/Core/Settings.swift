@@ -86,8 +86,24 @@ final class Settings: ObservableObject {
         set { store(newValue.rawValue, "notchScreenMode") }
     }
 
-    /// Вид выреза: 0 — прозрачное стекло, 25 — полупрозрачное (по умолчанию),
-    /// 50 — матовое, 75 — темнее, 100 — сплошной чёрный.
+    /// Какой экран считать главным — постоянный номер монитора
+    /// (`ScreenSlot.key`). `nil` — экран с вырезом, как было всегда.
+    /// На главном живёт полный остров с плашками; отключили монитор —
+    /// остров возвращается на экран с вырезом и ждёт его.
+    var notchHomeScreen: String? {
+        get { defaults.string(forKey: "notchHomeScreen").flatMap { $0.isEmpty ? nil : $0 } }
+        set { store(newValue ?? "", "notchHomeScreen") }
+    }
+
+    /// Имя назначенного монитора — чтобы настройки назвали его, даже
+    /// когда он отключён.
+    var notchHomeScreenName: String {
+        get { defaults.string(forKey: "notchHomeScreenName") ?? "" }
+        set { store(newValue, "notchHomeScreenName") }
+    }
+
+    /// Вид выреза: 0 — прозрачное стекло, 25 — полупрозрачное,
+    /// 50 — матовое (по умолчанию), 75 — темнее, 100 — сплошной чёрный.
     ///
     /// Число, а не набор ступеней: ползунком человек ищет своё, а не выбирает
     /// из чужого списка. Границы держит `Surface.LookScale`.
@@ -877,9 +893,11 @@ final class Settings: ObservableObject {
     ///
     /// Хранится по-прежнему: панель чашки помнит выбранный срок между
     /// запусками, иначе его пришлось бы задавать каждый раз заново.
-    var caffeineLimitMinutes: Int {
-        get { defaults.object(forKey: "caffeineLimitMinutes") as? Int ?? 0 }
-        set { store(newValue, "caffeineLimitMinutes") }
+    /// Бодрость не даёт Mac уснуть и при закрытой крышке (`LidSleep`):
+    /// включение спросит пароль администратора. Выключено по умолчанию.
+    var caffeineLidClosed: Bool {
+        get { flag("caffeineLidClosed", default: false) }
+        set { store(newValue, "caffeineLidClosed") }
     }
 
 
@@ -1439,6 +1457,20 @@ final class Settings: ObservableObject {
     var calendarDayView: CalendarDayView {
         get { CalendarDayView(rawValue: defaults.string(forKey: "calendarDayView") ?? "") ?? .list }
         set { store(newValue.rawValue, "calendarDayView") }
+    }
+
+    /// Какие заметки показывает список: все, из Trudaybook или свои.
+    /// Выбор запоминается, как вид дня в календаре.
+    var notesFilter: NoteFilter {
+        get { NoteFilter(rawValue: defaults.string(forKey: "notesFilter") ?? "") ?? .all }
+        set { store(newValue.rawValue, "notesFilter") }
+    }
+
+    /// Список заметок строками или плитками. По умолчанию строками —
+    /// как было.
+    var notesLayout: NotesLayout {
+        get { NotesLayout(rawValue: defaults.string(forKey: "notesLayout") ?? "") ?? .list }
+        set { store(newValue.rawValue, "notesLayout") }
     }
 
     var remindersEnabled: Bool {

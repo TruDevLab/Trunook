@@ -273,7 +273,7 @@ struct CaffeineWidget: View {
         if wake.isOn {
             actions.disableAwake()
         } else {
-            actions.chooseAwakeLimit(settings.caffeineLimitMinutes)
+            actions.chooseAwakeLimit(WakeGuard.defaultMinutes)
         }
     }
 }

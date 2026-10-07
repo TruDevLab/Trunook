@@ -23,6 +23,10 @@ struct ExternalNotice: Equatable, Identifiable {
         /// Зелёная ли кнопка. У согласия и отказа разный вес, и одинаковые
         /// кнопки заставляли бы читать подпись каждый раз.
         let isPositive: Bool
+        /// Кнопка открывает окно приславшего (`"opens": true`) — ответ,
+        /// пересылку: тогда его выводят вперёд. Архив и «напомнить позже»
+        /// делаются в фоне, и уводить человека от работы незачем.
+        var opensApp = false
     }
 
     let id: String
@@ -48,10 +52,61 @@ struct ExternalNotice: Equatable, Identifiable {
     /// Trunook узнаёт встречу из своего календаря и не показывает её дважды:
     /// Exchange бывает подключён и к macOS, и к Trudaybook напрямую.
     let event: EventRef?
+    /// Письмо целиком для превью (`"preview": {"from","subject","text","date"}`).
+    /// Решить «в архив» или «ответить» по одной строке под чёлкой нельзя —
+    /// письмо надо сперва прочитать. С превью кнопка `"preview"` открывает
+    /// его прямо в вырезе, а не уходит ответом.
+    let preview: LetterPreview?
 
     struct EventRef: Equatable {
         let title: String
         let start: Date
+    }
+
+    struct LetterPreview: Equatable {
+        let from: String
+        let subject: String
+        let text: String
+        /// Как показать дату — строкой отправителя: «сегодня, 14:05».
+        let date: String
+        /// Быстрые действия под текстом: ответить всем, в архив, переслать,
+        /// напомнить позже. Не больше четырёх; ответ — тем же файлом, что
+        /// и с кнопок плашки.
+        var actions: [Action] = []
+        /// Письмо-приглашение: когда встреча и что в этот день рядом с ней
+        /// (`"meeting": {"start","end","allDay","location","events":[…]}`).
+        var meeting: Meeting?
+
+        static let maxActions = 4
+
+        struct Meeting: Equatable {
+            let start: Date
+            let end: Date
+            let isAllDay: Bool
+            let location: String
+            /// Встречи того дня около приглашения — для шкалы пересечений.
+            let events: [Busy]
+
+            struct Busy: Equatable {
+                let title: String
+                let start: Date
+                let end: Date
+            }
+
+            /// Те, что накладываются на приглашение.
+            var clashes: [Busy] {
+                guard !isAllDay else { return [] }
+                return events.filter { $0.start < end && $0.end > start }
+            }
+        }
+    }
+
+    /// Кнопка, которая открывает превью здесь, а не отвечает.
+    static let previewAction = "preview"
+
+    /// Исполняется ли кнопка в самом вырезе: превью есть — показать его.
+    func isLocal(_ action: Action) -> Bool {
+        action.id == Self.previewAction && preview != nil
     }
 
     /// Ждёт ли уведомление ответа. От этого зависит и срок жизни плашки,
@@ -86,6 +141,7 @@ struct ExternalNotice: Equatable, Identifiable {
         isOptional = (json["optional"] as? NSNumber)?.boolValue ?? false
         celebrates = (json["celebrate"] as? NSNumber)?.boolValue ?? false
         event = (json["event"] as? [String: Any]).flatMap(EventRef.init(json:))
+        preview = (json["preview"] as? [String: Any]).flatMap(LetterPreview.init(json:))
 
         let asked = (json["hold"] as? NSNumber)?.doubleValue ?? 0
         // Спрашивающее уведомление ждёт без срока, даже если срок указан:
@@ -107,7 +163,8 @@ struct ExternalNotice: Equatable, Identifiable {
         replyPath: String? = nil,
         isOptional: Bool = false,
         celebrates: Bool = false,
-        event: EventRef? = nil
+        event: EventRef? = nil,
+        preview: LetterPreview? = nil
     ) {
         self.id = id
         self.source = source
@@ -119,6 +176,7 @@ struct ExternalNotice: Equatable, Identifiable {
         self.isOptional = isOptional
         self.celebrates = celebrates
         self.event = event
+        self.preview = preview
     }
 
     /// Встреча из своего календаря, о которой эта плашка, — если она там есть.
@@ -162,6 +220,13 @@ struct ExternalNotice: Equatable, Identifiable {
         "video": "video.fill",
         "mail": "envelope.fill",
         "archive": "archivebox.fill",
+        // Письмо: открыть в почте или прочитать прямо здесь, и быстрые
+        // действия превью.
+        "open": "arrow.up.forward.app",
+        "eye": "eye.fill",
+        "replyall": "arrowshape.turn.up.left.2.fill",
+        "forward": "arrowshape.turn.up.right.fill",
+        "snooze": "alarm",
     ]
 
     static func symbol(named name: String?) -> String {
@@ -184,7 +249,8 @@ extension ExternalNotice.Action {
             id: id,
             title: title,
             symbol: named.map(ExternalNotice.symbol(named:)) ?? (positive ? "checkmark" : "xmark"),
-            isPositive: positive
+            isPositive: positive,
+            opensApp: (json["opens"] as? NSNumber)?.boolValue ?? false
         )
     }
 
@@ -196,6 +262,48 @@ extension ExternalNotice.Action {
     static let no = ExternalNotice.Action(
         id: "no", title: t("Отклонить"), symbol: "xmark", isPositive: false
     )
+}
+
+extension ExternalNotice.LetterPreview {
+    /// Потолки — чтобы чужой файл не раздул панель: текст письма
+    /// показывается началом, целиком его читают в почте.
+    init?(json: [String: Any]) {
+        func field(_ key: String, _ limit: Int) -> String {
+            String(((json[key] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(limit))
+        }
+        let text = field("text", 4000)
+        let subject = field("subject", 300)
+        guard !text.isEmpty || !subject.isEmpty else { return nil }
+        let actions = ((json["actions"] as? [[String: Any]]) ?? [])
+            .prefix(Self.maxActions)
+            .compactMap(ExternalNotice.Action.init(json:))
+        self.init(from: field("from", 200), subject: subject, text: text, date: field("date", 60),
+                  actions: Array(actions),
+                  meeting: (json["meeting"] as? [String: Any]).flatMap(Meeting.init(json:)))
+    }
+}
+
+extension ExternalNotice.LetterPreview.Meeting {
+    /// Время — ISO 8601; встреч рядом не больше двенадцати, дольше суток
+    /// и перевёрнутые отбрасываются.
+    init?(json: [String: Any]) {
+        let iso = ISO8601DateFormatter()
+        func date(_ value: Any?) -> Date? { (value as? String).flatMap(iso.date(from:)) }
+        guard let start = date(json["start"]), let end = date(json["end"]), end > start,
+              end.timeIntervalSince(start) <= 86_400 * 14 else { return nil }
+        let events: [Busy] = ((json["events"] as? [[String: Any]]) ?? []).prefix(12).compactMap { item in
+            guard let from = date(item["start"]), let to = date(item["end"]), to > from,
+                  to.timeIntervalSince(from) <= 86_400 else { return nil }
+            let title = String(((item["title"] as? String) ?? "").prefix(120))
+            return Busy(title: title, start: from, end: to)
+        }
+        self.init(
+            start: start, end: end,
+            isAllDay: (json["allDay"] as? NSNumber)?.boolValue ?? false,
+            location: String(((json["location"] as? String) ?? "").prefix(200)),
+            events: events
+        )
+    }
 }
 
 extension ExternalNotice.EventRef {

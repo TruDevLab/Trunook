@@ -1,13 +1,31 @@
+import Foundation
 import Testing
 @testable import Trunook
 
 @Suite("Состав кольца быстрого доступа")
 struct HubEntryTests {
-    /// Кольцо — единственное меню всех функций, и в нём всё, что есть.
-    @Test("Кольцо показывает все функции")
-    func кольцоПолное() {
-        #expect(HubEntry.ringCases == HubEntry.allCases)
-        #expect(!HubEntry.ringCases.isEmpty)
+    private func freshSettings() -> Trunook.Settings {
+        Trunook.Settings(defaults: UserDefaults(suiteName: "trunook-tests-\(UUID().uuidString)")!)
+    }
+
+    /// Кольцо показывает только включённое, в прежнем порядке.
+    @Test("Выключенной функции в кольце нет")
+    func выключенноеСкрыто() {
+        let settings = freshSettings()
+        settings.digestEnabled = true
+        settings.siteWatchEnabled = true
+        #expect(HubEntry.ringCases(settings).contains(.news))
+        #expect(HubEntry.ringCases(settings).contains(.sites))
+
+        settings.digestEnabled = false
+        settings.siteWatchEnabled = false
+        let ring = HubEntry.ringCases(settings)
+        #expect(!ring.contains(.news))
+        #expect(!ring.contains(.sites))
+        #expect(ring == HubEntry.allCases.filter { $0.isEnabled(settings) })
+        // Телесуфлер и чистка выключателя не имеют — кольцо пустым не бывает.
+        #expect(ring.contains(.teleprompter))
+        #expect(ring.contains(.keyboardLock))
     }
 
     @Test("У каждой плитки есть название и значок")

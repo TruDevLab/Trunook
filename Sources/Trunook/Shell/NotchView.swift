@@ -13,6 +13,9 @@ final class NotchState: ObservableObject {
     @Published var swipeProgress: Double = 0
     /// Момент наведения — точка отсчёта для бегущей строки в мини-виде.
     @Published var hoverStartedAt = Date()
+    /// Что выбрано в мини-виде миниатюрой в крыле. `nil` — первое по
+    /// важности; каждое новое наведение начинает с него.
+    @Published var previewSelection: PreviewItem?
     /// Встреча, до которой показывается обратный отсчёт. Решение о том,
     /// показывать ли его, принимает контроллер — вёрстка только рисует.
     @Published var chipItem: CalendarItem?
@@ -40,6 +43,8 @@ final class NotchState: ObservableObject {
         case feeds
         /// Раскладки окна, которое донесли до чёлки.
         case windowSnap
+        /// Превью письма из плашки Trudaybook — кнопкой «Показать превью».
+        case letter
 
         /// Закрывается ли накладка тем, что курсор ушёл за её границы.
         ///
@@ -65,6 +70,8 @@ final class NotchState: ObservableObject {
             // раньше, чем доводит его до края шкалы.
             case .shelf, .assistant, .teleprompter, .notes,
                  .calendar, .eventEditor, .feeds, .keyboardLock, .water: return false
+            // Письмо читают: курсор уходит, пока глаза идут по строкам.
+            case .letter: return false
             }
         }
 
@@ -179,6 +186,8 @@ struct NotchView: View {
     @ObservedObject var keyboardLock: KeyboardLock
     /// Журнал воды: им живут ползунок и плитка «Вода».
     @ObservedObject var water: WaterLog
+    /// Письмо, открытое превью из плашки.
+    @ObservedObject var letter: LetterPreviewModel
     /// Кот, изредка оживляющий свёрнутый вырез.
     let critter: NotchCritter
     /// Погодная сценка при смене погоды.
@@ -386,6 +395,8 @@ struct NotchView: View {
     let onOpenWater: () -> Void
     let onRecordWater: () -> Void
     let onUndoWater: () -> Void
+    /// Кнопка под превью письма — «Открыть в Trudaybook».
+    let onLetterAction: (ExternalNotice, ExternalNotice.Action) -> Void
     let onOpenFeeds: () -> Void
     let onOpenFeedsTab: (FeedsPanelState.Mode) -> Void
     let onOpenFeedsSettings: () -> Void
@@ -409,16 +420,17 @@ struct NotchView: View {
         )
     }
 
-    /// Кружки кольца: состав задаёт `HubEntry`. Что открывает кружок, решает
-    /// контроллер — кольцо выбирает по положению руки, а не нажатием кнопки.
+    /// Кружки кольца: состав задаёт `HubEntry`, выключенного в нём нет.
+    /// Что открывает кружок, решает контроллер — кольцо выбирает
+    /// по положению руки, а не нажатием кнопки.
     private var ringItems: [QuickRingItem] {
-        HubEntry.ringCases.map { entry in
+        HubEntry.ringCases(settings).map { entry in
             QuickRingItem(
                 id: entry.id,
                 title: entry.title,
                 symbol: entry.symbol,
                 tint: entry.tint,
-                isEnabled: entry.isEnabled(settings)
+                entry: entry
             )
         }
     }
@@ -460,7 +472,7 @@ struct NotchView: View {
                 switch presentation {
                 case .expanded, .clipboard, .assistant, .shelf, .timer,
                      .monitor, .teleprompter, .caffeine, .keyboardLock, .water, .notes,
-                     .calendar, .eventEditor, .feeds, .windowSnap:
+                     .calendar, .eventEditor, .feeds, .windowSnap, .letter:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
                 case .swiping: return 14
@@ -573,7 +585,44 @@ struct NotchView: View {
                 .init(color: .clear, location: min(1, (metrics.notchHeight + 18) / max(1, size.height))),
             ], startPoint: .top, endPoint: .bottom)
             .allowsHitTesting(false)
+            lensEdgeCover
+                .allowsHitTesting(false)
         }
+    }
+
+    /// Уголки крепления над краями линзы.
+    ///
+    /// Линза стоит по телу панели, а вогнутые плечи формы шире тела:
+    /// боковой край линзы проходит сквозь уголок, которым панель держится
+    /// за кромку экрана, и в полосе шапки читался тонкой вертикальной
+    /// чертой (поймал пользователь, справа виднее — там блик края тёмный).
+    /// Растянуть линзу на всю ширину нельзя: край уходит за панель и тянет
+    /// в шапку значки строки меню рядом с ней (снято снимком экрана).
+    ///
+    /// Поэтому в полосе шапки уголки сгущаются до черноты железа: сплошь —
+    /// по плечу и чуть за краем линзы, дальше плавно к шапке. Вниз сходит
+    /// тем же законом, что и сама шапка.
+    private var lensEdgeCover: some View {
+        let width = max(1, size.width)
+        let height = max(1, size.height)
+        // Сплошь — плечо и две точки за краем линзы: блик края шириной
+        // в точку, и сплошное, кончившееся ровно на нём, оставило бы его
+        // половину.
+        let solid = min(0.5, (shape.topRadius + 2) / width)
+        let fade = min(0.5, (shape.topRadius + 14) / width)
+        return LinearGradient(stops: [
+            .init(color: .black, location: 0),
+            .init(color: .black, location: solid),
+            .init(color: .clear, location: fade),
+            .init(color: .clear, location: 1 - fade),
+            .init(color: .black, location: 1 - solid),
+            .init(color: .black, location: 1),
+        ], startPoint: .leading, endPoint: .trailing)
+        .mask(LinearGradient(stops: [
+            .init(color: .white, location: 0),
+            .init(color: .white, location: min(1, metrics.notchHeight / height)),
+            .init(color: .clear, location: min(1, (metrics.notchHeight + 18) / height)),
+        ], startPoint: .top, endPoint: .bottom))
     }
 
     /// Растворение вбок: непрозрачно над самой чёлкой, к краям панели сходит
@@ -935,6 +984,7 @@ struct NotchView: View {
         case let .siteChanged(_, _, url): onJoin(url)
         // Тело плашки ничего не открывает: ответ — кнопками рядом.
         case .breakReminder, .countdownReached: break
+        case .caffeine: onOpenAwake()
         default: onOpenClipboard()
         }
     }
@@ -1012,12 +1062,11 @@ struct NotchView: View {
             )
         case .clipboard:
             ClipboardPanel(
-                entries: clipboard.entries,
+                clipboard: clipboard,
                 flash: flash,
                 metrics: metrics,
                 slotHint: settings.clipboardSlotModifiers.hint,
                 notesEnabled: settings.notesEnabled,
-                highlighted: clipboard.highlighted,
                 onUse: onUseClipboard,
                 onSaveToNotes: onSaveClipboardToNotes,
                 onDelete: onDeleteClipboard,
@@ -1031,6 +1080,7 @@ struct NotchView: View {
                 settings: settings,
                 metrics: metrics,
                 onOpenEvent: onOpenItem,
+                onJoin: onJoin,
                 onCompose: onComposeEvent,
                 onClose: onCloseOverlay
             )
@@ -1076,6 +1126,13 @@ struct NotchView: View {
                 metrics: metrics,
                 onChoose: onLockKeyboard,
                 onUnlock: onUnlockKeyboard,
+                onClose: onCloseOverlay
+            )
+        case .letter:
+            LetterPreviewPanel(
+                notice: letter.notice,
+                metrics: metrics,
+                onAction: onLetterAction,
                 onClose: onCloseOverlay
             )
         case .water:
@@ -1195,13 +1252,25 @@ struct NotchView: View {
             PreviewPanel(
                 track: music.nowPlaying,
                 event: events.first,
+                caffeine: wake.chip,
+                caffeineEndsAt: wake.endsAt,
+                selection: state.previewSelection,
                 metrics: metrics,
                 startDate: state.hoverStartedAt,
                 onTogglePlayback: { music.send(.togglePlayPause) },
                 onSkip: { music.skip(by: $0) },
-                onJoin: onJoin
+                onJoin: onJoin,
+                onSelect: { item in
+                    state.previewSelection = item
+                    state.hoverStartedAt = Date()
+                },
+                onOpenCaffeine: onOpenAwake
             )
-            .frame(width: PreviewPanel.layout(track: music.nowPlaying, event: events.first, metrics: metrics).panelWidth)
+            .frame(width: PreviewPanel.layout(
+                track: music.nowPlaying, event: events.first,
+                caffeine: wake.chip, caffeineEndsAt: wake.endsAt,
+                selection: state.previewSelection, metrics: metrics
+            ).panelWidth)
         case .expanded:
             HomePanel(
                 settings: settings,

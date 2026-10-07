@@ -271,7 +271,10 @@ extension SettingsView {
                 .pickerStyle(.menu)
 
                 Picker(t("Не больше записей"), selection: settings.binding(\.clipboardLimit)) {
-                    ForEach([20, 30, 50], id: \.self) { value in
+                    // До двухсот: список прокручивается и живёт ленивым
+                    // стеком, а изображения в истории и так не крупнее
+                    // потолка `ClipboardMonitor.maxImageBytes`.
+                    ForEach([20, 30, 50, 100, 200], id: \.self) { value in
                         Text("\(value)").tag(value)
                     }
                 }

@@ -111,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.teleprompterPrompt", #selector(promptTeleprompter)),
             ("com.trunook.debug.caffeine", #selector(toggleCaffeine)),
             ("com.trunook.debug.notes", #selector(showNotes)),
+            ("com.trunook.debug.notesView", #selector(cycleNotesView)),
             ("com.trunook.debug.calendar", #selector(showCalendar)),
             ("com.trunook.debug.calendarTimeline", #selector(showCalendarTimeline)),
             ("com.trunook.debug.homeTimeline", #selector(toggleHomeTimeline)),
@@ -149,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.timerRun", #selector(runTimer)),
             ("com.trunook.debug.stopwatchRun", #selector(runStopwatch)),
             ("com.trunook.debug.ringMenu", #selector(showRingMenu)),
+            ("com.trunook.debug.ringPick", #selector(pickRing)),
             ("com.trunook.debug.openEvent", #selector(openFirstItem)),
             ("com.trunook.debug.expand", #selector(expandNotch)),
             ("com.trunook.debug.homeAll", #selector(showHomePage)),
@@ -248,6 +250,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.shotMarks", #selector(shotMarks)),
             ("com.trunook.debug.meeting", #selector(testMeeting)),
             ("com.trunook.debug.mailNotice", #selector(testMailNotice)),
+            ("com.trunook.debug.letterPreview", #selector(testLetterPreview)),
+            ("com.trunook.debug.invitePreview", #selector(testInvitePreview)),
             ("com.trunook.debug.musicSkip", #selector(testMusicSkip)),
             ("com.trunook.debug.links", #selector(testLinkExtraction)),
             ("com.trunook.debug.nextTrack", #selector(testNextTrack)),
@@ -515,6 +519,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Меню всех функций: правую кнопку из отладочной сессии не нажать.
     @objc private func showRingMenu() {
         controller.openRingMenu()
+    }
+
+    @objc private func pickRing() {
+        controller.debugRingPick()
     }
 
     @objc private func expandNotch() {
@@ -842,6 +850,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.debugToggleNotes()
     }
 
+    /// Следующее положение списка заметок — под снимок: вид и фильтр
+    /// переключаются нажатием, а нажать из сессии нечем. Ход: строки, все →
+    /// плитки, все → плитки, Trudaybook → плитки, Trunook → снова строки, все.
+    /// Выбор записывается в настройки, полный круг возвращает прежний.
+    @objc private func cycleNotesView() {
+        let notes = controller.notes
+        switch (notes.layout, notes.filter) {
+        case (.list, _): notes.layout = .tiles; notes.filter = .all
+        case (.tiles, .all): notes.filter = .trudaybook
+        case (.tiles, .trudaybook): notes.filter = .trunook
+        case (.tiles, .trunook): notes.layout = .list; notes.filter = .all
+        }
+        DebugLog.write("заметки: вид \(notes.layout.rawValue), фильтр \(notes.filter.rawValue), видно \(notes.shown.count)")
+    }
+
     /// Набить заметками — иначе список нечем показать, а сохранить из панели
     /// можно только нажатием, которого из сессии нет.
     @objc private func fillNotes() {
@@ -1035,6 +1058,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func testMailNotice() { controller.debugMailNotice() }
+    @objc private func testLetterPreview() { controller.debugLetterPreview() }
+    @objc private func testInvitePreview() { controller.debugInvitePreview() }
 
     /// Перемотка на 10 секунд вперёд: позиция до и после — в журнал.
     @objc private func testMusicSkip() {
@@ -1503,7 +1528,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Проверять надо тем процессом, который этим будет пользоваться, —
     /// скрипт под `swift` подписан Apple и ответит иначе.
     @objc private func testUpdateVerify() {
-        let path = NSHomeDirectory() + "/Desktop/Trunook/Trunook-\(AppInfo.shortVersion).dmg"
+        let path = NSHomeDirectory() + "/Проекты/Trunook/Trunook-\(AppInfo.shortVersion).dmg"
         let image = URL(fileURLWithPath: path)
         guard let mounted = DiskImage.attach(image) else {
             DebugLog.write("проверка подписи: образ \(path) не смонтировался")

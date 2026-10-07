@@ -138,6 +138,7 @@ struct TrudaybookTests {
         let made = notes.notes.filter { $0.plain == "Позвонить юристам" }
         #expect(made.count == 1)
         #expect(made.first?.title.hasPrefix("Trudaybook · ") == true)
+        #expect(made.first?.origin == .trudaybook)
         #expect(notes.notes.count == 1)
 
         // Повтор без правок — ничего нового.
@@ -151,6 +152,25 @@ struct TrudaybookTests {
         sync.sync()
         #expect(try String(contentsOf: file, encoding: .utf8) == "Позвонить юристам и Козлову")
         #expect(notes.notes.count == 1)
+    }
+
+    @Test("Заметки дня, заведённые раньше обычными, получают свой вид")
+    func заметкиДняПереносятся() throws {
+        let (notes, settings) = isolatedNotes()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("daynotes-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let defaults = UserDefaults(suiteName: "trunook-tests-\(UUID().uuidString)")!
+        let old = try #require(notes.save(NSAttributedString(string: "Старый день"), origin: .typed,
+                                          title: "Trudaybook · 1 сентября"))
+        let own = try #require(notes.save(NSAttributedString(string: "Своё"), origin: .typed))
+        defaults.set(try JSONEncoder().encode(["2026-09-01": DayNoteSync.Link(id: old.id, seen: 0)]),
+                     forKey: DayNoteSync.key)
+        let sync = DayNoteSync(notes: notes, settings: settings, folder: folder, defaults: defaults)
+        sync.start()
+        sync.stop()
+        #expect(notes.note(id: old.id)?.origin == .trudaybook)
+        #expect(notes.note(id: own.id)?.origin == .typed)
+        #expect(notes.trudaybookCount == 1)
     }
 
     @Test("Имя заметки дня — словами")

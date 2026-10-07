@@ -29,6 +29,31 @@ final class NotesService: ObservableObject {
     /// поиск их не прячет.
     @Published private(set) var pinned: [Note] = []
 
+    /// Сколько заметок дня из Trudaybook. Пока их нет, переключателя
+    /// «Все / Из Trudaybook / Из Trunook» в панели нет вовсе.
+    @Published private(set) var trudaybookCount = 0
+
+    /// Фильтр списка в панели. Сам `notes` им не сужается: тем же списком
+    /// пользуются «@», плитка главного экрана и подсказка тем сводки.
+    @Published var filter: NoteFilter {
+        didSet { if filter != oldValue { settings.notesFilter = filter } }
+    }
+
+    /// Строки или плитки.
+    @Published var layout: NotesLayout {
+        didSet { if layout != oldValue { settings.notesLayout = layout } }
+    }
+
+    /// Фильтр в силе: без заметок Trudaybook выбирать не из чего,
+    /// и прежний выбор не должен прятать список.
+    var activeFilter: NoteFilter { trudaybookCount > 0 ? filter : .all }
+
+    /// То, что видно в панели: список с поиском и фильтром.
+    var shown: [Note] {
+        let filter = activeFilter
+        return filter == .all ? notes : notes.filter(filter.matches)
+    }
+
     private let store: NotesStore
     private let titler: NoteTitler
     private let settings: Settings
@@ -45,6 +70,8 @@ final class NotesService: ObservableObject {
         self.store = store
         self.titler = titler
         self.settings = settings
+        filter = settings.notesFilter
+        layout = settings.notesLayout
 
         titler.onTitle = { [weak self] id, title in
             self?.apply(title: title, to: id, byModel: true)
@@ -64,6 +91,7 @@ final class NotesService: ObservableObject {
         notes = trimmed.isEmpty ? store.all(source: .ownOrPinned) : store.search(trimmed)
         total = store.count(source: .own)
         pinned = store.pinned()
+        trudaybookCount = store.count(origin: .trudaybook)
     }
 
     /// Поиск с задержкой и не на главном потоке.
@@ -209,6 +237,13 @@ final class NotesService: ObservableObject {
         reload()
         DebugLog.write("заметки: \(current.isPinned ? "откреплена" : "закреплена") \(note.id)")
         return true
+    }
+
+    /// Заметки дня Trudaybook, заведённые обычными, — получают свой вид.
+    func adoptFromTrudaybook(_ ids: [Int64]) {
+        guard !ids.isEmpty else { return }
+        for id in ids { store.setOrigin(id: id, to: .trudaybook, from: .typed) }
+        reload()
     }
 
     func setKeepAudio(_ note: Note, keep: Bool) {

@@ -39,6 +39,9 @@ final class DayNoteSync {
 
     func start() {
         guard timer == nil else { return }
+        // Заметки дня, заведённые до появления своего вида, — обычные:
+        // по ним не работал бы фильтр «Из Trudaybook».
+        notes.adoptFromTrudaybook(links.values.map(\.id))
         sync()
         let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in self?.sync() }
         timer.allowCoalescing()
@@ -119,7 +122,7 @@ final class DayNoteSync {
             if let note {
                 if note.plain != text { notes.save(attributed, origin: note.origin, editing: note.id) }
                 links[day] = Link(id: note.id, seen: modified.timeIntervalSince1970)
-            } else if let saved = notes.save(attributed, origin: .typed, title: Self.title(for: day)) {
+            } else if let saved = notes.save(attributed, origin: .trudaybook, title: Self.title(for: day)) {
                 links[day] = Link(id: saved.id, seen: modified.timeIntervalSince1970)
                 DebugLog.write("Trudaybook: заведена заметка дня")
             }

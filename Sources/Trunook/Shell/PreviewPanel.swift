@@ -1,15 +1,54 @@
 import SwiftUI
 import TrunookXPC
 
+/// Что может стоять в мини-виде при наведении.
+///
+/// Активных событий бывает несколько разом — играет музыка, горит чашка,
+/// скоро встреча. Мини-вид показывает одно, остальные — миниатюрами
+/// в крыльях у чёлки (первое справа, второе слева); нажатие по миниатюре
+/// переключает. Каждое новое наведение начинает с первого.
+enum PreviewItem: Equatable {
+    case music
+    case caffeine
+    case meeting
+
+    /// Активные события по порядку важности: музыка, чашка (она идёт
+    /// прямо сейчас), ближайшая встреча.
+    static func items(track: NowPlaying?, event: CalendarItem?, caffeine: CaffeineChip?) -> [PreviewItem] {
+        var items: [PreviewItem] = []
+        if PreviewPanel.hasTrack(track) { items.append(.music) }
+        if caffeine != nil { items.append(.caffeine) }
+        if event != nil { items.append(.meeting) }
+        return items
+    }
+
+    /// Что на виду: выбранное, если оно ещё активно, иначе первое.
+    static func shown(in items: [PreviewItem], selection: PreviewItem?) -> PreviewItem? {
+        if let selection, items.contains(selection) { return selection }
+        return items.first
+    }
+
+    /// Миниатюры в крыльях — все, кроме показанного, не больше двух.
+    static func alternates(in items: [PreviewItem], shown: PreviewItem?) -> [PreviewItem] {
+        Array(items.filter { $0 != shown }.prefix(2))
+    }
+}
+
 /// Мини-представление: то, что видно при наведении, до нажатия.
 ///
-/// Намеренно повторяет раскладку плашки события — обложка и одна строка.
+/// Намеренно повторяет раскладку плашки события — значок и одна строка.
 /// Наведение и всплывающее уведомление показывают одно и то же по сути,
 /// и разная вёрстка для них выглядела бы как сбой, а не как замысел.
 struct PreviewPanel: View {
     let track: NowPlaying?
-    /// Ближайшая встреча — ею мини-вид занят, когда музыки нет.
+    /// Ближайшая встреча.
     let event: CalendarItem?
+    /// Чашка горит — с ней удержание экрана.
+    var caffeine: CaffeineChip? = nil
+    /// До какого времени держится экран — подпись чашки.
+    var caffeineEndsAt: Date? = nil
+    /// Что выбрали миниатюрой в крыле. `nil` — первое по важности.
+    var selection: PreviewItem? = nil
     let metrics: NotchMetrics
     /// Точка отсчёта бегущей строки — момент наведения.
     let startDate: Date
@@ -18,6 +57,13 @@ struct PreviewPanel: View {
     let onSkip: (Double) -> Void
     /// Подключиться к встрече по её ссылке.
     let onJoin: (URL) -> Void
+    /// Нажали миниатюру в крыле — показать это событие.
+    var onSelect: (PreviewItem) -> Void = { _ in }
+    /// Нажали строку чашки — панель бодрости.
+    var onOpenCaffeine: () -> Void = {}
+
+    /// Сторона миниатюры в крыле.
+    static var alternateSize: CGFloat { ActivityLayout.iconSize - 2 }
 
     /// Есть ли что показывать про музыку.
     ///
@@ -42,6 +88,28 @@ struct PreviewPanel: View {
         return t("Ближайших встреч нет")
     }
 
+    /// Строка чашки: «Экран не гаснет · до 14:35» или «без срока».
+    static func caffeineText(endsAt: Date?) -> String {
+        guard let endsAt else { return t("Экран не гаснет · без срока") }
+        let formatter = DateFormatter()
+        formatter.locale = Settings.shared.language.locale
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return tf("Экран не гаснет · до %@", formatter.string(from: endsAt))
+    }
+
+    /// Текст строки для показанного события.
+    static func text(
+        for item: PreviewItem?, track: NowPlaying?, event: CalendarItem?, caffeineEndsAt: Date?
+    ) -> String {
+        switch item {
+        case .music: return text(track: track)
+        case .caffeine: return caffeineText(endsAt: caffeineEndsAt)
+        case .meeting: return text(track: nil, event: event)
+        case nil: return text(track: nil, event: nil)
+        }
+    }
+
     /// Ссылка на видеозвонок, если строка сейчас про встречу и ссылка у неё есть.
     ///
     /// Та же кнопка, что у плашки в момент начала встречи: навёл на чёлку,
@@ -54,16 +122,55 @@ struct PreviewPanel: View {
         return event?.link?.url
     }
 
-    static func layout(track: NowPlaying?, event: CalendarItem?, metrics: NotchMetrics) -> ActivityLayout {
-        let join = joinLink(track: track, event: event) != nil
+    /// Раскладка одной строки — для показанного события.
+    private static func rowLayout(
+        _ item: PreviewItem?, track: NowPlaying?, event: CalendarItem?, caffeineEndsAt: Date?,
+        minimumWidth: CGFloat
+    ) -> ActivityLayout {
+        let join = item == .meeting && event?.link != nil
         return ActivityLayout(
-            text: text(track: track, event: event),
-            trailing: join ? t("Подключиться") : nil,
-            minimumWidth: metrics.closed.width,
-            trailingIsButton: join,
-            trailingExtra: hasTrack(track) ? skipRoom : 0
+            text: text(for: item, track: track, event: event, caffeineEndsAt: caffeineEndsAt),
+            trailing: nil,
+            minimumWidth: minimumWidth,
+            trailingExtra: (item == .music ? skipRoom : 0)
+                + (join ? ActivityLayout.spacing + ActivityView.answerDiameter : 0)
         )
     }
+
+    /// Ширина мини-вида.
+    ///
+    /// Когда событий несколько, ширина — **одна на все**: самая широкая
+    /// из строк. Иначе переключение меняло бы ширину, миниатюра в крыле
+    /// уезжала бы из-под курсора, и курсор, оказавшийся за краем, сворачивал
+    /// мини-вид — нажатие «ничего не переключало и закрывало» (поймал
+    /// пользователь). И не уже, чем нужно крыльям под миниатюры.
+    static func layout(
+        track: NowPlaying?,
+        event: CalendarItem?,
+        caffeine: CaffeineChip? = nil,
+        caffeineEndsAt: Date? = nil,
+        selection: PreviewItem? = nil,
+        metrics: NotchMetrics
+    ) -> ActivityLayout {
+        let items = PreviewItem.items(track: track, event: event, caffeine: caffeine)
+        let shown = PreviewItem.shown(in: items, selection: selection)
+        guard items.count > 1 else {
+            return rowLayout(shown, track: track, event: event, caffeineEndsAt: caffeineEndsAt,
+                             minimumWidth: metrics.closed.width)
+        }
+        let wings = metrics.notchWidth
+            + 2 * (alternateSize + wingInset + NotchStyle.shoulderInset + 4)
+            - ActivityLayout.overhangBeyondNotch
+        let floor = max(metrics.closed.width, wings)
+        let widest = items.map {
+            rowLayout($0, track: track, event: event, caffeineEndsAt: caffeineEndsAt, minimumWidth: floor).panelWidth
+        }.max() ?? 0
+        return rowLayout(shown, track: track, event: event, caffeineEndsAt: caffeineEndsAt,
+                         minimumWidth: max(floor, widest - ActivityLayout.overhangBeyondNotch))
+    }
+
+    /// Отступ миниатюры от края панели.
+    static let wingInset: CGFloat = 10
 
     /// Шаг перемотки.
     static let skipStep: Double = 10
@@ -74,45 +181,133 @@ struct PreviewPanel: View {
         ActivityLayout.spacing + 2 * ActivityView.answerDiameter + ActivityView.answerSpacing
     }
 
-    private var layout: ActivityLayout { Self.layout(track: track, event: event, metrics: metrics) }
-    private var showsTrack: Bool { Self.hasTrack(track) }
+    private var items: [PreviewItem] { PreviewItem.items(track: track, event: event, caffeine: caffeine) }
+    private var shown: PreviewItem? { PreviewItem.shown(in: items, selection: selection) }
+    private var alternates: [PreviewItem] { PreviewItem.alternates(in: items, shown: shown) }
+
+    private var layout: ActivityLayout {
+        Self.layout(track: track, event: event, caffeine: caffeine, caffeineEndsAt: caffeineEndsAt,
+                    selection: selection, metrics: metrics)
+    }
 
     var body: some View {
-        HStack(spacing: ActivityLayout.spacing) {
-            leading
-                .frame(width: ActivityLayout.iconSize, height: ActivityLayout.iconSize)
-
-            MarqueeText(
-                text: Self.text(track: track, event: event),
-                font: ActivityLayout.textFont,
-                availableWidth: layout.textWidth,
-                startDate: startDate
-            )
-
-            if let link = Self.joinLink(track: track, event: event) {
-                joinButton(link)
+        row
+            .padding(.leading, ActivityLayout.leadingPadding)
+            .padding(.trailing, ActivityLayout.trailingPadding)
+            .padding(.top, metrics.notchHeight + 6)
+            .padding(.bottom, 12)
+            .foregroundStyle(.white)
+            // Остальные события — выше строки, в крыльях у самой чёлки:
+            // там пусто в любом случае, и строка остаётся строкой одного
+            // события, а не перечнем.
+            .overlay(alignment: .topTrailing) {
+                if let first = alternates.first { wingThumb(first) }
             }
+            .overlay(alignment: .topLeading) {
+                if alternates.count > 1 { wingThumb(alternates[1]) }
+            }
+    }
 
-            if showsTrack {
-                HStack(spacing: ActivityView.answerSpacing) {
-                    skipButton(symbol: "gobackward.10", hint: t("Назад на 10 секунд"), delta: -Self.skipStep)
-                    skipButton(symbol: "goforward.10", hint: t("Вперёд на 10 секунд"), delta: Self.skipStep)
+    @ViewBuilder
+    private var row: some View {
+        switch shown {
+        case .caffeine:
+            // Вся строка — кнопка: чашку открывают ради срока, как и полоску
+            // с отсчётом в свёрнутой чёлке.
+            Button(action: onOpenCaffeine) {
+                HStack(spacing: ActivityLayout.spacing) {
+                    caffeineIcon(size: ActivityLayout.iconSize)
+                    MarqueeText(
+                        text: Self.caffeineText(endsAt: caffeineEndsAt),
+                        font: ActivityLayout.textFont,
+                        availableWidth: layout.textWidth,
+                        startDate: startDate
+                    )
                 }
-                .fixedSize()
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+            .notchHint(t("Бодрость"))
+        default:
+            HStack(spacing: ActivityLayout.spacing) {
+                leading
+                    .frame(width: ActivityLayout.iconSize, height: ActivityLayout.iconSize)
+
+                MarqueeText(
+                    text: Self.text(for: shown, track: track, event: event, caffeineEndsAt: caffeineEndsAt),
+                    font: ActivityLayout.textFont,
+                    availableWidth: layout.textWidth,
+                    startDate: startDate
+                )
+
+                if shown == .meeting, let link = event?.link?.url {
+                    MeetingJoinButton(url: link, provider: event?.link?.provider.title, action: onJoin)
+                }
+
+                if shown == .music {
+                    HStack(spacing: ActivityView.answerSpacing) {
+                        skipButton(symbol: "gobackward.10", hint: t("Назад на 10 секунд"), delta: -Self.skipStep)
+                        skipButton(symbol: "goforward.10", hint: t("Вперёд на 10 секунд"), delta: Self.skipStep)
+                    }
+                    .fixedSize()
+                }
             }
         }
-        .padding(.leading, ActivityLayout.leadingPadding)
-        .padding(.trailing, ActivityLayout.trailingPadding)
-        .padding(.top, metrics.notchHeight + 6)
-        .padding(.bottom, 12)
-        .foregroundStyle(.white)
+    }
+
+    /// Миниатюра события в крыле: обложка, чашка или значок встречи.
+    private func wingThumb(_ item: PreviewItem) -> some View {
+        let side = Self.alternateSize
+        let shape = RoundedRectangle(cornerRadius: NotchStyle.artRadius - 1, style: .continuous)
+        return Button { onSelect(item) } label: {
+            Group {
+                switch item {
+                case .music: artwork
+                case .caffeine: caffeineIcon(size: side)
+                case .meeting:
+                    shape.fill((event?.color ?? .white).opacity(0.22))
+                        .overlay(
+                            Image(systemName: event?.symbol ?? "calendar")
+                                .font(.system(size: NotchStyle.font(10), weight: .semibold))
+                                .foregroundStyle(event?.color ?? .white)
+                        )
+                }
+            }
+            .frame(width: side, height: side)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(.white.opacity(0.35), lineWidth: 1))
+            .contentShape(shape)
+        }
+        .buttonStyle(PressableStyle())
+        .notchHint(hint(for: item))
+        .padding(.top, max(2, (metrics.notchHeight - side) / 2))
+        .padding(.horizontal, NotchStyle.shoulderInset + Self.wingInset)
+    }
+
+    private func hint(for item: PreviewItem) -> String {
+        switch item {
+        case .music: return t("Показать музыку")
+        case .caffeine: return t("Показать бодрость")
+        case .meeting: return event.map { tf("Показать: %@", $0.title) } ?? t("Показать встречу")
+        }
+    }
+
+    private func caffeineIcon(size: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous)
+            .fill(Palette.caffeine.opacity(0.22))
+            .overlay(
+                Image(systemName: "cup.and.saucer.fill")
+                    .font(.system(size: NotchStyle.font(size > 22 ? 11 : 9.5), weight: .semibold))
+                    .foregroundStyle(Palette.caffeine)
+            )
+            .frame(width: size, height: size)
     }
 
     /// Слева либо обложка-кнопка, либо значок встречи: нажимать в строке
     /// со встречей нечего, а кнопка воспроизведения там сбивала бы с толку.
     @ViewBuilder
     private var leading: some View {
-        if showsTrack {
+        if shown == .music {
             artworkButton
         } else {
             RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous)
@@ -136,21 +331,6 @@ struct PreviewPanel: View {
         }
         .buttonStyle(NotchButtonStyle(diameter: ActivityView.answerDiameter))
         .notchHint(hint)
-    }
-
-    /// Капсула «Подключиться» — цветом встречи, как у плашки события.
-    private func joinButton(_ link: URL) -> some View {
-        let tint = event?.color ?? Palette.calendar
-        return Button { onJoin(link) } label: {
-            Text(t("Подключиться"))
-                .font(Font(ActivityLayout.trailingFont))
-                .foregroundStyle(ActivityView.labelColor(on: tint))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .accentSurface(in: Capsule(), tint: tint, glass: Surface.inNotch)
-        }
-        .buttonStyle(PressableStyle())
-        .fixedSize()
     }
 
     /// Обложка работает кнопкой воспроизведения.
@@ -180,6 +360,7 @@ struct PreviewPanel: View {
         // со значком, как и у кнопки воспроизведения в раскрытой панели.
         .notchHint(track?.isPlaying == true ? t("Пауза") : t("Играть"))
     }
+
 
     @ViewBuilder
     private var artwork: some View {

@@ -82,6 +82,30 @@ final class ClipboardService: ObservableObject {
         }
     }
 
+    /// Строка под курсором — её показывает превью справа в панели.
+    @Published var hovered: Int64?
+
+    /// Что показывает превью: подсвеченное клавишами, иначе то, что под
+    /// курсором, иначе самое свежее.
+    var previewEntry: ClipboardEntry? {
+        for id in [highlighted, hovered].compactMap({ $0 }) {
+            if let entry = entries.first(where: { $0.id == id }) { return entry }
+        }
+        return entries.first
+    }
+
+    /// Данные изображения — и у тех записей, которым список их не загрузил.
+    func imageData(for entry: ClipboardEntry) -> Data? {
+        entry.data ?? (entry.kind == .image ? store.data(id: entry.id) : nil)
+    }
+
+    /// Показать файлы записи в Finder.
+    func reveal(_ entry: ClipboardEntry) {
+        let urls = entry.fileURLs.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !urls.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
+
     /// Запись, на которой стоит подсветка.
     var highlightedEntry: ClipboardEntry? {
         guard let id = highlighted else { return nil }
@@ -132,7 +156,7 @@ final class ClipboardService: ObservableObject {
             }
             pasteboard.writeObjects(urls as [NSURL])
         case .image:
-            guard let data = entry.data else { return }
+            guard let data = entry.data ?? store.data(id: entry.id) else { return }
             pasteboard.setData(data, forType: .png)
         }
 

@@ -209,6 +209,8 @@ struct Activity: Identifiable, Equatable {
         // при наведении, до «готово» и крестика было бы не дотянуться.
         case .clipboard, .shelf, .update, .digestReady, .siteChanged, .breakReminder, .countdownReached,
              .agentConfirm, .reminderDue, .incomingCall, .external: return true
+        // Плашка чашки открывает выбор срока — как полоска с отсчётом.
+        case .caffeine: return true
         default: return false
         }
     }

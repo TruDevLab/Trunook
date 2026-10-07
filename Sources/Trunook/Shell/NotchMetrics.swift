@@ -105,10 +105,13 @@ struct NotchMetrics: Equatable {
         let keyboardLock = KeyboardLockPanel.height(notchHeight: notchHeight)
         let water = WaterPanel.height(notchHeight: notchHeight)
         let feeds = FeedsPanel.height(notchHeight: notchHeight)
+        let letter = LetterPreviewPanel.height(notchHeight: notchHeight)
         // Кольцо в окне не панель, но обрезает его так же. Веер расходится
         // с ростом списка, и рано или поздно он перерос бы самую высокую
-        // панель молча — а окно режет без предупреждения.
-        let ringSize = QuickRingLayout.size(count: HubEntry.ringCases.count)
+        // панель молча — а окно режет без предупреждения. Меряется полный
+        // состав: с выключенными функциями кружков меньше, но окно
+        // от настроек не зависит.
+        let ringSize = QuickRingLayout.size(count: HubEntry.allCases.count)
         let shelf = ShelfPanel.height(
             notchHeight: notchHeight,
             count: ShelfPanel.columns * ShelfPanel.visibleRows
@@ -130,6 +133,7 @@ struct NotchMetrics: Equatable {
                 FeedChipView.width(metrics: self),
                 CalendarPanel.width,
                 EventEditorPanel.width,
+                LetterPreviewPanel.width(notchWidth: notchWidth),
                 ringSize.width,
                 MeetingControlsView.width(actionCount: MeetingAction.allCases.count, metrics: self)
             ),
@@ -139,7 +143,7 @@ struct NotchMetrics: Equatable {
             // оформления.
             height: max(
                 panel.height, clipboard, assistant, shelf,
-                teleprompter, caffeine, keyboardLock, water, notes, calendar, editor, feeds,
+                teleprompter, caffeine, keyboardLock, water, notes, calendar, editor, feeds, letter,
                 notchHeight + ringSize.height
             ) + NotchHintLayout.reserved
         )

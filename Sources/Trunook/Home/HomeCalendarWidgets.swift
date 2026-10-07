@@ -93,10 +93,9 @@ struct MusicWidget: View {
 
 /// Ближайшее время и то, что идёт следом.
 ///
-/// В один ряд — одна встреча, в два — до трёх. Кнопка встречи стоит с трёх
-/// колонок, ссылка рядом с ней — только во всю ширину: в узкой плитке они
-/// отнимали бы место у названия, а название и отвечает на вопрос «что за
-/// встреча».
+/// В один ряд — одна встреча, в два — до трёх. Подключиться можно в любой
+/// плитке — круглой кнопкой с камерой (`MeetingJoinButton`), она не отнимает
+/// места у названия. Ссылка рядом — только во всю ширину.
 struct ScheduleWidget: View {
     let widget: HomeWidget
     let events: [CalendarItem]
@@ -111,7 +110,6 @@ struct ScheduleWidget: View {
 
     private var visible: [CalendarItem] { Array(events.prefix(capacity)) }
 
-    private var showsJoin: Bool { widget.size.columns >= 3 }
     private var showsCopy: Bool { widget.size.columns == HomeGrid.columns }
 
     var body: some View {
@@ -158,7 +156,7 @@ struct ScheduleWidget: View {
             .buttonStyle(PressableStyle())
             .notchActionHint(t("Открыть в Календаре"))
 
-            if showsJoin, let link = event.link {
+            if let link = event.link {
                 if showsCopy {
                     Button { actions.copyLink(link.url) } label: {
                         Image(systemName: "link")
@@ -170,15 +168,7 @@ struct ScheduleWidget: View {
                     .notchHint(t("Скопировать ссылку"))
                 }
 
-                Button { actions.join(link.url) } label: {
-                    Label(link.provider.title, systemImage: link.provider.symbol)
-                        .font(.system(size: NotchStyle.font(11), weight: .semibold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Capsule().fill(.white.opacity(0.22)))
-                }
-                .buttonStyle(PressableStyle())
-                .fixedSize()
+                MeetingJoinButton(url: link.url, provider: link.provider.title, action: actions.join)
             }
         }
     }

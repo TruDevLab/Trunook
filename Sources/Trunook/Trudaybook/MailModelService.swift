@@ -2,7 +2,7 @@ import TrunookXPC
 import Foundation
 
 /// Отвечает Trudaybook моделью: пересказ письма, метки для разбора,
-/// повестка дня и итоги недели или месяца по заметкам.
+/// повестка дня, итоги недели или месяца по заметкам и шаблон ответа.
 ///
 /// Просьба — файл в `~/Library/Application Support/Trunook/mail-requests`,
 /// ответ — в `…/Trudaybook/trunook-answers/<номер>.json`. Путь ответа
@@ -145,6 +145,9 @@ final class MailModelService {
         case let .digest(period, title, notes):
             prompt = MailModelProtocol.digestPrompt(period: period, title: title, notes: notes, language: request.language)
             what = "итоги \(period == "month" ? "месяца" : "недели"), заметок \(notes.count)"
+        case .reply(let reply):
+            prompt = MailModelProtocol.replyPrompt(reply, language: request.language)
+            what = "шаблон ответа, писем в истории \(reply.history.count)"
         }
 
         busy = true
@@ -185,6 +188,12 @@ final class MailModelService {
                         self.answer(request.id, digest.isEmpty
                             ? ["ok": false, "code": "empty", "error": t("Модель вернула пустой ответ.")]
                             : ["ok": true, "text": digest, "model": model.name])
+                    case .reply:
+                        let reply = MailModelProtocol.replyText(text)
+                        DebugLog.write("почта для модели: шаблон ответа готов за \(seconds) с")
+                        self.answer(request.id, reply.isEmpty
+                            ? ["ok": false, "code": "empty", "error": t("Модель вернула пустой ответ.")]
+                            : ["ok": true, "reply": reply, "model": model.name])
                     }
                 case .failure(let error):
                     DebugLog.write("почта для модели: модель не ответила — \(error.localizedDescription)")

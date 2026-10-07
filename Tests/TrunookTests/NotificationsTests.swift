@@ -28,6 +28,74 @@ struct NotificationsTests {
         #expect(notice?.actions.last?.id == "no")
     }
 
+    @Test("Письмо с превью: кнопка «preview» открывает его здесь, а не отвечает")
+    func превьюПисьма() throws {
+        let notice = try #require(ExternalNotice(json: [
+            "source": "Работа", "title": "Анна: Отчёт", "optional": true,
+            "actions": [
+                ["id": "open", "title": "Открыть в Trudaybook", "positive": true, "icon": "open"],
+                ["id": "preview", "title": "Показать превью", "icon": "eye"],
+            ],
+            "preview": ["from": "Анна <anna@example.com>", "subject": "Отчёт",
+                        "text": String(repeating: "т", count: 5000), "date": "сегодня, 14:05"],
+        ], id: "1"))
+        let preview = try #require(notice.preview)
+        #expect(preview.subject == "Отчёт")
+        #expect(preview.text.count == 4000)
+        #expect(notice.actions.map(\.symbol) == ["arrow.up.forward.app", "eye.fill"])
+        #expect(!notice.isLocal(notice.actions[0]))
+        #expect(notice.isLocal(notice.actions[1]))
+
+        #expect(preview.actions.isEmpty)
+        #expect(notice.actions[0].opensApp == false)
+
+        // Быстрые действия превью: не больше четырёх, «opens» — выводить ли вперёд.
+        let quick = try #require(ExternalNotice(json: [
+            "title": "Письмо",
+            "preview": ["subject": "Отчёт", "actions": [
+                ["id": "replyAll", "title": "Ответить всем", "icon": "replyAll", "opens": true],
+                ["id": "archive", "title": "В архив", "icon": "archive"],
+                ["id": "forward", "title": "Переслать", "icon": "forward", "opens": true],
+                ["id": "snooze1h", "title": "Через 1 час", "icon": "snooze"],
+                ["id": "лишнее", "title": "Пятое"],
+            ]],
+        ], id: "4")?.preview)
+        #expect(quick.actions.map(\.id) == ["replyAll", "archive", "forward", "snooze1h"])
+        #expect(quick.actions.map(\.opensApp) == [true, false, true, false])
+        #expect(quick.actions.first?.symbol == "arrowshape.turn.up.left.2.fill")
+
+        // Приглашение: встреча и соседи по шкале, пересечения считаются.
+        let iso = ISO8601DateFormatter()
+        let base = Date(timeIntervalSince1970: 1_790_000_000)
+        func at(_ minutes: Int) -> String { iso.string(from: base.addingTimeInterval(TimeInterval(minutes * 60))) }
+        let invite = try #require(ExternalNotice(json: [
+            "title": "Приглашение",
+            "preview": ["subject": "Разбор", "meeting": [
+                "start": at(0), "end": at(60), "location": "Переговорная",
+                "events": [
+                    ["title": "Планёрка", "start": at(-60), "end": at(-30)],
+                    ["title": "Созвон", "start": at(30), "end": at(90)],
+                    ["title": "Сломанное", "start": at(10), "end": at(5)],
+                ],
+            ]],
+        ], id: "5")?.preview?.meeting)
+        #expect(invite.events.count == 2)
+        #expect(invite.clashes.map(\.title) == ["Созвон"])
+        let window = InvitationTimeline.window(invite)
+        #expect(window.lowerBound <= base.addingTimeInterval(-3600))
+        #expect(window.upperBound >= base.addingTimeInterval(7200))
+        #expect(InvitationTimeline.lanes(invite.events + [.init(title: "Ещё", start: base.addingTimeInterval(2400), end: base.addingTimeInterval(4000))]).count == 2)
+
+        // Без превью «preview» — обычное слово ответа: решает приславший.
+        let bare = try #require(ExternalNotice(json: [
+            "title": "Письмо", "actions": [["id": "preview", "title": "Показать"]],
+        ], id: "2"))
+        #expect(bare.preview == nil)
+        #expect(!bare.isLocal(bare.actions[0]))
+        // Пустое превью не превью.
+        #expect(ExternalNotice(json: ["title": "т", "preview": ["from": "Анна"]], id: "3")?.preview == nil)
+    }
+
     @Test("Значок кнопки без имени берётся по смыслу, а не общим колокольчиком")
     func значкиКнопок() {
         let notice = ExternalNotice(json: [

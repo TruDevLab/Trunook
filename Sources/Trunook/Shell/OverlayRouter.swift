@@ -120,6 +120,7 @@ final class OverlayRouter {
         case .eventEditor: return "правка события"
         case .feeds: return "сводки"
         case .windowSnap: return "раскладка окна"
+        case .letter: return "превью письма"
         }
     }
 }

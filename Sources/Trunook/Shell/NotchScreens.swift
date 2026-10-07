@@ -2,7 +2,8 @@ import AppKit
 
 /// На каких экранах живёт остров.
 enum NotchScreenMode: String, CaseIterable, Identifiable {
-    /// Только главный экран — как было всегда.
+    /// Только главный экран — как было всегда. Главный — с вырезом,
+    /// если в настройках не назначен другой (`Settings.notchHomeScreen`).
     case notched
     /// Там, где курсор: окно переезжает на экран вслед за рукой.
     case cursor
@@ -14,7 +15,7 @@ enum NotchScreenMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .notched: return t("С вырезом")
+        case .notched: return t("Только главный")
         case .cursor: return t("Где курсор")
         case .all: return t("Все экраны")
         }
@@ -37,14 +38,27 @@ struct ScreenSlot: Equatable {
     let hasNotch: Bool
     /// Зона раскрытия по наведению — у настоящей чёлки или условной.
     let trigger: CGRect
+    /// Постоянный номер экрана (`CGDisplayCreateUUIDFromDisplayID`): номер
+    /// `id` меняется при переподключении, а назначенный главным монитор
+    /// должен узнаваться и завтра.
+    var key: String = ""
+    /// Имя монитора — для списка в настройках.
+    var name: String = ""
 }
 
 /// Какой экран достаётся основному окну и какие — отражениям.
 enum NotchScreenChoice {
-    /// Главный экран: с системной чёлкой, а нет такого — основной монитор
+    /// Главный экран: назначенный в настройках (`preferred` — его `key`),
+    /// иначе с системной чёлкой, а нет такого — основной монитор
     /// из системных настроек. Основной `NSScreen.screens` отдаёт первым.
-    static func home(_ screens: [ScreenSlot]) -> CGDirectDisplayID? {
-        (screens.first { $0.hasNotch } ?? screens.first)?.id
+    ///
+    /// Назначенный, но отключённый монитор не держит остров без экрана:
+    /// пока его нет, главным снова становится экран с вырезом.
+    static func home(_ screens: [ScreenSlot], preferred: String? = nil) -> CGDirectDisplayID? {
+        if let preferred, !preferred.isEmpty, let chosen = screens.first(where: { $0.key == preferred }) {
+            return chosen.id
+        }
+        return (screens.first { $0.hasNotch } ?? screens.first)?.id
     }
 
     /// Экран основного окна.
@@ -57,9 +71,10 @@ enum NotchScreenChoice {
         screens: [ScreenSlot],
         cursor: CGPoint,
         current: CGDirectDisplayID?,
-        isBusy: Bool
+        isBusy: Bool,
+        preferred: String? = nil
     ) -> CGDirectDisplayID? {
-        guard let home = home(screens) else { return nil }
+        guard let home = home(screens, preferred: preferred) else { return nil }
         let alive = current.flatMap { id in screens.first { $0.id == id }?.id }
         switch mode {
         case .notched:
@@ -77,8 +92,8 @@ enum NotchScreenChoice {
     }
 
     /// На каких экранах стоят окна: только на главном — или на всех.
-    static func windows(mode: NotchScreenMode, screens: [ScreenSlot]) -> [CGDirectDisplayID] {
-        guard mode != .notched else { return home(screens).map { [$0] } ?? [] }
+    static func windows(mode: NotchScreenMode, screens: [ScreenSlot], preferred: String? = nil) -> [CGDirectDisplayID] {
+        guard mode != .notched else { return home(screens, preferred: preferred).map { [$0] } ?? [] }
         return screens.map(\.id)
     }
 
@@ -97,15 +112,18 @@ enum NotchScreenChoice {
 /// десять раз в секунду и почти всегда отвечает «ничего не менять».
 final class NotchScreens {
     private var mode: NotchScreenMode?
+    /// Назначенный главным экран — `ScreenSlot.key`.
+    private var preferred: String?
     private(set) var home: CGDirectDisplayID?
     /// Зоны раскрытия у полосок на чужих экранах.
     private var foreignTriggers: [CGRect] = []
 
     /// Расставить окна. `force` — экраны перестроились или поменялись размеры
     /// панелей: пересобрать всё.
-    func place(mode: NotchScreenMode, host: NotchWindowHost, isBusy: Bool, force: Bool = false) {
-        let force = force || mode != self.mode
+    func place(mode: NotchScreenMode, preferred: String?, host: NotchWindowHost, isBusy: Bool, force: Bool = false) {
+        let force = force || mode != self.mode || preferred != self.preferred
         self.mode = mode
+        self.preferred = preferred
         let cursor = NSEvent.mouseLocation
         if !force, isSettled(mode: mode, host: host, cursor: cursor, isBusy: isBusy) { return }
 
@@ -116,13 +134,14 @@ final class NotchScreens {
             screens: slots,
             cursor: cursor,
             current: host.activeID,
-            isBusy: isBusy
+            isBusy: isBusy,
+            preferred: preferred
         ) else { return }
-        home = NotchScreenChoice.home(slots)
+        home = NotchScreenChoice.home(slots, preferred: preferred)
         foreignTriggers = slots.filter { $0.id != home }.map(\.trigger)
 
         if force {
-            let ids = Set(NotchScreenChoice.windows(mode: mode, screens: slots))
+            let ids = Set(NotchScreenChoice.windows(mode: mode, screens: slots, preferred: preferred))
             host.rebuild(
                 screens: screens.filter { ids.contains(NotchGeometry.displayID(of: $0)) },
                 handles: mode == .all ? ids.subtracting([home].compactMap { $0 }) : [],

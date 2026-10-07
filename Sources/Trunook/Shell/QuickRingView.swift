@@ -1,14 +1,14 @@
 import SwiftUI
 
-/// Кружок кольца. Выключенная в настройках функция остаётся видимой,
-/// но бледной: иначе кольцо меняло бы состав, и человек решил бы, что
-/// функция пропала совсем.
+/// Кружок кольца. Выключенной в настройках функции в кольце нет вовсе —
+/// см. `HubEntry.ringCases`.
 struct QuickRingItem: Identifiable {
     let id: String
     let title: String
     let symbol: String
     let tint: Color
-    let isEnabled: Bool
+    /// Функция кружка — по ней рисуется миниатюра посреди веера.
+    var entry: HubEntry? = nil
 }
 
 /// Кольцо быстрого доступа: кружки веером под чёлкой.
@@ -38,6 +38,7 @@ struct QuickRingView: View {
             // а одно имя посередине отвечает ровно на тот вопрос, который
             // и возникает, — «что я сейчас выберу».
             title
+            miniature
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 circle(item, isLit: index == highlighted)
                     .offset(
@@ -77,6 +78,22 @@ struct QuickRingView: View {
             .opacity(highlighted == nil ? 0 : progress)
     }
 
+    /// Миниатюра выбранной функции под подписью — схема её панели
+    /// (`QuickRingMiniature`). На коротком веере кружки ближе к чёлке,
+    /// и миниатюра уменьшается, чтобы их не задеть.
+    @ViewBuilder
+    private var miniature: some View {
+        if let index = highlighted, items.indices.contains(index), let entry = items[index].entry {
+            let scale = QuickRingLayout.miniatureScale(count: items.count)
+            QuickRingMiniature(entry: entry)
+                .scaleEffect(scale, anchor: .top)
+                .id(entry)
+                .transition(.opacity)
+                .offset(y: notchHeight + QuickRingLayout.miniatureTop)
+                .opacity(progress)
+        }
+    }
+
     private func circle(_ item: QuickRingItem, isLit: Bool) -> some View {
         ZStack {
             Circle()
@@ -91,16 +108,43 @@ struct QuickRingView: View {
             Image(systemName: item.symbol)
                 .font(.system(size: NotchStyle.font(16), weight: .medium))
                 .foregroundStyle(
-                    isLit ? .white : item.tint.opacity(item.isEnabled ? 0.9 : 0.3)
+                    isLit ? .white : item.tint.opacity(0.9)
                 )
         }
         .frame(width: QuickRingLayout.circle, height: QuickRingLayout.circle)
         // Выбранный крупнее: размер читается боковым зрением, а цвет — нет,
         // и рука ведёт кружок, не глядя прямо на него.
         .scaleEffect(isLit ? 1.18 : 1)
-        // Выключенная в настройках функция видна, но бледна: пропавший кружок
-        // читается как «функцию убрали совсем».
-        .opacity(item.isEnabled ? 1 : 0.45)
         .animation(.easeOut(duration: 0.1), value: isLit)
+    }
+}
+
+extension QuickRingLayout {
+    /// Верх миниатюры от нижней кромки чёлки: под подписью и с зазором.
+    /// Подпись стоит на `scaled(14)` и ростом `scaled(22)`.
+    static var miniatureTop: CGFloat { NotchStyle.scaled(14) + NotchStyle.scaled(22) + 6 }
+
+    /// Во сколько уменьшить миниатюру, чтобы она не задела ни одного
+    /// кружка (с запасом на увеличение выбранного). Веер с малым числом
+    /// кружков узкий — там она мельче; ниже половины не сжимается.
+    static func miniatureScale(count: Int) -> CGFloat {
+        let base = QuickRingMiniature.size
+        let reach = circle * 1.18 / 2 + 4
+        let centers = offsets(count: count)
+        var scale: CGFloat = 1
+        while scale > 0.5 {
+            let rect = CGRect(
+                x: -base.width * scale / 2, y: miniatureTop,
+                width: base.width * scale, height: base.height * scale
+            )
+            let clear = centers.allSatisfy { center in
+                let dx = max(rect.minX - center.x, 0, center.x - rect.maxX)
+                let dy = max(rect.minY - center.y, 0, center.y - rect.maxY)
+                return hypot(dx, dy) >= reach
+            }
+            if clear { return scale }
+            scale -= 0.05
+        }
+        return 0.5
     }
 }

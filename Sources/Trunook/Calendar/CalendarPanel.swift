@@ -19,6 +19,8 @@ struct CalendarPanel: View {
     @ObservedObject var settings: Settings
     let metrics: NotchMetrics
     let onOpenEvent: (CalendarItem) -> Void
+    /// Подключиться к встрече по её ссылке — кнопкой в строке дела.
+    let onJoin: (URL) -> Void
     let onCompose: () -> Void
     let onClose: () -> Void
 
@@ -312,6 +314,21 @@ struct CalendarPanel: View {
     /// читается только если её найти глазами. Вместе они отвечают на «куда
     /// мне сейчас» с одного взгляда, а именно за этим в список дня и смотрят.
     private func eventRow(_ event: CalendarItem, isNext: Bool, now: Date) -> some View {
+        // Кнопка встречи лежит поверх строки, а не внутри неё: кнопка
+        // в кнопке в SwiftUI нажимается целиком внешней.
+        ZStack(alignment: .trailing) {
+            eventRowBody(event, isNext: isNext, now: now)
+            if let link = event.link {
+                MeetingJoinButton(url: link.url, provider: link.provider.title,
+                                  diameter: Self.joinSize, action: onJoin)
+                    .padding(.trailing, 6)
+            }
+        }
+    }
+
+    private static var joinSize: CGFloat { NotchStyle.scaled(22) }
+
+    private func eventRowBody(_ event: CalendarItem, isNext: Bool, now: Date) -> some View {
         Button(action: { onOpenEvent(event) }) {
             HStack(spacing: 8) {
                 // Полоска цвета календаря — то, чем рабочая встреча отличается
@@ -349,10 +366,8 @@ struct CalendarPanel: View {
                         .monospacedDigit()
                 }
                 if event.link != nil {
-                    Image(systemName: "video.fill")
-                        .font(.system(size: NotchStyle.font(9)))
-                        .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
-                        .accessibilityHidden(true)
+                    // Место под кнопку встречи, лежащую поверх строки.
+                    Color.clear.frame(width: Self.joinSize - 2, height: 1)
                 }
             }
             .padding(.horizontal, 8)

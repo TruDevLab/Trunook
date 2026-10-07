@@ -40,13 +40,15 @@ struct NotesPanel: View {
 
     private static var minimumWidth: CGFloat { NotchStyle.scaled(440) }
 
-    /// Ширина считается от чёлки, а не берётся числом: в крыле две кнопки,
-    /// а ширина крыла у каждой модели MacBook своя.
+    /// Ширина считается от чёлки, а не берётся числом: в крыле переключатель
+    /// фильтра и три кнопки, а ширина крыла у каждой модели MacBook своя.
+    /// Место под переключатель держится всегда — ширина панели не должна
+    /// прыгать оттого, что появилась первая заметка Trudaybook.
     static func width(notchWidth: CGFloat) -> CGFloat {
         max(
             minimumWidth,
             NotchStyle.width(
-                fittingWing: NotchStyle.wingRow(buttons: 2),
+                fittingWing: NotchStyle.wingRow(buttons: 3, reserved: NotesFilterSwitch.width),
                 notchWidth: notchWidth,
                 bodyPadding: NotchStyle.bottomPadding
             )
@@ -64,6 +66,22 @@ struct NotesPanel: View {
     /// пополниться, обязан прокручиваться с самого начала, иначе однажды
     /// он вырастет и обрежется.
     static let visibleRows = 5
+
+    // MARK: Плитки
+
+    static let tileColumns = 3
+    /// Плитка ростом ровно в две строки с зазором: высота панели считается
+    /// тем же расчётом, что и для списка, и плитки не нужен второй.
+    static var tileHeight: CGFloat { 2 * rowHeight + rowSpacing }
+
+    /// Сколько строк списка занимают заметки в этом виде. Ряд плиток —
+    /// две строки.
+    static func rows(count: Int, layout: NotesLayout) -> Int {
+        switch layout {
+        case .list: return count
+        case .tiles: return (count + tileColumns - 1) / tileColumns * 2
+        }
+    }
 
     /// Высота кнопки «Новая заметка».
     static var newNoteHeight: CGFloat { NotchStyle.scaled(32) }
@@ -117,6 +135,19 @@ struct NotesPanel: View {
             }
         } trailing: {
             HStack(spacing: 2) {
+                // Переключатель — только когда есть из чего выбирать:
+                // без заметок Trudaybook все три положения показали бы одно.
+                if notes.trudaybookCount > 0 {
+                    NotesFilterSwitch(selection: Binding(
+                        get: { notes.activeFilter },
+                        set: { notes.filter = $0 }
+                    ))
+                }
+                NotchPanelButton(
+                    symbol: notes.layout.other.symbol,
+                    hint: notes.layout.other.switchHint,
+                    action: { notes.layout = notes.layout.other }
+                )
                 // Новой заметки здесь больше нет: она стоит большой кнопкой
                 // внизу списка. Два способа одного действия на одном экране
                 // человек читает как два разных.
@@ -182,7 +213,7 @@ struct NotesPanel: View {
     /// заметку с тем же именем — не то, чего от него ждут.
     private func submitSearch() {
         let query = notes.query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty, notes.notes.isEmpty else { return }
+        guard !query.isEmpty, notes.shown.isEmpty else { return }
         onNewNote(query)
     }
 
@@ -211,7 +242,9 @@ struct NotesPanel: View {
                 .accessibilityHidden(true)
             Text(notes.isSearching
                 ? t("Ничего не нашлось — Enter заведёт заметку с этим текстом")
-                : t("Заметок пока нет — начните новую кнопкой снизу"))
+                : notes.total > 0 && notes.activeFilter != .all
+                    ? t("Здесь заметок нет — переключите фильтр справа вверху")
+                    : t("Заметок пока нет — начните новую кнопкой снизу"))
                 .font(.system(size: NotchStyle.font(11.5)))
                 .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
                 .multilineTextAlignment(.center)
@@ -229,21 +262,38 @@ struct NotesPanel: View {
     /// соседей — на этом в проекте ловились уже дважды.
     private var listArea: some View {
         ZStack(alignment: .bottom) {
-            if notes.notes.isEmpty {
+            if notes.shown.isEmpty {
                 empty
             } else {
                 list
             }
             newNoteButton
         }
-        .frame(height: Self.listHeight(rows: notes.notes.count))
+        .frame(height: Self.listHeight(rows: shownRows))
     }
+
+    private var shownRows: Int { Self.rows(count: notes.shown.count, layout: notes.layout) }
 
     private var list: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: Self.rowSpacing) {
-                ForEach(notes.notes) { note in
-                    row(note)
+                switch notes.layout {
+                case .list:
+                    ForEach(notes.shown) { note in
+                        row(note)
+                    }
+                case .tiles:
+                    LazyVGrid(
+                        columns: Array(
+                            repeating: GridItem(.flexible(), spacing: Self.rowSpacing),
+                            count: Self.tileColumns
+                        ),
+                        spacing: Self.rowSpacing
+                    ) {
+                        ForEach(notes.shown) { note in
+                            tile(note)
+                        }
+                    }
                 }
                 // Место под кнопкой в самой прокрутке: без него последняя
                 // строка остаётся под стеклом навсегда, и добраться до её
@@ -260,7 +310,7 @@ struct NotesPanel: View {
         LinearGradient(
             stops: [
                 .init(color: .black, location: 0),
-                .init(color: .black, location: 1 - Self.newNoteBand / Self.listHeight(rows: notes.notes.count)),
+                .init(color: .black, location: 1 - Self.newNoteBand / Self.listHeight(rows: shownRows)),
                 // Не до нуля: кнопка теперь круг в середине, и строка
                 // под ней закрыта не вся. Растворять её целиком значило бы
                 // прятать то, что прекрасно видно рядом с кнопкой.
@@ -358,6 +408,79 @@ struct NotesPanel: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            rowButtons(note)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: Self.rowHeight)
+        .background(
+            RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
+                .fill(.white.opacity(NotchStyle.tileFill))
+        )
+        // Форма попаданий задана явно: без неё нажимается только по буквам,
+        // а не по всей строке. Снимок этого не показывает — зоны попадания
+        // на нём не видно.
+        .contentShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
+        .onTapGesture { onOpen(note) }
+        // Своё имя у строки уже есть — её текст. Подменять его действием
+        // было бы порчей: диктор произносил бы «Открыть заметку» одинаково
+        // для всех строк подряд.
+        .notchActionHint(note.isReadOnly ? t("Открыть в Obsidian") : t("Открыть на правку"))
+    }
+
+    /// Плитка: имя, под ним начало текста в четыре строки, кнопки строки —
+    /// внизу справа. Те же действия, что у строки: вид меняет только то,
+    /// сколько текста видно сразу.
+    private func tile(_ note: Note) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                Image(systemName: note.origin.symbol)
+                    .font(.system(size: NotchStyle.font(9)))
+                    .foregroundStyle(Palette.notes.opacity(0.9))
+                    .accessibilityHidden(true)
+                Text(note.title)
+                    .font(.system(size: NotchStyle.captionFontSize + 0.5, weight: .semibold))
+                    .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
+                    .lineLimit(1)
+            }
+            Text(Self.tileText(note))
+                .font(.system(size: NotchStyle.captionFontSize))
+                .foregroundStyle(.white.opacity(NotchStyle.tertiaryOpacity))
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                rowButtons(note)
+            }
+            .frame(height: 18)
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 7)
+        .padding(.bottom, 3)
+        .frame(height: Self.tileHeight)
+        .background(
+            RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
+                .fill(.white.opacity(NotchStyle.tileFill))
+        )
+        .contentShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
+        .onTapGesture { onOpen(note) }
+        .notchActionHint(note.isReadOnly ? t("Открыть в Obsidian") : t("Открыть на правку"))
+    }
+
+    /// Начало текста без первой строки, если она повторяет имя, и без
+    /// пустых строк: в плитке на счету каждая.
+    static func tileText(_ note: Note) -> String {
+        var lines = note.plain.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if let first = lines.first, first == note.title.trimmingCharacters(in: .whitespaces) {
+            lines.removeFirst()
+        }
+        return String(lines.joined(separator: "\n").prefix(300))
+    }
+
+    /// Кнопки строки и плитки: запись, закрепление, Obsidian, удаление.
+    @ViewBuilder
+    private func rowButtons(_ note: Note) -> some View {
             // Запись — первой из кнопок строки: её слушают вместо того,
             // чтобы читать заметку, и это самое частое, зачем к такой
             // заметке возвращаются.
@@ -409,21 +532,39 @@ struct NotesPanel: View {
                 .buttonStyle(PressableStyle())
                 .notchHint(t("Удалить заметку"))
             }
+    }
+}
+
+/// Переключатель «Все / Из Trudaybook / Из Trunook» в правом крыле панели
+/// заметок: три значка в одной капсуле, выбранный подсвечен.
+///
+/// Значки, а не слова: крыло рядом с чёлкой вмещает около ста точек,
+/// а три подписи заняли бы вдвое больше. Слова — во всплывающей подписи.
+struct NotesFilterSwitch: View {
+    @Binding var selection: NoteFilter
+
+    static var segment: CGFloat { max(22, NotchStyle.scaled(22)) }
+    static var width: CGFloat { segment * CGFloat(NoteFilter.allCases.count) + 4 }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(NoteFilter.allCases) { filter in
+                let isOn = filter == selection
+                Button(action: { selection = filter }) {
+                    Image(systemName: filter.symbol)
+                        .font(.system(size: NotchStyle.font(9.5), weight: .semibold))
+                        .foregroundStyle(isOn ? .white : .white.opacity(NotchStyle.tertiaryOpacity))
+                        .frame(width: Self.segment, height: Self.segment - 2)
+                        .background(Capsule().fill(.white.opacity(isOn ? 0.22 : 0)))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(PressableStyle())
+                .notchHint(filter.title)
+                .accessibilityAddTraits(isOn ? .isSelected : [])
+            }
         }
-        .padding(.horizontal, 10)
-        .frame(height: Self.rowHeight)
-        .background(
-            RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous)
-                .fill(.white.opacity(NotchStyle.tileFill))
-        )
-        // Форма попаданий задана явно: без неё нажимается только по буквам,
-        // а не по всей строке. Снимок этого не показывает — зоны попадания
-        // на нём не видно.
-        .contentShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
-        .onTapGesture { onOpen(note) }
-        // Своё имя у строки уже есть — её текст. Подменять его действием
-        // было бы порчей: диктор произносил бы «Открыть заметку» одинаково
-        // для всех строк подряд.
-        .notchActionHint(note.isReadOnly ? t("Открыть в Obsidian") : t("Открыть на правку"))
+        .padding(2)
+        .background(Capsule().fill(.white.opacity(NotchStyle.tileFill)))
+        .animation(.easeOut(duration: 0.12), value: selection)
     }
 }

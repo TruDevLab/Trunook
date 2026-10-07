@@ -1,3 +1,4 @@
+import Foundation
 import CoreGraphics
 import TrunookXPC
 
@@ -44,6 +45,8 @@ enum NotchPresentation: Equatable {
     case feeds
     /// Раскладки окна, донесённого до чёлки.
     case windowSnap
+    /// Превью письма из плашки.
+    case letter
     /// Голосовой заход: панель не раскрывается, светится сам остров.
     case voice
     /// Кольцо быстрого доступа: кружки веером под чёлкой, пока держат кнопку.
@@ -86,7 +89,7 @@ enum NotchPresentation: Equatable {
         case .activity, .preview: return true
         case .collapsed, .chip, .swiping, .voice, .quickRing, .expanded,
              .clipboard, .assistant, .shelf, .timer, .monitor,
-             .teleprompter, .caffeine, .keyboardLock, .water, .notes, .calendar, .eventEditor, .feeds, .windowSnap:
+             .teleprompter, .caffeine, .keyboardLock, .water, .notes, .calendar, .eventEditor, .feeds, .windowSnap, .letter:
             return false
         }
     }
@@ -105,6 +108,8 @@ enum SwipeDirection: Equatable {
 struct NotchContent: Equatable {
     var activity: Activity?
     var track: NowPlaying?
+    var previewSelection: PreviewItem?
+    var caffeineEndsAt: Date?
     var chip: CalendarItem?
     /// Полоска идущего таймера.
     var recordingChip: RecordingChip?
@@ -239,7 +244,11 @@ enum NotchSizing {
                     height: MeetingControlsView.height(notchHeight: metrics.notchHeight)
                 )
             }
-            let layout = PreviewPanel.layout(track: content.track, event: content.events.first, metrics: metrics)
+            let layout = PreviewPanel.layout(
+                track: content.track, event: content.events.first,
+                caffeine: content.caffeineChip, caffeineEndsAt: content.caffeineEndsAt,
+                selection: content.previewSelection, metrics: metrics
+            )
             return metrics.activity(width: layout.panelWidth)
         case .swiping:
             // Нижняя панель убрана, остаётся высота самой чёлки: остров
@@ -318,6 +327,11 @@ enum NotchSizing {
             return CGSize(
                 width: WindowSnapLayout.width,
                 height: WindowSnapLayout.height(notchHeight: metrics.notchHeight)
+            )
+        case .letter:
+            return CGSize(
+                width: LetterPreviewPanel.width(notchWidth: metrics.notchWidth),
+                height: LetterPreviewPanel.height(notchHeight: metrics.notchHeight)
             )
         case .feeds:
             return CGSize(
