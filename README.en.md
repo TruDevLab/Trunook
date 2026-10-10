@@ -100,7 +100,7 @@ commands — one in the 1×1 size. Select text in another window, click
   or snoozed for fifteen minutes, a finished timer extended or restarted,
   and whatever the model is about to write is confirmed or cancelled without
   opening a panel. Incoming calls arrive there too — answer or decline right
-  from the notch (Telephone, Zoiper, Linphone, Bria, 3CX, Telegram). And any
+  from the notch (Telephone, Zoiper, Linphone, Bria, 3CX, Telegram, Trudaybook). And any
   script can ask you through the notch itself: it drops a question file into
   the app's folder and waits to see which button you pressed. Calls and
   script questions are off by default.

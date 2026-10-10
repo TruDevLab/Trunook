@@ -206,6 +206,18 @@ struct NotificationsTests {
         #expect(ActivityView.answer(for: .external(said)) == nil)
     }
 
+    @Test("Звонок Trudaybook: свои подписи кнопок, не кнопки письма")
+    func звонокTrudaybook() throws {
+        let app = try #require(CallApp.app(bundleID: "com.trudaybook.Trudaybook"))
+        #expect(CallService.match(["Принять звонок"], app.answerTitles))
+        #expect(CallService.match(["Decline call"], app.declineTitles))
+        // «Ответить» в главном окне — ответ на письмо, а не на звонок.
+        #expect(!CallService.match(["Ответить"], app.answerTitles))
+        #expect(!CallService.match(["Отклонить"], app.declineTitles))
+        #expect(app.looksLikeCall(window: "Ольга Смирнова"))
+        #expect(CallInvite.caller(fromTitle: "Ольга Смирнова") == "Ольга Смирнова")
+    }
+
     @Test("У звонка без отбоя одна кнопка, а не мёртвая вторая")
     func звонокБезОтбоя() {
         let app = CallApp(

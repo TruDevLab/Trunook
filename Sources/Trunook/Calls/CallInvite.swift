@@ -66,6 +66,20 @@ struct CallApp: Equatable {
             declineTitles: ["Отклонить", "Reject", "Decline"],
             windowHints: []
         ),
+        // Trudaybook — свой телефон SIP. Входящий — плавающее окошко,
+        // заголовок которого — кто звонит; у круглых кнопок постоянные
+        // подписи для Универсального доступа (в Trudaybook переведены так же).
+        // Подписи нарочно не «Ответить» и «Отклонить»: такие кнопки есть
+        // в главном окне Trudaybook (ответ на письмо, приглашение), и звонком
+        // оно считаться не должно. Подсказок заголовка нет — заголовок и есть
+        // имя звонящего.
+        CallApp(
+            bundleID: "com.trudaybook.Trudaybook",
+            name: "Trudaybook",
+            answerTitles: ["Принять звонок", "Answer call", "接听来电"],
+            declineTitles: ["Отклонить звонок", "Decline call", "拒绝来电"],
+            windowHints: []
+        ),
         CallApp(
             bundleID: "ru.keepcoder.Telegram",
             name: "Telegram",
