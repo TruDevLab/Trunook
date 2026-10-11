@@ -41,14 +41,18 @@ struct QuickRingView: View {
             miniature
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 circle(item, isLit: index == highlighted)
+                    // Свёрнутые — мельче и **внутри** чёлки: прежде они
+                    // сходились в полный размер под её кромкой и, догорая,
+                    // висели там тёмным комком (снято на записи закрытия).
+                    .scaleEffect(0.35 + 0.65 * progress)
                     .offset(
                         x: offsets[index].x * progress,
-                        y: notchHeight + offsets[index].y * progress
+                        y: notchHeight * progress + offsets[index].y * progress
                     )
                     // Кружки выезжают из-под чёлки, а не проявляются на месте:
                     // проявление читается как «что-то мигнуло», а выезд —
-                    // как «оно оттуда».
-                    .opacity(progress)
+                    // как «оно оттуда». Гаснут быстрее, чем съезжаются.
+                    .opacity(progress * progress)
             }
         }
         // Выравнивание по верху обязательно. `offset` не участвует

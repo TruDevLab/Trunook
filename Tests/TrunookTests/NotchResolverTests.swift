@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Trunook
 
@@ -82,6 +83,36 @@ struct NotchResolverTests {
     func свайпТребуетНаведения() {
         #expect(NotchInputs(swipe: .next).resolve().presentation == .collapsed)
         #expect(NotchInputs(swipe: .next, isHovered: true).resolve().presentation == .swiping)
+        // Над плашкой новой песни наведения нет, а полоса со стрелкой нужна:
+        // иначе трек переключался молча.
+        #expect(NotchInputs(swipe: .next, swipeOverPlashka: true).resolve().presentation == .swiping)
+        #expect(NotchInputs(pendingSwipe: .next, swipeProgress: 0.5, swipeOverPlashka: true)
+            .resolve().presentation == .swiping)
+        // В отражении на другом экране свайпа нет.
+        #expect(NotchInputs(swipe: .next, swipeOverPlashka: true).passive().resolve().presentation == .collapsed)
+    }
+
+    @Test("Плашка новой песни — только когда трек сменился сам")
+    func ручноеПереключение() {
+        let now = Date()
+        let player = "ru.yandex.desktop.music"
+        // Свайп только что — полоса со стрелкой уже всё показала.
+        #expect(NotchController.isManualTrackChange(lastSkipAt: now.addingTimeInterval(-1), player: player,
+                                                    frontmost: "com.apple.Safari", now: now))
+        // Плеер на переднем плане — переключили в нём.
+        #expect(NotchController.isManualTrackChange(lastSkipAt: .distantPast, player: player,
+                                                    frontmost: player, now: now))
+        // Давно не трогали, плеер в фоне — трек доиграл сам.
+        #expect(!NotchController.isManualTrackChange(lastSkipAt: now.addingTimeInterval(-30), player: player,
+                                                     frontmost: "com.apple.Safari", now: now))
+        #expect(!NotchController.isManualTrackChange(lastSkipAt: .distantPast, player: nil, frontmost: nil, now: now))
+    }
+
+    @Test("Свайп над плашкой держит окно, даже когда курсор уже не над нарисованным")
+    func свайпНадПлашкойДержитОкно() {
+        #expect(NotchMouseCatch.catchesMouse(hasSomethingDrawn: true, cursorOverVisibleRect: false,
+                                             isSwipingOverPlashka: true))
+        #expect(!NotchMouseCatch.catchesMouse(hasSomethingDrawn: true, cursorOverVisibleRect: false))
     }
 
     @Test("Остров расходится в бока по ходу жеста, а не после срабатывания")

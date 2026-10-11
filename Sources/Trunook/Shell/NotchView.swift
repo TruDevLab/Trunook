@@ -11,11 +11,23 @@ final class NotchState: ObservableObject {
     /// а сам трек переключается только когда она дошла до единицы.
     @Published var pendingSwipe: SwipeDirection?
     @Published var swipeProgress: Double = 0
+    /// Свайп идёт над плашкой новой песни, а не над наведённой чёлкой:
+    /// остров всё равно расходится полосой со стрелкой.
+    @Published var swipeOverPlashka = false
+    /// Насколько раскрытую панель тянут вниз двумя пальцами сверх раскрытия,
+    /// уже с «резиновым» затуханием. Ноль — не тянут; отпустили — пружина
+    /// возвращает к нулю.
+    @Published var overPull: CGFloat = 0
     /// Момент наведения — точка отсчёта для бегущей строки в мини-виде.
     @Published var hoverStartedAt = Date()
     /// Что выбрано в мини-виде миниатюрой в крыле. `nil` — первое по
     /// важности; каждое новое наведение начинает с него.
     @Published var previewSelection: PreviewItem?
+    /// Какая панель уже показана — ставится на кадр позже смены состояния.
+    /// По нему проявляются каскадом плитки главного экрана и миниатюры
+    /// в крыльях: первый кадр новой панели рисуется с ними спрятанными,
+    /// следующий — запускает их пружины по очереди (`NotchMotion.Cascade`).
+    @Published var revealed: NotchPresentation?
     /// Встреча, до которой показывается обратный отсчёт. Решение о том,
     /// показывать ли его, принимает контроллер — вёрстка только рисует.
     @Published var chipItem: CalendarItem?
@@ -446,7 +458,7 @@ struct NotchView: View {
             notchHeight: metrics.notchHeight
         )
         .allowsHitTesting(false)
-        .animation(.spring(response: 0.24, dampingFraction: 0.72), value: ring.isOpen)
+        .animation(NotchMotion.ring(opening: ring.isOpen), value: ring.isOpen)
     }
 
     private var content: NotchContent { snapshot().content }
@@ -460,9 +472,12 @@ struct NotchView: View {
 
     private var isOpen: Bool { presentation != .collapsed }
 
-    /// Полоса воспроизведения нужна там, где виден сам трек.
+    /// Полоса воспроизведения нужна там, где виден сам трек, — в мини-виде.
+    /// На главном экране её целиком закрывает панель, а в перелёте капли,
+    /// когда форма на миг выходит за край панели, полоса проступала белой
+    /// чертой по левому и нижнему краю.
     private var showsProgress: Bool {
-        presentation == .preview || presentation == .expanded
+        presentation == .preview
     }
 
     private var shape: NotchShape {
@@ -488,10 +503,13 @@ struct NotchView: View {
     }
 
     /// Форма ведёт, содержимое догоняет. При закрытии наоборот: сначала
-    /// гаснет содержимое, потом схлопывается форма.
-    private var shapeAnimation: Animation { .spring(response: 0.28, dampingFraction: 0.82) }
-    private var contentAnimation: Animation {
-        .easeOut(duration: 0.14).delay(isOpen ? 0.10 : 0)
+    /// втягивается содержимое, потом схлопывается форма. Пружины и переходы —
+    /// в `NotchMotion`.
+    private var shapeAnimation: Animation { NotchMotion.shape(to: presentation) }
+
+    /// Натяжение — только у раскрытого главного экрана.
+    private var stretch: CGFloat {
+        presentation == .expanded && !isMirror ? state.overPull : 0
     }
 
     /// Рисовать ли стекло в вырезе.
@@ -559,8 +577,17 @@ struct NotchView: View {
             // прозрачности, и вместе они дают спад от самой вырезки во все
             // стороны: остров вытекает из железа, а не выпадает из-под
             // чёрной планки во всю ширину.
-            LinearGradient(stops: ironStops, startPoint: .top, endPoint: .bottom)
-                .mask(ironMaskAcross)
+            //
+            // Пересчитывается **на каждом кадре** по промежуточному размеру
+            // (`AnimatedBackdrop`): доли от конечного размера прыгали сразу
+            // в конец, пока форма ещё росла, — фон мини-вида и раскрытой
+            // панели сменялся рывком (поймал пользователь). Уголки крепления
+            // гаснут и проявляются той же пружиной (`attach` 0…1).
+            AnimatedBackdrop(width: size.width, height: size.height + stretch,
+                             attach: presentation.keepsAttachCorners ? 1 : 0) { current, attach in
+                LinearGradient(stops: ironStops(height: current.height), startPoint: .top, endPoint: .bottom)
+                    .mask(ironMaskAcross(size: current, attach: attach))
+            }
         }
     }
 
@@ -579,11 +606,13 @@ struct NotchView: View {
             // Полоса шапки: там за стеклом строка меню, и линза без
             // размытия показывала её значки прямо под кнопками шапки —
             // «‹‹» и чужой значок рядом с шестерёнкой (снято снимком).
-            LinearGradient(stops: [
-                .init(color: .black.opacity(0.62), location: 0),
-                .init(color: .black.opacity(0.62), location: min(1, metrics.notchHeight / max(1, size.height))),
-                .init(color: .clear, location: min(1, (metrics.notchHeight + 18) / max(1, size.height))),
-            ], startPoint: .top, endPoint: .bottom)
+            AnimatedBackdrop(width: size.width, height: size.height + stretch, attach: 0) { current, _ in
+                LinearGradient(stops: [
+                    .init(color: .black.opacity(0.62), location: 0),
+                    .init(color: .black.opacity(0.62), location: min(1, metrics.notchHeight / max(1, current.height))),
+                    .init(color: .clear, location: min(1, (metrics.notchHeight + 18) / max(1, current.height))),
+                ], startPoint: .top, endPoint: .bottom)
+            }
             .allowsHitTesting(false)
             lensEdgeCover
                 .allowsHitTesting(false)
@@ -603,6 +632,12 @@ struct NotchView: View {
     /// по плечу и чуть за краем линзы, дальше плавно к шапке. Вниз сходит
     /// тем же законом, что и сама шапка.
     private var lensEdgeCover: some View {
+        AnimatedBackdrop(width: size.width, height: size.height + stretch, attach: 0) { current, _ in
+            lensEdgeCover(size: current)
+        }
+    }
+
+    private func lensEdgeCover(size: CGSize) -> some View {
         let width = max(1, size.width)
         let height = max(1, size.height)
         // Сплошь — плечо и две точки за краем линзы: блик края шириной
@@ -630,7 +665,7 @@ struct NotchView: View {
     ///
     /// Той же кривой, что и вниз: два разных закона спада в одном пятне
     /// читались бы углом.
-    private var ironMaskAcross: some View {
+    private func ironMaskAcross(size: CGSize, attach: Double) -> some View {
         let width = max(1, size.width)
         // Половина ширины сплошной черноты — ровно половина вырезки, без
         // запаса. Запас нужен был по высоте, и туда он и ушёл: вбок чернота
@@ -668,7 +703,7 @@ struct NotchView: View {
             // Наложение поверх маски — значит объединение: где полоса
             // непрозрачна, там непрозрачна и маска, что бы ни говорил
             // боковой градиент.
-            LinearGradient(stops: attachStops(height: max(1, size.height)),
+            LinearGradient(stops: attachStops(height: max(1, size.height), attach: attach),
                            startPoint: .top, endPoint: .bottom)
                 .allowsHitTesting(false)
         }
@@ -676,7 +711,7 @@ struct NotchView: View {
 
     /// Ступени полосы крепления: непрозрачно у самой кромки, дальше сходит
     /// на нет той же кривой, что и всё остальное растворение.
-    private func attachStops(height: CGFloat) -> [Gradient.Stop] {
+    private func attachStops(height: CGFloat, attach strength: Double) -> [Gradient.Stop] {
         guard translucentNotch else {
             return [Gradient.Stop(color: .white, location: 0),
                     Gradient.Stop(color: .white, location: 1)]
@@ -694,10 +729,8 @@ struct NotchView: View {
         // уголок, которым остров держится за кромку. Полоса, оказавшаяся
         // короче него, оставила бы верх уголка на стекле — а именно он
         // и виден как место крепления.
-        let attach = presentation.keepsAttachCorners
-            ? max(NotchStyle.shoulderInset,
-                  min(NotchStyle.ironAttach, height * NotchStyle.ironAttachShare))
-            : 0
+        let attach = max(NotchStyle.shoulderInset,
+                         min(NotchStyle.ironAttach, height * NotchStyle.ironAttachShare)) * strength
         // Потолок на полосу вместе с растворением под ней: на полоске
         // отсчёта, немногим более высокой, чем сама чёлка, они вдвоём
         // закрывали всё, и стекла у неё не оставалось вовсе.
@@ -708,7 +741,7 @@ struct NotchView: View {
         // высотой, она всё равно красила самую верхнюю строку: ступени
         // сходились в точку, а первая из них непрозрачна по построению.
         // Замер по снимку полоски таймера поймал там альфу 0,94 вместо нуля.
-        let strength: Double = presentation.keepsAttachCorners ? 1 : 0
+        // Здесь она — доля 0…1, проходящая пружиной вместе с формой.
 
         let curve = NotchStyle.ironCurve
         let last = max(1, curve.count - 1)
@@ -734,8 +767,8 @@ struct NotchView: View {
     /// чернотой — той самой заливкой, что была здесь раньше. Ветка `if`
     /// поменяла бы тождество вида, и SwiftUI пересобрал бы поддерево вместо
     /// перехода; на этом уже ловили отрыв острова от кромки при мурчании.
-    private var ironStops: [Gradient.Stop] {
-        let height = max(1, size.height)
+    private func ironStops(height rawHeight: CGFloat) -> [Gradient.Stop] {
+        let height = max(1, rawHeight)
         // По `translucentNotch`, а не по `glassInNotch`: градиент рисуется
         // и на снимке — иначе его форму нечем проверить.
         //
@@ -766,12 +799,6 @@ struct NotchView: View {
         ZStack(alignment: .top) {
             background
 
-            // Внутри ZStack, а не поверх: обрезка формой съедает внешнюю
-            // половину обводки и оставляет ровную линию по краю острова.
-            if showsProgress {
-                NotchProgressRing(track: music.nowPlaying, shape: shape, tint: music.artworkTint)
-            }
-
             // Группы стеклянных поверхностей живут внутри самих панелей,
             // а не здесь. Обёртка `GlassEffectContainer` вокруг всей панели
             // ломает ей высоту: список команд, ограниченный четырьмя
@@ -785,11 +812,43 @@ struct NotchView: View {
             // по построению: сетка меню функций, ряд показателей нагрузки.
             // Прокручиваемым спискам слияние и не нужно: строки в них
             // разделены нарочно.
+            // Своя идентичность у каждого состояния: смена панели — уход
+            // старой и приход новой переходом, а не подмена внутри
+            // тянущейся формы. Тот же переход несёт и раскрытие
+            // со сворачиванием (`NotchMotion.panelTransition`).
             panel
-                .opacity(isOpen ? 1 : 0)
-                .animation(contentAnimation, value: presentation)
+                .id(presentation)
+                .transition(NotchMotion.panelTransition(for: presentation))
+                // Уходящая панель обязана остаться **над** подложкой. Без
+                // `zIndex` SwiftUI на время перехода уводит удаляемый вид
+                // под соседей — панель оказывалась под стеклом и линзой
+                // острова и в первый же миг сворачивания была видна сквозь
+                // них сильно размытой (запись пользователя: «дёргается»).
+                .zIndex(1)
+                // Содержимое съезжает вниз вдвое меньше низа острова:
+                // тянется сама панель, а не прибитая к ней картинка.
+                .offset(y: stretch * 0.5)
         }
-        .frame(width: size.width, height: size.height)
+        // Натяжение раскрытой панели вниз (`overPull`): низ острова идёт
+        // за пальцами, верх держится за чёлку.
+        // **По верху**, а не по центру. Слой с содержимым растёт по нему:
+        // уходящая панель главного экрана (≈324 pt) доигрывает переход,
+        // а рамка уже свернулась до высоты чёлки, — по центру слой разом
+        // подскакивал на полторы сотни точек, и содержимое на сворачивании
+        // мелькало дважды в разных местах (запись пользователя). У мини-вида
+        // тот же сдвиг уводил полосу трека на точку вниз.
+        .frame(width: size.width, height: size.height + stretch, alignment: .top)
+        // Полоса воспроизведения — наложением **ровно по рамке** острова,
+        // а не слоем внутри `ZStack`: тот растёт по содержимому (у мини-вида
+        // на 2 pt выше рамки) и центруется в ней, полоса уезжала на точку
+        // вниз, и нижнюю её половину срезала обрезка — снизу она была вдвое
+        // тоньше, чем сбоку (замер по пикселям: 1 pt против 2).
+        .overlay(alignment: .top) {
+            if showsProgress {
+                NotchProgressRing(track: music.nowPlaying, shape: shape, tint: music.artworkTint)
+                    .allowsHitTesting(false)
+            }
+        }
         // Вид стекла — всем поверхностям выреза разом (см. `Surface.GlassLook`).
         .environment(\.glassLook, .current)
         .overlay(alignment: swipeAlignment) {
@@ -797,7 +856,7 @@ struct NotchView: View {
             // по факту переключения: так видно, что жест засчитывается,
             // и насколько ещё вести.
             if presentation == .swiping, let direction = effectiveSwipe {
-                SwipeIndicator(direction: direction)
+                SwipeIndicator(direction: direction, committed: state.swipe != nil)
                     // Вогнутый уголок формы съедает крайние точки, поэтому
                     // отступаем на его радиус — иначе значок обрезается.
                     .padding(direction == .previous ? .leading : .trailing, 12)
@@ -849,8 +908,13 @@ struct NotchView: View {
         // Панель сменилась или закрылась — подпись уходит с ней. Кнопка
         // исчезает вместе с панелью и об уходе курсора уже не сообщает,
         // так что сама плашка о своём устаревании не узнает.
-        .onChange(of: presentation) { _, _ in
+        .onChange(of: presentation) { _, new in
             if !isMirror { hint.clear() }
+            // Кадром позже: первый кадр новой панели уже нарисован
+            // со спрятанным каскадом, теперь его можно запускать.
+            DispatchQueue.main.async {
+                if state.revealed != new { state.revealed = new }
+            }
         }
         // Дрожь поверх обрезки: трясётся весь остров целиком, а не его
         // содержимое внутри неподвижной формы.
@@ -866,6 +930,11 @@ struct NotchView: View {
         // Заодно перестал дёргаться и конец потока: панель, садящаяся
         // по содержимому после ответа, тоже меняла высоту скачком.
         .animation(shapeAnimation, value: size)
+        // Пока тянут — короткая пружина, остров не отстаёт от пальцев;
+        // отпустили — возврат с отскоком, как резинка.
+        .animation(state.overPull == 0 ? NotchMotion.timed(.spring(duration: 0.42, bounce: 0.35))
+                                       : .interactiveSpring(response: 0.18, dampingFraction: 0.86),
+                   value: state.overPull)
         .animation(.easeOut(duration: 0.12), value: state.swipe)
     }
 
@@ -1224,7 +1293,8 @@ struct NotchView: View {
                     onAnswer: onAnswer,
                     onOpen: { openInteractive(activity) },
                     onSaveToNotes: onSaveClipboardToNotes,
-                    notesEnabled: settings.notesEnabled
+                    notesEnabled: settings.notesEnabled,
+                    revealed: state.revealed == .activity
                 )
                 .frame(
                     width: ActivityView
@@ -1266,6 +1336,7 @@ struct NotchView: View {
                 },
                 onOpenCaffeine: onOpenAwake,
                 musicIdle: settings.musicEnabled,
+                wingsShown: state.revealed == .preview,
                 playerName: MusicPlayer.name(for: settings.musicPlayer),
                 onStartPlayer: { MusicPlayer.start(settings.musicPlayer) }
             )
@@ -1283,7 +1354,8 @@ struct NotchView: View {
                 services: homeServices,
                 events: events,
                 metrics: metrics,
-                actions: homeActions
+                actions: homeActions,
+                revealed: state.revealed == .expanded
             )
             .frame(width: metrics.expanded(rows: content.homeRows).width, alignment: .leading)
         }
@@ -1350,5 +1422,31 @@ struct NotchView: View {
             editCountdown: onEditCountdown,
             openTrudaybook: { TrudaybookFeed.openApp() }
         )
+    }
+}
+
+/// Слой подложки, пересчитываемый на каждом кадре пружины.
+///
+/// Градиенты черноты заданы долями размера острова. Посчитанные от конечного
+/// размера, они сразу вставали в конец, а форма ещё росла, — фон прыгал.
+/// `Animatable` даёт телу промежуточные ширину и высоту (и долю уголков
+/// крепления), и градиент едет вместе с формой.
+struct AnimatedBackdrop<Content: View>: View, Animatable {
+    var width: CGFloat
+    var height: CGFloat
+    var attach: Double
+    let content: (CGSize, Double) -> Content
+
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, Double> {
+        get { AnimatablePair(AnimatablePair(width, height), attach) }
+        set {
+            width = newValue.first.first
+            height = newValue.first.second
+            attach = newValue.second
+        }
+    }
+
+    var body: some View {
+        content(CGSize(width: width, height: height), attach)
     }
 }

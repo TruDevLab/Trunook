@@ -34,6 +34,8 @@ struct NotchInputs: Equatable {
     /// Свайп идёт прямо сейчас: направление и доля пройденного пути.
     var pendingSwipe: SwipeDirection?
     var swipeProgress: Double = 0
+    /// Свайп над плашкой новой песни — полоса со стрелкой и без наведения.
+    var swipeOverPlashka = false
     var isHovered = false
     var isPinnedOpen = false
     var chip: CalendarItem?
@@ -112,6 +114,7 @@ struct NotchInputs: Equatable {
         copy.swipe = nil
         copy.pendingSwipe = nil
         copy.swipeProgress = 0
+        copy.swipeOverPlashka = false
         copy.isHovered = false
         copy.isPinnedOpen = false
         copy.voicePhase = nil
@@ -130,6 +133,7 @@ struct NotchInputs: Equatable {
         copy.swipe = swipe
         copy.pendingSwipe = pendingSwipe
         copy.swipeProgress = swipeProgress
+        copy.swipeOverPlashka = swipeOverPlashka
         // Наведение — только ради музыки: без трека мини-вид показал бы
         // ближайшую встречу, а её тут прятать.
         copy.isHovered = isHovered && track != nil
@@ -191,7 +195,7 @@ struct NotchInputs: Equatable {
         // значок должен появляться в освободившейся полосе, а не поверх
         // названия трека. Небольшой порог — чтобы случайный горизонтальный
         // толчок не схлопывал панель.
-        if isHovered, swipe != nil || swipeProgress >= Self.swipingEnterProgress {
+        if isHovered || swipeOverPlashka, swipe != nil || swipeProgress >= Self.swipingEnterProgress {
             return .swiping
         }
         if isPinnedOpen { return .expanded }

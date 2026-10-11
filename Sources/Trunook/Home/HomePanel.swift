@@ -79,6 +79,13 @@ struct HomePanel: View {
     let events: [CalendarItem]
     let metrics: NotchMetrics
     let actions: HomeActions
+    /// Панель показана — плитки проявляются каскадом (`NotchMotion.Cascade`).
+    var revealed = true
+
+    /// Место плитки в каскаде: по строке, затем по столбцу.
+    static func cascadeOrder(of placement: HomeGrid.Placement, in all: [HomeGrid.Placement]) -> Int {
+        all.filter { ($0.row, $0.column) < (placement.row, placement.column) }.count
+    }
 
     var body: some View {
         let grid = HomeGrid.place(settings.homeWidgets)
@@ -134,6 +141,9 @@ struct HomePanel: View {
                         events: events,
                         actions: actions
                     )
+                    // Каскадом сверху вниз и слева направо: сетка «собирается»,
+                    // а не появляется картинкой целиком.
+                    .notchCascade(Self.cascadeOrder(of: placement, in: grid.placements), shown: revealed)
                     .offset(x: origin.x, y: origin.y)
                 }
             }
@@ -266,6 +276,7 @@ struct HomeValue: View {
             .foregroundStyle(.white.opacity(NotchStyle.primaryOpacity))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
+            .notchNumber(text)
     }
 }
 

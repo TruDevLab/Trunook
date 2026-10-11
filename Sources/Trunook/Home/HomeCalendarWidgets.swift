@@ -54,6 +54,10 @@ struct MusicWidget: View {
     private var hasTrack: Bool { !(music.nowPlaying?.title ?? "").isEmpty }
 
     private var titles: some View {
+        titleStack.notchSwap(music.nowPlaying?.title)
+    }
+
+    private var titleStack: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(hasTrack ? music.nowPlaying?.title ?? "" : t("Ничего не играет"))
                 .font(.system(size: NotchStyle.font(12.5), weight: .semibold))
@@ -82,6 +86,10 @@ struct MusicWidget: View {
         }
         .frame(width: side, height: side)
         .clipShape(RoundedRectangle(cornerRadius: NotchStyle.rowRadius, style: .continuous))
+        // Обложка, пришедшая позже названия, проявляется; новый трек —
+        // переворот карточкой, как в мини-виде и плашке.
+        .animation(NotchMotion.timed(.easeOut(duration: 0.28)), value: music.nowPlaying?.artwork?.count)
+        .notchFlip(music.nowPlaying?.title)
     }
 
     private var transport: some View {

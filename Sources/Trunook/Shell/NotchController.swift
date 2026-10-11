@@ -147,6 +147,11 @@ final class NotchController {
     private let chime = ChimePlayer()
 
     private var swipeResetTimer: Timer?
+    /// Когда человек переключал трек свайпом. Плашка новой песни после этого
+    /// не нужна: полоса со стрелкой уже показала, что переключилось.
+    /// Медиаклавиши сюда нарочно не входят — после ⏮ ⏭ на клавиатуре
+    /// плашка нужна (просьба пользователя): чёлка в это время ничего не показала.
+    private var lastManualSkipAt = Date.distantPast
     /// Раз в несколько часов записи сверяются со сроком хранения.
     private var retentionTimer: Timer?
     private var retentionObservation: AnyCancellable?
@@ -159,6 +164,7 @@ final class NotchController {
     /// а чистить по каждой смене незачем.
     private var lastRetentionDays: Int?
     private var calendarObservation: AnyCancellable?
+    private var plashkaSwipeObservation: AnyCancellable?
     private var thingsObservation: AnyCancellable?
     /// Открыт ли главный экран с плиткой нагрузки — от этого зависит опрос.
     private var monitorObservation: AnyCancellable?
@@ -434,6 +440,14 @@ final class NotchController {
         input.onExpand = { [weak self] in self?.expandPanel() }
         input.onCollapse = { [weak self] in self?.collapsePanel() }
         input.onSwipe = { [weak self] direction in self?.performSwipe(direction) }
+        input.allowsTrackSwipeWithoutHover = { [weak self] in
+            guard let self else { return false }
+            // Жест, начатый над плашкой, доводится до конца: с первой трети
+            // плашку сменяет полоса у чёлки, и курсор оказывается не над ней.
+            if self.state.swipeOverPlashka { return true }
+            guard case .trackChanged? = self.activities.current?.kind else { return false }
+            return self.notchSnapshot.presentation == .activity && self.host.visibleRectContainsCursor
+        }
         input.onOverlayHover = { [weak self] location in self?.router.updateHover(at: location) }
         input.onDismissOverlay = { [weak self] cause in self?.dismissOverlay(cause) }
         input.onOverlayKey = { [weak self] event in self?.handleOverlayKey(event) ?? false }
@@ -516,10 +530,22 @@ final class NotchController {
         }
         battery.start()
 
-        music.onTrackChanged = { [weak self] _ in
+        music.onTrackChanged = { [weak self] track in
             guard let self, self.settings.showTrackChanges else { return }
+            // Плашки нет, если трек переключили свайпом (полоса со стрелкой
+            // уже показала) или в самом плеере на переднем плане (его и видно).
+            // Сам сменившийся трек и клавиши ⏮ ⏭ — с плашкой.
+            if Self.isManualTrackChange(
+                lastSkipAt: self.lastManualSkipAt,
+                player: track.bundleIdentifier,
+                frontmost: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            ) {
+                DebugLog.write("музыка: трек переключили вручную — без плашки")
+                return
+            }
             self.activities.present(.trackChanged)
         }
+
         if settings.musicEnabled {
             music.start()
         }
@@ -560,6 +586,9 @@ final class NotchController {
         alerts.start()
 
         // Планировщик и обратный отсчёт питаются одним и тем же списком.
+        plashkaSwipeObservation = state.$swipeOverPlashka.removeDuplicates().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.updateWindowInteractivity() }
+        }
         calendarObservation = calendar.$upcoming.sink { [weak self] items in
             self?.refreshSchedule(calendarItems: items)
             self?.updateCountdown(from: items)
@@ -1106,7 +1135,8 @@ final class NotchController {
             hasSomethingDrawn: notchSnapshot.presentation != .collapsed,
             cursorOverVisibleRect: host.visibleRectContainsCursor,
             isDraggingOut: state.isDraggingOut,
-            cursorOverRingCircle: ring.isSticky && ring.highlighted != nil
+            cursorOverRingCircle: ring.isSticky && ring.highlighted != nil,
+            isSwipingOverPlashka: state.swipeOverPlashka
         )
     }
 
@@ -1163,6 +1193,7 @@ final class NotchController {
             swipe: state.swipe,
             pendingSwipe: state.pendingSwipe,
             swipeProgress: state.swipeProgress,
+            swipeOverPlashka: state.swipeOverPlashka,
             isHovered: state.isHovered,
             isPinnedOpen: state.isPinnedOpen,
             chip: state.chipItem,
@@ -1326,6 +1357,7 @@ final class NotchController {
         } else {
             // Курсор ушёл — фиксация раскрытия снимается.
             state.isPinnedOpen = false
+            state.overPull = 0
             state.swipe = nil
             holdActivityUnderCursor()
         }
@@ -1380,11 +1412,48 @@ final class NotchController {
         host.updateInteractiveRect()
     }
 
+    /// Сколько после свайпа смена трека считается его следствием.
+    static let manualSkipWindow: TimeInterval = 4
+
+    /// Трек переключили так, что плашка не нужна: свайп только что
+    /// или играющий плеер на переднем плане — там его и переключили.
+    static func isManualTrackChange(lastSkipAt: Date, player: String?, frontmost: String?,
+                                    now: Date = Date()) -> Bool {
+        if now.timeIntervalSince(lastSkipAt) < manualSkipWindow { return true }
+        if let player, !player.isEmpty, player == frontmost { return true }
+        return false
+    }
+
+    /// Отладка: свайп, доведённый до конца, без жеста. Как и живой — при
+    /// наведении: остров расходится, значок «щёлкает», новый трек
+    /// переворачивается в мини-виде.
+    func debugSwipe(_ direction: SwipeDirection) {
+        debugHover()
+        // Пальцы ведут значок десятью шагами, как живой жест, — иначе он
+        // появлялся бы уже засчитанным и «щелчку» нечем было бы сработать.
+        let start = 0.8 * NotchMotion.slowdown
+        let step = 0.03 * NotchMotion.slowdown
+        for index in 1...10 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + start + Double(index) * step) { [weak self] in
+                self?.state.pendingSwipe = direction
+                self?.state.swipeProgress = Double(index) / 10
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + start + 11 * step) { [weak self] in
+            guard let self else { return }
+            self.state.swipeProgress = 0
+            self.state.pendingSwipe = nil
+            self.performSwipe(direction)
+        }
+    }
+
     /// Свайп довели до порога: переключаем трек и показываем это в вырезе.
     private func performSwipe(_ direction: SwipeDirection) {
         DebugLog.write("свайп: \(direction == .next ? "следующий" : "предыдущий") трек")
         Haptics.tap(.levelChange)
         music.send(direction == .next ? .nextTrack : .previousTrack)
+        NotchMotion.lastSkip = (direction == .next, Date())
+        lastManualSkipAt = Date()
 
         state.swipe = direction
         swipeResetTimer?.invalidate()
@@ -1394,6 +1463,7 @@ final class NotchController {
         let timer = Timer(timeInterval: 0.55, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.state.swipe = nil
+            self.state.swipeOverPlashka = false
             // Заново отсчитываем бегущую строку — у нового трека своё название.
             self.state.hoverStartedAt = Date()
         }

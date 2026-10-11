@@ -93,6 +93,8 @@ struct PreviewPanel: View {
     /// Музыка включена в настройках: при тишине в мини-виде строка
     /// «Ничего не играет», которая запускает плеер.
     var musicIdle = false
+    /// Мини-вид показан — миниатюры выпрыгивают из-под чёлки следом за строкой.
+    var wingsShown = true
     /// Имя плеера из настроек — для подсказки строки «Ничего не играет».
     var playerName: String? = nil
     /// Нажали строку «Ничего не играет» — запустить плеер и включить музыку.
@@ -240,10 +242,14 @@ struct PreviewPanel: View {
             // там пусто в любом случае, и строка остаётся строкой одного
             // события, а не перечнем.
             .overlay(alignment: .topTrailing) {
-                if let first = alternates.first { wingThumb(first) }
+                if let first = alternates.first {
+                    wingThumb(first).notchCascade(4, shown: wingsShown, scale: 0.4, lift: -8, pop: true)
+                }
             }
             .overlay(alignment: .topLeading) {
-                if alternates.count > 1 { wingThumb(alternates[1]) }
+                if alternates.count > 1 {
+                    wingThumb(alternates[1]).notchCascade(6, shown: wingsShown, scale: 0.4, lift: -8, pop: true)
+                }
             }
     }
 
@@ -292,16 +298,23 @@ struct PreviewPanel: View {
             .buttonStyle(PressableStyle())
             .notchHint(tf("Включить музыку в %@", playerName ?? t("Музыка")))
         default:
+            let line = Self.text(for: shown, track: track, event: event, caffeineEndsAt: caffeineEndsAt)
             HStack(spacing: ActivityLayout.spacing) {
+                // Новый трек или другая встреча — обложка и строка перетекают,
+                // а не подменяются (`NotchMotion.Swap`).
                 leading
                     .frame(width: ActivityLayout.iconSize, height: ActivityLayout.iconSize)
+                    // Трек — переворот карточкой, встреча — перетекание.
+                    .notchFlip(shown == .music ? (track?.title ?? "") : "")
+                    .notchSwap(shown == .music ? "" : line, alignment: .center)
 
                 MarqueeText(
-                    text: Self.text(for: shown, track: track, event: event, caffeineEndsAt: caffeineEndsAt),
+                    text: line,
                     font: ActivityLayout.textFont,
                     availableWidth: layout.textWidth,
                     startDate: startDate
                 )
+                .notchSwap(line)
 
                 if shown == .meeting, let link = event?.link?.url {
                     MeetingJoinButton(url: link, provider: event?.link?.provider.title, action: onJoin)
@@ -425,8 +438,14 @@ struct PreviewPanel: View {
     }
 
 
-    @ViewBuilder
     private var artwork: some View {
+        // Обложка приходит позже названия — проявляется, а не подменяет.
+        artworkImage
+            .animation(NotchMotion.timed(.easeOut(duration: 0.28)), value: track?.artwork?.count)
+    }
+
+    @ViewBuilder
+    private var artworkImage: some View {
         if let data = track?.artwork, let image = NSImage(data: data) {
             Image(nsImage: image)
                 .resizable()
@@ -450,12 +469,26 @@ struct PreviewPanel: View {
 /// и кружок вокруг выглядел бы лишней деталью.
 struct SwipeIndicator: View {
     let direction: SwipeDirection
+    /// Трек уже переключён — значок «щёлкает»: рывок в сторону перелистывания
+    /// с отскоком и встряска стрелок. Видно, что жест засчитан.
+    var committed = false
 
     var body: some View {
+        let sign: Double = direction == .next ? 1 : -1
         Image(systemName: direction == .next ? "forward.fill" : "backward.fill")
             .font(.system(size: NotchStyle.font(14), weight: .semibold))
             .foregroundStyle(.white)
             .symbolSwap(direction == .next)
+            .symbolEffect(.bounce.byLayer, options: .speed(1 / NotchMotion.slowdown),
+                          value: NotchMotion.reduced ? false : committed)
+            .keyframeAnimator(initialValue: 0.0, trigger: NotchMotion.reduced ? false : committed) { view, x in
+                view.offset(x: x)
+            } keyframes: { _ in
+                KeyframeTrack {
+                    SpringKeyframe(committed ? 9 * sign : 0, duration: 0.09 * NotchMotion.slowdown, spring: .snappy)
+                    SpringKeyframe(0, duration: 0.4 * NotchMotion.slowdown, spring: .bouncy)
+                }
+            }
             .frame(width: NotchSizing.swipeExtension)
             // Плашки под чёлкой здесь быть не может: указатель живёт
             // во время жеста двумя пальцами, а не по наведению — показывать

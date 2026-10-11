@@ -41,9 +41,13 @@ enum NotchMouseCatch {
         hasSomethingDrawn: Bool,
         cursorOverVisibleRect: Bool,
         isDraggingOut: Bool = false,
-        cursorOverRingCircle: Bool = false
+        cursorOverRingCircle: Bool = false,
+        isSwipingOverPlashka: Bool = false
     ) -> Bool {
-        if isDraggingOut || cursorOverRingCircle { return true }
+        // Свайп над плашкой новой песни: с первой трети плашку сменяет полоса
+        // у чёлки, курсор оказывается в пустоте — погасшее окно отдало бы
+        // остаток жеста окну под ним, и до порога было не дотянуть.
+        if isDraggingOut || cursorOverRingCircle || isSwipingOverPlashka { return true }
         return hasSomethingDrawn && cursorOverVisibleRect
     }
 }

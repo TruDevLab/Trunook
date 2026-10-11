@@ -256,6 +256,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.musicStart", #selector(startMusicPlayer)),
             ("com.trunook.debug.links", #selector(testLinkExtraction)),
             ("com.trunook.debug.nextTrack", #selector(testNextTrack)),
+            ("com.trunook.debug.swipeNext", #selector(testSwipeNext)),
+            ("com.trunook.debug.swipePrevious", #selector(testSwipePrevious)),
             ("com.trunook.debug.reminder", #selector(testReminderSoon)),
             ("com.trunook.debug.dump", #selector(dumpUpcoming)),
             ("com.trunook.debug.capture", #selector(testCapture)),
@@ -1132,6 +1134,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func testNextTrack() {
         controller.music.send(.nextTrack)
     }
+
+    /// Свайп двумя пальцами, доведённый до конца, — без трекпада.
+    @objc private func testSwipeNext() { controller.debugSwipe(.next) }
+    @objc private func testSwipePrevious() { controller.debugSwipe(.previous) }
 
     /// Подсовывает планировщику напоминание со сроком через 20 секунд.
     /// Проверяет настоящий путь срабатывания, а не только внешний вид плашки:

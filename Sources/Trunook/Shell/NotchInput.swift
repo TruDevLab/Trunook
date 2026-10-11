@@ -50,6 +50,10 @@ final class NotchInput {
     var onCollapse: (() -> Void)?
     /// Свайп поперёк довели до порога.
     var onSwipe: ((SwipeDirection) -> Void)?
+    /// Можно ли перелистывать трек без наведения на чёлку — курсор над
+    /// плашкой новой песни. Наведением она не считается (плашка под курсором
+    /// лишь замирает), и свайп по ней прежде глотался.
+    var allowsTrackSwipeWithoutHover: (() -> Bool)?
     /// Курсор двигается, пока открыта накладка.
     var onOverlayHover: ((CGPoint) -> Void)?
     /// Чем накладку просят закрыть.
@@ -93,6 +97,9 @@ final class NotchInput {
     private var swipeOffset: CGFloat = 0
     /// Накопитель вертикального: им панель вытягивают из мини-вида.
     private var pullOffset: CGFloat = 0
+    /// Сырое натяжение раскрытой панели — сколько провели пальцами вниз.
+    private var overPullRaw: CGFloat = 0
+    private var lastPullEventAt = Date.distantPast
     private var swipeReadyAt = Date.distantPast
     /// Когда последний раз приходило событие прокрутки: по молчанию гасим
     /// незавершённый жест.
@@ -423,7 +430,9 @@ final class NotchInput {
     // MARK: - Свайп двумя пальцами
 
     private func handleScroll(_ event: NSEvent) {
-        guard state.isHovered, state.overlay == nil else { return }
+        guard state.overlay == nil else { return }
+        let overTrackPlashka = !state.isHovered && allowsTrackSwipeWithoutHover?() == true
+        guard state.isHovered || overTrackPlashka else { return }
 
         // Начало нового жеста обнуляет накопители, иначе остаток от прошлого
         // свайпа сработал бы раньше времени.
@@ -436,8 +445,10 @@ final class NotchInput {
         // преобладающая ось: диагональные движения иначе делали бы и то,
         // и другое разом.
         if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+            if state.swipeOverPlashka != overTrackPlashka { state.swipeOverPlashka = overTrackPlashka }
             handleTrackSwipe(event)
-        } else {
+        } else if !overTrackPlashka {
+            // Тянуть вниз — раскрывать мини-вид; над плашкой его нет.
             handlePull(event)
         }
     }
@@ -468,7 +479,7 @@ final class NotchInput {
         // Сторону считаем до сброса: он обнуляет накопитель, по знаку
         // которого она и определяется.
         let direction = swipeDirection
-        resetPendingSwipe()
+        resetPendingSwipe(keepsPlashka: true)
         swipeReadyAt = Date().addingTimeInterval(Self.swipeCooldown)
         onSwipe?(direction)
     }
@@ -485,10 +496,13 @@ final class NotchInput {
         return natural == .next ? .previous : .next
     }
 
-    private func resetPendingSwipe() {
+    private func resetPendingSwipe(keepsPlashka: Bool = false) {
         swipeOffset = 0
         state.swipeProgress = 0
         state.pendingSwipe = nil
+        // Засчитанный свайп держит полосу сам (`state.swipe`) и снимает
+        // признак по своему таймеру; брошенный — снимает сразу.
+        if !keepsPlashka, state.swipe == nil, state.swipeOverPlashka { state.swipeOverPlashka = false }
     }
 
     /// Сторож незавершённого жеста.
@@ -497,6 +511,10 @@ final class NotchInput {
     /// её может не быть вовсе: значок оставался висеть, пока не тронешь
     /// что-нибудь ещё. Поэтому доля жеста гаснет и просто по молчанию.
     private func expirePendingSwipe() {
+        // Колесо мыши фазы «конец» не шлёт — натяжение отпускаем по молчанию.
+        if state.overPull > 0, Date().timeIntervalSince(lastPullEventAt) >= Self.swipeIdleTimeout {
+            releaseOverPull()
+        }
         guard state.swipeProgress > 0 else { return }
         guard Date().timeIntervalSince(lastSwipeEventAt) >= Self.swipeIdleTimeout else { return }
         resetPendingSwipe()
@@ -509,6 +527,20 @@ final class NotchInput {
     /// Направление считается по пальцам, а не по знаку смещения: при
     /// «естественной» прокрутке система его переворачивает, и жёстко
     /// зашитый знак работал бы правильно ровно у половины людей.
+    /// Предел натяжения и его «резина»: чем дальше тянут, тем туже,
+    /// и больше `overPullLimit` не вытянуть — как прокрутка за край.
+    static let overPullLimit: CGFloat = 30
+
+    static func rubberBand(_ raw: CGFloat) -> CGFloat {
+        let limit = overPullLimit
+        return limit * (1 - 1 / (raw * 0.55 / limit + 1))
+    }
+
+    private func releaseOverPull() {
+        overPullRaw = 0
+        if state.overPull != 0 { state.overPull = 0 }
+    }
+
     private func handlePull(_ event: NSEvent) {
         let fingersDown = event.isDirectionInvertedFromDevice
             ? event.scrollingDeltaY > 0
@@ -519,6 +551,22 @@ final class NotchInput {
         // обнуляет накопленное: вытягивание — это одно непрерывное движение,
         // а не сумма разнонаправленных рывков.
         let wantsDown = !state.isPinnedOpen
+
+        // Раскрытую панель продолжают тянуть вниз — «резина»: низ идёт
+        // за пальцами всё туже и возвращается, когда их отпустят.
+        if state.isPinnedOpen {
+            if event.phase == .ended || event.phase == .cancelled { return releaseOverPull() }
+            if fingersDown {
+                guard event.momentumPhase.isEmpty else { return }
+                lastPullEventAt = Date()
+                overPullRaw += abs(event.scrollingDeltaY)
+                let pull = Self.rubberBand(overPullRaw)
+                if abs(pull - state.overPull) > 0.25 { state.overPull = pull }
+                return
+            }
+            if state.overPull > 0 { releaseOverPull() }
+        }
+
         guard fingersDown == wantsDown else {
             pullOffset = 0
             return

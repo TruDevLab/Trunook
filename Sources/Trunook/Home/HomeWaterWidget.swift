@@ -38,6 +38,7 @@ struct WaterWidget: View {
             Spacer(minLength: 0)
             HomeValue(text: WaterVolume.label(log.day.total), size: 18)
             Text(Self.countText(log.day))
+                .notchNumber(Self.countText(log.day))
                 .font(.system(size: NotchStyle.font(9.5), weight: .medium))
                 .foregroundStyle(.white.opacity(NotchStyle.secondaryOpacity))
                 .lineLimit(1)

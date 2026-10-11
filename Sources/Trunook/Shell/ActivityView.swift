@@ -158,6 +158,9 @@ struct ActivityView: View {
     /// Заметки включены. От этого зависит не только кнопка, но и ширина
     /// плашки — поэтому признак приходит и сюда, и в расчёт размера.
     let notesEnabled: Bool
+    /// Плашка показана — значок выпрыгивает, кнопки ответа следом
+    /// (`NotchMotion.Cascade`).
+    var revealed = true
 
     static func layout(
         for kind: Activity.Kind,
@@ -274,6 +277,7 @@ struct ActivityView: View {
             // подпись всплывает под чёлкой при наведении.
             if let answer = Self.answer(for: activity.kind) {
                 answerButtons(answer)
+                    .notchCascade(3, shown: revealed, scale: 0.6, lift: 0, pop: true)
             }
 
             if Self.isDismissable(activity.kind) {
@@ -430,10 +434,21 @@ struct ActivityView: View {
         .fixedSize()
     }
 
+    /// Ключ трека для переворота обложки — только у плашки новой песни.
+    private var trackKey: String? {
+        guard case .trackChanged = activity.kind else { return nil }
+        return track?.title ?? ""
+    }
+
     private var content: some View {
         HStack(spacing: ActivityLayout.spacing) {
             icon
                 .frame(width: ActivityLayout.iconSize, height: ActivityLayout.iconSize)
+                // Новая песня, пока плашка ещё висит, — обложка переворачивается
+                // карточкой (`NotchMotion.Flip`). У прочих плашек ключ один
+                // и тот же — переворота нет.
+                .notchFlip(trackKey ?? "")
+                .notchCascade(0, shown: revealed, scale: 0.4, lift: 0, pop: true)
 
             MarqueeText(
                 text: Self.text(for: activity.kind, track: track),
@@ -441,6 +456,10 @@ struct ActivityView: View {
                 availableWidth: layout.textWidth,
                 startDate: activity.createdAt
             )
+            // Только у плашки трека: строка таймера меняется каждую секунду
+            // и перетекала бы непрерывно. Поправка исполнителя через
+            // полсекунду после названия — тоже перетекание, а не скачок.
+            .notchSwap(trackKey == nil ? "" : (Self.text(for: activity.kind, track: track) ?? ""))
 
             if let action = Self.button(for: activity.kind) {
                 Button { perform(action) } label: {
@@ -503,14 +522,19 @@ struct ActivityView: View {
         case let .meeting(item, _):
             iconTile(item.symbol)
         case .trackChanged:
-            if let artwork = track?.artwork, let image = NSImage(data: artwork) {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .clipShape(RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous))
-            } else {
-                iconTile("music.note")
+            // Обложка приходит от плеера позже названия — проявляется
+            // из заглушки, а не подменяет её рывком.
+            Group {
+                if let artwork = track?.artwork, let image = NSImage(data: artwork) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .clipShape(RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous))
+                } else {
+                    iconTile("music.note")
+                }
             }
+            .animation(NotchMotion.timed(.easeOut(duration: 0.28)), value: track?.artwork?.count)
         case .powerConnected:
             iconTile("bolt.fill")
         case .powerDisconnected:
