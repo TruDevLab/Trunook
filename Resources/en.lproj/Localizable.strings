@@ -1644,3 +1644,5 @@
 "Другое…" = "Other…";
 "Запускается нажатием на плитку «Музыка», когда ничего не играет." = "Opens when you tap the Music tile while nothing is playing.";
 "Включить музыку в %@" = "Play music in %@";
+"Убрать лайк" = "Remove like";
+"Нравится" = "Like";

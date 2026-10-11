@@ -93,6 +93,17 @@ struct MusicWidget: View {
     }
 
     private var transport: some View {
+        HStack(spacing: 6) {
+            // Сердечко — когда есть трек и плитка не самая маленькая:
+            // в 1×1 место только под «играть».
+            if TrackLike.supports(music.nowPlaying), widget.size != .small {
+                TrackLikeButton(diameter: 30)
+            }
+            playButton
+        }
+    }
+
+    private var playButton: some View {
         let isPlaying = music.nowPlaying?.isPlaying == true
         return HomeTileButton(
             symbol: isPlaying ? "pause.fill" : "play.fill",

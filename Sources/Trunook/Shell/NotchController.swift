@@ -549,6 +549,7 @@ final class NotchController {
         if settings.musicEnabled {
             music.start()
         }
+        TrackLike.shared.start(music: music)
 
         commands.onOutcome = { [weak self] outcome in
             switch outcome {
@@ -1344,6 +1345,8 @@ final class NotchController {
             state.previewSelection = nil
             Haptics.tap()
             music.refresh()
+            // Лайк могли поставить в самом плеере — сердечко должно это знать.
+            TrackLike.shared.refresh()
             // Задачу заводят и тут же открывают вырез посмотреть, появилась ли
             // она: опроса раз в минуту для такого сценария мало.
             things.refresh()

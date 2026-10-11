@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import Trunook
+import TrunookXPC
 
 @Suite("Плеер для плитки «Музыка»")
 struct MusicPlayerTests {
@@ -28,6 +29,23 @@ struct MusicPlayerTests {
         #expect(MusicPlayer.playButton(in: [["Воспроизведение"], ["Воспроизведение"]]) == nil)
         // Уже играет: рядом с «назад» стоит «Пауза» — не трогаем.
         #expect(MusicPlayer.playButton(in: [["Предыдущая песня"], ["Пауза"], ["Следующая песня"]]) == nil)
+    }
+
+    @Test("Лайк: флажок «Нравится» панели управления, способ — по плееру")
+    func лайк() {
+        // Ряд кнопок окна Яндекс Музыки, снятый событием `musicDump`.
+        let window = [["Воспроизведение"], ["Выключить звук"], ["Не нравится"], ["Нравится"],
+                      ["Предыдущая песня"], ["Воспроизведение"], ["Следующая песня"]]
+        #expect(TrackLike.likeButton(in: window) == 3)
+        // Без панели управления — ничего.
+        #expect(TrackLike.likeButton(in: [["Нравится"], ["Воспроизведение"]]) == nil)
+        #expect(TrackLike.way(for: "com.apple.Music") == .appleScript)
+        #expect(TrackLike.way(for: "ru.yandex.desktop.music") == .button)
+        // Системная команда «Нравится» будит «Музыку» Apple — у прочих
+        // плееров сердечка нет вовсе.
+        #expect(TrackLike.way(for: "com.spotify.client") == .unsupported)
+        #expect(TrackLike.way(for: nil) == .unsupported)
+        #expect(!TrackLike.supports(NowPlaying(title: "Песня", artist: "Группа", isPlaying: true)))
     }
 
     @Test("По умолчанию — «Музыка» Apple, пустое значение тоже к ней")

@@ -174,7 +174,7 @@ struct ActivityView: View {
             minimumWidth: metrics.closed.width,
             trailingIsButton: button(for: kind) != nil,
             trailingExtra: sideButtonCount(kind, notesEnabled: notesEnabled) * sideButtonWidth
-                + answerRoom(for: kind),
+                + answerRoom(for: kind) + likeRoom(for: kind, track: track),
             maxWidth: answer(for: kind) == nil
                 ? ActivityLayout.maxWidth : ActivityLayout.maxAskWidth
         )
@@ -275,6 +275,11 @@ struct ActivityView: View {
 
             // Ждущая плашка не уходит сама: ответ — круглыми кнопками,
             // подпись всплывает под чёлкой при наведении.
+            if case .trackChanged = activity.kind, TrackLike.supports(track) {
+                TrackLikeButton()
+                    .notchCascade(3, shown: revealed, scale: 0.6, lift: 0, pop: true)
+            }
+
             if let answer = Self.answer(for: activity.kind) {
                 answerButtons(answer)
                     .notchCascade(3, shown: revealed, scale: 0.6, lift: 0, pop: true)
@@ -367,6 +372,12 @@ struct ActivityView: View {
 
     /// Сколько кнопки ответа прибавляют к ширине: промежуток от текста,
     /// сами кнопки с промежутками и разница полей справа и слева.
+    /// Сердечко у плашки новой песни — лайк, не раскрывая выреза.
+    static func likeRoom(for kind: Activity.Kind, track: NowPlaying?) -> CGFloat {
+        guard case .trackChanged = kind, TrackLike.supports(track) else { return 0 }
+        return ActivityLayout.spacing + answerDiameter
+    }
+
     static func answerRoom(for kind: Activity.Kind) -> CGFloat {
         guard let answer = answer(for: kind) else { return 0 }
         let count = CGFloat(answer.count)

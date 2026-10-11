@@ -254,6 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.musicSkip", #selector(testMusicSkip)),
             ("com.trunook.debug.musicDump", #selector(dumpMusicPlayer)),
             ("com.trunook.debug.musicStart", #selector(startMusicPlayer)),
+            ("com.trunook.debug.musicLike", #selector(toggleTrackLike)),
             ("com.trunook.debug.links", #selector(testLinkExtraction)),
             ("com.trunook.debug.nextTrack", #selector(testNextTrack)),
             ("com.trunook.debug.swipeNext", #selector(testSwipeNext)),
@@ -1077,6 +1078,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// То же, что нажатие на плитку «Музыка» при тишине: запустить плеер
     /// и включить музыку.
     @objc private func startMusicPlayer() { MusicPlayer.start(Settings.shared.musicPlayer) }
+    /// Сердечко трека — без мыши: лайк ставится и снимается в плеере.
+    @objc private func toggleTrackLike() { TrackLike.shared.toggle() }
 
     @objc private func testMusicSkip() {
         let music = controller.music

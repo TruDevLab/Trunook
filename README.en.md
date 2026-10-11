@@ -179,7 +179,9 @@ commands — one in the 1×1 size. Select text in another window, click
   Swipe with two fingers to change tracks; skip 10 seconds back or forward
   with the buttons in the mini view. When nothing is playing, tapping the
   Music tile or the “Nothing playing” row in the mini view opens the player
-  chosen in settings and starts the music. With no meetings or reminders in
+  chosen in settings and starts the music. A heart in the mini view, on the
+  new-song pill and on the tile likes the track — in Apple Music and
+  Yandex Music. With no meetings or reminders in
   the next hour, hovering shows music first.
 - **Weather and power.** An icon with the temperature in the corner of the
   panel or as a tile, pills when the weather changes and when the charger is

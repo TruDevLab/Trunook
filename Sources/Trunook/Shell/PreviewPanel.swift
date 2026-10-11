@@ -170,7 +170,7 @@ struct PreviewPanel: View {
             text: text(for: item, track: track, event: event, caffeineEndsAt: caffeineEndsAt),
             trailing: nil,
             minimumWidth: minimumWidth,
-            trailingExtra: (item == .music && hasTrack(track) ? skipRoom : 0)
+            trailingExtra: (item == .music && hasTrack(track) ? skipRoom(track) : 0)
                 + (join ? ActivityLayout.spacing + ActivityView.answerDiameter : 0)
         )
     }
@@ -214,10 +214,12 @@ struct PreviewPanel: View {
     /// Шаг перемотки.
     static let skipStep: Double = 10
 
-    /// Место под две кнопки перемотки — тем же расчётом, что у кнопок
-    /// ответа в плашках: одной мерой и для ширины, и для вёрстки.
-    static var skipRoom: CGFloat {
-        ActivityLayout.spacing + 2 * ActivityView.answerDiameter + ActivityView.answerSpacing
+    /// Место под две кнопки перемотки и сердечко (если у плеера есть лайк) —
+    /// тем же расчётом, что у кнопок ответа в плашках: одной мерой и для
+    /// ширины, и для вёрстки.
+    static func skipRoom(_ track: NowPlaying?) -> CGFloat {
+        let count: CGFloat = TrackLike.supports(track) ? 3 : 2
+        return ActivityLayout.spacing + count * ActivityView.answerDiameter + (count - 1) * ActivityView.answerSpacing
     }
 
     private var items: [PreviewItem] {
@@ -322,6 +324,7 @@ struct PreviewPanel: View {
 
                 if shown == .music, Self.hasTrack(track) {
                     HStack(spacing: ActivityView.answerSpacing) {
+                        if TrackLike.supports(track) { TrackLikeButton() }
                         skipButton(symbol: "gobackward.10", hint: t("Назад на 10 секунд"), delta: -Self.skipStep)
                         skipButton(symbol: "goforward.10", hint: t("Вперёд на 10 секунд"), delta: Self.skipStep)
                     }
