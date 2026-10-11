@@ -16,6 +16,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let models = ModelList.shared
     private let shortcuts = ShortcutsService()
     private let browsers = BrowserList()
+    private let players = MusicPlayerList()
     /// Поиск города для погоды. Живёт здесь, а не в теле вида: `@State`
     /// в этом SDK недоступен, а набранному и найденному где-то держаться надо.
     private let placeSearch = WeatherPlaceSearch()
@@ -67,6 +68,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if settings.ollamaEnabled { models.refresh() }
         shortcuts.refresh()
         browsers.refresh()
+        players.refresh(selected: settings.musicPlayer)
 
         // Отладочный вход: переключать разделы из сессии нечем, а снимать
         // нужно любой.
@@ -90,6 +92,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             models: models,
             shortcuts: shortcuts,
             browsers: browsers,
+            players: players,
             clipboard: clipboard,
             weather: weather,
             notes: notes,

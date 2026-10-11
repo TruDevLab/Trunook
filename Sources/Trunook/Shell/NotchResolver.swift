@@ -85,6 +85,7 @@ struct NotchInputs: Equatable {
     var shelfCount = 0
     var notesRows = 0
     var notesEnabled = true
+    var musicEnabled = false
     /// Чем занят голосовой заход. `nil` — заход не идёт.
     var voicePhase: VoiceSession.Phase?
     /// Кольцо быстрого доступа раскрыто — кнопку держат на вырезе.
@@ -230,6 +231,7 @@ struct NotchInputs: Equatable {
             shelfCount: shelfCount,
             notesRows: notesRows,
             notesEnabled: notesEnabled,
+            musicEnabled: musicEnabled,
             voicePhase: voicePhase,
             homeRows: homeRows
         )

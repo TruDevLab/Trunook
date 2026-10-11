@@ -349,7 +349,7 @@ struct HomeWidgetView: View {
     private var content: some View {
         switch widget.kind {
         case .music:
-            MusicWidget(widget: widget, music: services.music)
+            MusicWidget(widget: widget, music: services.music, settings: settings)
         case .schedule:
             ScheduleWidget(widget: widget, events: events, actions: actions)
         case .timeline:

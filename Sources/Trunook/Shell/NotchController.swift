@@ -1207,6 +1207,7 @@ final class NotchController {
                 : shelf.items.count,
             notesRows: NotesPanel.rows(count: notes.shown.count, layout: notes.layout),
             notesEnabled: settings.notesEnabled,
+            musicEnabled: settings.musicEnabled,
             voicePhase: voice.phase,
             isQuickRingOpen: ring.isOpen,
             homeRows: HomeGrid.place(settings.homeWidgets).rows
@@ -2263,6 +2264,17 @@ final class NotchController {
         ))
         // Опрос курсора идёт десять раз в секунду и снял бы наведение
         // на первом тике — как и у отладочного раскрытия, держим вопреки ему.
+        input.hold(seconds: 8)
+        setHovered(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self, self.state.isHovered else { return }
+            self.setHovered(false)
+        }
+    }
+
+    /// Отладка: наведение как есть, без подставных встреч — что мини-вид
+    /// покажет первым на живых данных.
+    func debugHover() {
         input.hold(seconds: 8)
         setHovered(true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in

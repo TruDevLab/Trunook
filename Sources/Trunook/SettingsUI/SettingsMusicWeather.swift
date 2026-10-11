@@ -209,7 +209,36 @@ extension SettingsView {
                         hint(t("Свайп двумя пальцами по острову переключает трек."))
                     }
                     .accessibilityElement(children: .combine)
+
+                    musicPlayerPicker
 }
+        }
+    }
+
+    /// Плеер для плитки «Музыка»: известные установленные и «Другое…».
+    @ViewBuilder
+    var musicPlayerPicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: SettingsStyle.gap) {
+                Picker(t("Приложение музыки"), selection: Binding(
+                    get: { settings.musicPlayer },
+                    set: { settings.musicPlayer = $0 }
+                )) {
+                    ForEach(players.items) { player in
+                        Text(player.name).tag(player.bundleID)
+                    }
+                }
+                .pickerStyle(.menu)
+                Button(t("Другое…")) {
+                    guard let chosen = CommandPickers.chooseApplication(),
+                          let bundleID = Bundle(path: chosen.path)?.bundleIdentifier
+                    else { return }
+                    settings.musicPlayer = bundleID
+                    players.refresh(selected: bundleID)
+                }
+            }
+            .disabled(!settings.musicEnabled)
+            hint(t("Запускается нажатием на плитку «Музыка», когда ничего не играет."))
         }
     }
 

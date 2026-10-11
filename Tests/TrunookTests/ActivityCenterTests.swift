@@ -232,6 +232,37 @@ struct PreviewJoinTests {
         #expect(Activity(kind: .caffeine(change: .on(minutes: 30))).isInteractive)
     }
 
+    @Test("Ничего не играет и в ближайший час пусто — первой музыка, встреча в крыле")
+    func музыкаПоУмолчанию() {
+        let now = Date()
+        func item(_ minutes: Double, allDay: Bool = false, end: Double? = nil, source: CalendarItem.Source = .event) -> CalendarItem {
+            CalendarItem(id: "\(minutes)", title: "Дело", start: now.addingTimeInterval(minutes * 60),
+                         end: end.map { now.addingTimeInterval($0 * 60) }, isAllDay: allDay,
+                         source: source, link: nil, colorComponents: nil)
+        }
+        let later = item(90)
+        let soon = item(45)
+        let reminder = item(20, source: .reminder)
+
+        #expect(PreviewItem.items(track: nil, event: later, caffeine: nil, musicIdle: true, now: now) == [.music, .meeting])
+        #expect(PreviewItem.items(track: nil, event: soon, caffeine: nil, musicIdle: true, now: now) == [.meeting, .music])
+        #expect(PreviewItem.items(track: nil, event: reminder, caffeine: nil, musicIdle: true, now: now) == [.meeting, .music])
+        #expect(PreviewItem.items(track: nil, event: nil, caffeine: nil, musicIdle: true, now: now) == [.music])
+        // Идёт сейчас — скорое.
+        #expect(PreviewItem.isSoon(item(-10, end: 20), now: now))
+        // На весь день — не скорое, даже сегодня.
+        #expect(!PreviewItem.isSoon(item(-60, allDay: true, end: 600), now: now))
+        // Музыка выключена — молчащей строки нет, как прежде.
+        #expect(PreviewItem.items(track: nil, event: later, caffeine: nil, musicIdle: false, now: now) == [.meeting])
+        // Играет — музыка первой и одна, без молчащей копии.
+        let track = NowPlaying(title: "Песня", artist: "Группа", isPlaying: true)
+        #expect(PreviewItem.items(track: track, event: soon, caffeine: nil, musicIdle: true, now: now) == [.music, .meeting])
+        // Событие на весь день не заслоняет скорый созвон.
+        #expect(PreviewItem.featured([item(-60, allDay: true, end: 600), soon], now: now) == soon)
+        #expect(PreviewItem.featured([later], now: now) == later)
+        #expect(PreviewPanel.text(for: .music, track: nil, event: nil, caffeineEndsAt: nil) == t("Ничего не играет"))
+    }
+
     @Test("Без ссылки кнопки нет")
     func кнопкиНет() {
         #expect(PreviewPanel.joinLink(track: nil, event: Self.event(link: nil)) == nil)

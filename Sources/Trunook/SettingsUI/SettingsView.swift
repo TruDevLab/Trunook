@@ -125,6 +125,7 @@ struct SettingsView: View {
     @ObservedObject var models: ModelList
     @ObservedObject var shortcuts: ShortcutsService
     @ObservedObject var browsers: BrowserList
+    @ObservedObject var players: MusicPlayerList
     @ObservedObject var clipboard: ClipboardService
     @ObservedObject var weather: WeatherService
     /// Заметки: их число показывается в разделе, а очистка идёт через службу.

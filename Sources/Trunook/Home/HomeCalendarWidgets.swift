@@ -7,12 +7,19 @@ import TrunookXPC
 ///
 /// «Назад» и «вперёд» не добавлены и в широкой плитке: перематывают свайпом
 /// двумя пальцами, а кнопки повторяли бы жест ценой места под название.
+///
+/// Когда ничего не играет, нажатие на плитку и на «играть» запускает плеер
+/// из настроек и включает в нём музыку (`MusicPlayer.start`): MediaRemote
+/// без играющего отдаёт «играть» «Музыке» Apple.
 struct MusicWidget: View {
     let widget: HomeWidget
     @ObservedObject var music: MusicClient
+    @ObservedObject var settings: Settings
 
     var body: some View {
-        HomeTile(widget: widget) {
+        HomeTile(widget: widget,
+                 onTap: hasTrack ? nil : openPlayer,
+                 hint: hasTrack ? nil : playerHint) {
             switch widget.size {
             case .small:
                 HStack(spacing: 6) {
@@ -81,11 +88,17 @@ struct MusicWidget: View {
         let isPlaying = music.nowPlaying?.isPlaying == true
         return HomeTileButton(
             symbol: isPlaying ? "pause.fill" : "play.fill",
-            hint: isPlaying ? t("Пауза") : t("Играть"),
+            hint: isPlaying ? t("Пауза") : (hasTrack ? t("Играть") : playerHint),
             diameter: 30
         ) {
-            music.send(.togglePlayPause)
+            if hasTrack { music.send(.togglePlayPause) } else { openPlayer() }
         }
+    }
+
+    private func openPlayer() { MusicPlayer.start(settings.musicPlayer) }
+
+    private var playerHint: String {
+        tf("Включить музыку в %@", MusicPlayer.name(for: settings.musicPlayer) ?? t("Музыка"))
     }
 }
 

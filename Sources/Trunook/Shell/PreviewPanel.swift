@@ -12,13 +12,42 @@ enum PreviewItem: Equatable {
     case caffeine
     case meeting
 
-    /// Активные события по порядку важности: музыка, чашка (она идёт
-    /// прямо сейчас), ближайшая встреча.
-    static func items(track: NowPlaying?, event: CalendarItem?, caffeine: CaffeineChip?) -> [PreviewItem] {
+    /// Сколько вперёд встреча или напоминание считается «скорым» и встаёт
+    /// в мини-виде раньше молчащей музыки.
+    static let soonWindow: TimeInterval = 60 * 60
+
+    /// Встреча, напоминание или задача начнётся в ближайший час или идёт
+    /// сейчас. Событие на весь день скорым не бывает: оно «сейчас» весь день.
+    static func isSoon(_ item: CalendarItem?, now: Date = Date()) -> Bool {
+        guard let item, !item.isAllDay else { return false }
+        return item.start.timeIntervalSince(now) <= soonWindow && (item.end ?? item.start) >= now
+    }
+
+    /// Какую встречу показать: первую скорую, иначе просто ближайшую.
+    /// Не `events.first`: событие на весь день заслоняло бы созвон через
+    /// двадцать минут, и мини-вид решил бы, что скорых нет.
+    static func featured(_ events: [CalendarItem], now: Date = Date()) -> CalendarItem? {
+        events.first { isSoon($0, now: now) } ?? events.first
+    }
+
+    /// Активные события по порядку важности: играющая музыка, чашка (она
+    /// идёт прямо сейчас), скорая встреча, молчащая музыка, встреча позже.
+    ///
+    /// Молчащая музыка (`musicIdle` — функция включена, но ничего
+    /// не играет) — строка «Ничего не играет», нажатие по ней запускает
+    /// плеер. Она встаёт первой, когда в ближайший час ничего нет: встреча
+    /// вечером в мини-виде по наведению бесполезна, а включить музыку —
+    /// то, ради чего наводят чаще (просьба пользователя).
+    static func items(track: NowPlaying?, event: CalendarItem?, caffeine: CaffeineChip?,
+                      musicIdle: Bool = false, now: Date = Date()) -> [PreviewItem] {
         var items: [PreviewItem] = []
-        if PreviewPanel.hasTrack(track) { items.append(.music) }
+        let playing = PreviewPanel.hasTrack(track)
+        let soon = isSoon(event, now: now)
+        if playing { items.append(.music) }
         if caffeine != nil { items.append(.caffeine) }
-        if event != nil { items.append(.meeting) }
+        if event != nil, soon { items.append(.meeting) }
+        if !playing, musicIdle { items.append(.music) }
+        if event != nil, !soon { items.append(.meeting) }
         return items
     }
 
@@ -61,6 +90,13 @@ struct PreviewPanel: View {
     var onSelect: (PreviewItem) -> Void = { _ in }
     /// Нажали строку чашки — панель бодрости.
     var onOpenCaffeine: () -> Void = {}
+    /// Музыка включена в настройках: при тишине в мини-виде строка
+    /// «Ничего не играет», которая запускает плеер.
+    var musicIdle = false
+    /// Имя плеера из настроек — для подсказки строки «Ничего не играет».
+    var playerName: String? = nil
+    /// Нажали строку «Ничего не играет» — запустить плеер и включить музыку.
+    var onStartPlayer: () -> Void = {}
 
     /// Сторона миниатюры в крыле.
     static var alternateSize: CGFloat { ActivityLayout.iconSize - 2 }
@@ -103,7 +139,7 @@ struct PreviewPanel: View {
         for item: PreviewItem?, track: NowPlaying?, event: CalendarItem?, caffeineEndsAt: Date?
     ) -> String {
         switch item {
-        case .music: return text(track: track)
+        case .music: return hasTrack(track) ? text(track: track) : t("Ничего не играет")
         case .caffeine: return caffeineText(endsAt: caffeineEndsAt)
         case .meeting: return text(track: nil, event: event)
         case nil: return text(track: nil, event: nil)
@@ -132,7 +168,7 @@ struct PreviewPanel: View {
             text: text(for: item, track: track, event: event, caffeineEndsAt: caffeineEndsAt),
             trailing: nil,
             minimumWidth: minimumWidth,
-            trailingExtra: (item == .music ? skipRoom : 0)
+            trailingExtra: (item == .music && hasTrack(track) ? skipRoom : 0)
                 + (join ? ActivityLayout.spacing + ActivityView.answerDiameter : 0)
         )
     }
@@ -150,9 +186,10 @@ struct PreviewPanel: View {
         caffeine: CaffeineChip? = nil,
         caffeineEndsAt: Date? = nil,
         selection: PreviewItem? = nil,
+        musicIdle: Bool = false,
         metrics: NotchMetrics
     ) -> ActivityLayout {
-        let items = PreviewItem.items(track: track, event: event, caffeine: caffeine)
+        let items = PreviewItem.items(track: track, event: event, caffeine: caffeine, musicIdle: musicIdle)
         let shown = PreviewItem.shown(in: items, selection: selection)
         guard items.count > 1 else {
             return rowLayout(shown, track: track, event: event, caffeineEndsAt: caffeineEndsAt,
@@ -181,13 +218,15 @@ struct PreviewPanel: View {
         ActivityLayout.spacing + 2 * ActivityView.answerDiameter + ActivityView.answerSpacing
     }
 
-    private var items: [PreviewItem] { PreviewItem.items(track: track, event: event, caffeine: caffeine) }
+    private var items: [PreviewItem] {
+        PreviewItem.items(track: track, event: event, caffeine: caffeine, musicIdle: musicIdle)
+    }
     private var shown: PreviewItem? { PreviewItem.shown(in: items, selection: selection) }
     private var alternates: [PreviewItem] { PreviewItem.alternates(in: items, shown: shown) }
 
     private var layout: ActivityLayout {
         Self.layout(track: track, event: event, caffeine: caffeine, caffeineEndsAt: caffeineEndsAt,
-                    selection: selection, metrics: metrics)
+                    selection: selection, musicIdle: musicIdle, metrics: metrics)
     }
 
     var body: some View {
@@ -228,6 +267,30 @@ struct PreviewPanel: View {
             }
             .buttonStyle(PressableStyle())
             .notchHint(t("Бодрость"))
+        case .music where !Self.hasTrack(track):
+            // Тишина: вся строка — кнопка, как у чашки. Перематывать нечего,
+            // а нажимают сюда ради одного — включить музыку.
+            Button(action: onStartPlayer) {
+                HStack(spacing: ActivityLayout.spacing) {
+                    // Своя подложка, а не заглушка обложки: у той в середине
+                    // нота, и «играть» поверх неё сливалось в кашу.
+                    RoundedRectangle(cornerRadius: NotchStyle.artRadius, style: .continuous)
+                        .fill(.white.opacity(0.12))
+                        .overlay(Image(systemName: "play.fill")
+                            .font(.system(size: NotchStyle.font(11), weight: .bold))
+                            .foregroundStyle(.white))
+                        .frame(width: ActivityLayout.iconSize, height: ActivityLayout.iconSize)
+                    MarqueeText(
+                        text: t("Ничего не играет"),
+                        font: ActivityLayout.textFont,
+                        availableWidth: layout.textWidth,
+                        startDate: startDate
+                    )
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+            .notchHint(tf("Включить музыку в %@", playerName ?? t("Музыка")))
         default:
             HStack(spacing: ActivityLayout.spacing) {
                 leading
@@ -244,7 +307,7 @@ struct PreviewPanel: View {
                     MeetingJoinButton(url: link, provider: event?.link?.provider.title, action: onJoin)
                 }
 
-                if shown == .music {
+                if shown == .music, Self.hasTrack(track) {
                     HStack(spacing: ActivityView.answerSpacing) {
                         skipButton(symbol: "gobackward.10", hint: t("Назад на 10 секунд"), delta: -Self.skipStep)
                         skipButton(symbol: "goforward.10", hint: t("Вперёд на 10 секунд"), delta: Self.skipStep)

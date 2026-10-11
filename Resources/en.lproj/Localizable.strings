@@ -1640,3 +1640,7 @@
 "Экран не гаснет · до %@" = "Display stays on · until %@";
 "Показать бодрость" = "Show keep-awake";
 "Приглашение" = "Invitation";
+"Приложение музыки" = "Music app";
+"Другое…" = "Other…";
+"Запускается нажатием на плитку «Музыка», когда ничего не играет." = "Opens when you tap the Music tile while nothing is playing.";
+"Включить музыку в %@" = "Play music in %@";

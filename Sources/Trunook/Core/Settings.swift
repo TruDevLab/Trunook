@@ -199,6 +199,12 @@ final class Settings: ObservableObject {
         set { store(newValue, "musicEnabled") }
     }
 
+    /// Плеер, который запускает плитка «Музыка», когда ничего не играет.
+    var musicPlayer: String {
+        get { defaults.string(forKey: "musicPlayer").flatMap { $0.isEmpty ? nil : $0 } ?? MusicPlayer.fallback }
+        set { store(newValue, "musicPlayer") }
+    }
+
     /// Показывать всплывающую подсказку при смене трека.
     /// Свайп поперёк переключает трек в другую сторону.
     ///

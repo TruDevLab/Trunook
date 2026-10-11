@@ -1251,7 +1251,7 @@ struct NotchView: View {
         case .preview:
             PreviewPanel(
                 track: music.nowPlaying,
-                event: events.first,
+                event: PreviewItem.featured(events),
                 caffeine: wake.chip,
                 caffeineEndsAt: wake.endsAt,
                 selection: state.previewSelection,
@@ -1264,12 +1264,15 @@ struct NotchView: View {
                     state.previewSelection = item
                     state.hoverStartedAt = Date()
                 },
-                onOpenCaffeine: onOpenAwake
+                onOpenCaffeine: onOpenAwake,
+                musicIdle: settings.musicEnabled,
+                playerName: MusicPlayer.name(for: settings.musicPlayer),
+                onStartPlayer: { MusicPlayer.start(settings.musicPlayer) }
             )
             .frame(width: PreviewPanel.layout(
-                track: music.nowPlaying, event: events.first,
+                track: music.nowPlaying, event: PreviewItem.featured(events),
                 caffeine: wake.chip, caffeineEndsAt: wake.endsAt,
-                selection: state.previewSelection, metrics: metrics
+                selection: state.previewSelection, musicIdle: settings.musicEnabled, metrics: metrics
             ).panelWidth)
         case .expanded:
             HomePanel(

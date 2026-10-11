@@ -175,6 +175,9 @@ struct NotchContent: Equatable {
     /// о копировании появляется кнопка «в заметки», и от неё зависит ширина
     /// плашки. Разойдись эти двое — кнопку обрезало бы краем.
     var notesEnabled = true
+    /// Музыка включена: мини-вид при тишине показывает строку «Ничего
+    /// не играет», и от неё зависит ширина.
+    var musicEnabled = false
     /// Чем занят голосовой заход. `nil` — заход не идёт.
     ///
     /// Фазой, а не признаком «идёт»: от неё зависит цвет свечения и рисунок
@@ -245,9 +248,9 @@ enum NotchSizing {
                 )
             }
             let layout = PreviewPanel.layout(
-                track: content.track, event: content.events.first,
+                track: content.track, event: PreviewItem.featured(content.events),
                 caffeine: content.caffeineChip, caffeineEndsAt: content.caffeineEndsAt,
-                selection: content.previewSelection, metrics: metrics
+                selection: content.previewSelection, musicIdle: content.musicEnabled, metrics: metrics
             )
             return metrics.activity(width: layout.panelWidth)
         case .swiping:

@@ -223,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.reminderDue", #selector(showReminderDue)),
             ("com.trunook.debug.callDump", #selector(dumpCalls)),
             ("com.trunook.debug.hoverMeeting", #selector(hoverMeeting)),
+            ("com.trunook.debug.hover", #selector(hoverAsIs)),
             ("com.trunook.debug.answerYes", #selector(answerActivityYes)),
             ("com.trunook.debug.answerNo", #selector(answerActivityNo)),
             ("com.trunook.debug.agentCardNote", #selector(showAgentCardNote)),
@@ -251,6 +252,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.letterPreview", #selector(testLetterPreview)),
             ("com.trunook.debug.invitePreview", #selector(testInvitePreview)),
             ("com.trunook.debug.musicSkip", #selector(testMusicSkip)),
+            ("com.trunook.debug.musicDump", #selector(dumpMusicPlayer)),
+            ("com.trunook.debug.musicStart", #selector(startMusicPlayer)),
             ("com.trunook.debug.links", #selector(testLinkExtraction)),
             ("com.trunook.debug.nextTrack", #selector(testNextTrack)),
             ("com.trunook.debug.reminder", #selector(testReminderSoon)),
@@ -808,6 +811,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func dumpCalls() { controller.debugCallDump() }
     /// Мини-вид с встречей со ссылкой — проверить кнопку «Подключиться».
     @objc private func hoverMeeting() { controller.debugHoverMeeting() }
+    @objc private func hoverAsIs() { controller.debugHover() }
     @objc private func showMeetingFour() { controller.debugMeetingFour() }
     @objc private func lockScreenDebug() { controller.debugScreenLock(true) }
     @objc private func unlockScreenDebug() { controller.debugScreenLock(false) }
@@ -1057,6 +1061,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func testInvitePreview() { controller.debugInvitePreview() }
 
     /// Перемотка на 10 секунд вперёд: позиция до и после — в журнал.
+    /// Окна, кнопки и меню плеера из настроек — по ним ищется, чем его
+    /// пустить, когда он запущен, но молчит.
+    @objc private func dumpMusicPlayer() {
+        let bundleID = Settings.shared.musicPlayer
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
+            DebugLog.write("музыка: \(bundleID) не запущен")
+            return
+        }
+        AXTree.dumpApp(pid: app.processIdentifier, name: app.localizedName ?? bundleID)
+    }
+
+    /// То же, что нажатие на плитку «Музыка» при тишине: запустить плеер
+    /// и включить музыку.
+    @objc private func startMusicPlayer() { MusicPlayer.start(Settings.shared.musicPlayer) }
+
     @objc private func testMusicSkip() {
         let music = controller.music
         let before = music.nowPlaying?.position() ?? -1
