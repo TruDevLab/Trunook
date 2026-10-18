@@ -342,44 +342,10 @@
 "Сохранить в заметки" = "Save to notes";
 "Новая команда" = "New command";
 "Исправить ошибки" = "Fix mistakes";
-"Исправь орфографию и пунктуацию. Верни только исправленный текст, без пояснений.
-
-{{selection}}" = "Fix spelling and punctuation. Return only the corrected text, no explanations.
-
-{{selection}}";
-"Перевести на русский" = "Translate to English";
-"Переведи на русский. Верни только перевод.
-
-{{selection}}" = "Translate to English. Return only the translation.
-
-{{selection}}";
-"Кратко пересказать" = "Summarize";
-"Перескажи кратко, тремя пунктами.
-
-{{selection}}" = "Summarize in three bullet points.
-
-{{selection}}";
 "Улучшить текст" = "Improve the wording";
-"Перепиши понятнее и складнее, сохранив смысл и тон. Верни только текст, без пояснений.
-
-{{selection}}" = "Rewrite this more clearly and smoothly, keeping the meaning and the tone. Return only the text, with no explanation.
-
-{{selection}}";
-"Объяснить простыми словами" = "Explain in plain words";
-"Объясни простыми словами, без терминов. Коротко.
-
-{{selection}}" = "Explain this in plain words, no jargon. Briefly.
-
-{{selection}}";
-"Добавить в напоминания" = "Add to Reminders";
 "Заведи напоминание по этому тексту. Срок возьми из него; если срока нет — не указывай.
 
 {{selection}}" = "Create a reminder from this text. Take the due date from it; if there is none, leave it out.
-
-{{selection}}";
-"Заведи встречу по этому тексту: возьми из него название, дату и время.
-
-{{selection}}" = "Create an event from this text: take the title, the date and the time from it.
 
 {{selection}}";
 "Команда завершилась с ошибкой" = "The command failed";
@@ -1097,7 +1063,6 @@
 "Не напоминать" = "Don't remind";
 "Каждые %d мин" = "Every %d min";
 "Считается только время за компьютером. Галочка у воды спросит, сколько вы выпили." = "Only time at the computer counts. The checkmark on the water reminder asks how much you drank.";
-"Тащите окно за заголовок к чёлке и отпустите на нужной раскладке." = "Drag a window by its title bar to the notch and drop it on a layout.";
 "Полка" = "Shelf";
 "Ведите файлы на чёлку — вырез раскроется полкой. Оттуда их вытаскивают в любое окно." = "Drag files onto the notch and it opens as a shelf. From there you can drag them into any window.";
 "Как это работает" = "How it works";
@@ -1590,14 +1555,8 @@
 "Правые две трети" = "Right two thirds";
 "Левая половина" = "Left half";
 "Левая треть" = "Left third";
-"Левая верхняя четверть" = "Top left quarter";
-"Левая нижняя четверть" = "Bottom left quarter";
 "Правая половина" = "Right half";
 "Правая треть" = "Right third";
-"Правая верхняя четверть" = "Top right quarter";
-"Правая нижняя четверть" = "Bottom right quarter";
-"Окно" = "Window";
-"Отпустите окно на раскладке" = "Drop the window on a layout";
 "Все" = "All";
 "Из Trudaybook" = "From Trudaybook";
 "Из Trunook" = "From Trunook";
@@ -1646,3 +1605,33 @@
 "Включить музыку в %@" = "Play music in %@";
 "Убрать лайк" = "Remove like";
 "Нравится" = "Like";
+
+/* Раскладка окон на экране */
+"Тащите окно к чёлке — раскладки появятся на экране." = "Drag a window to the notch — layouts appear on screen.";
+"Предлагать второе окно" = "Suggest a second window";
+"После половины, трети или четверти — окно на остаток экрана." = "After a half, third or quarter — pick a window for the rest.";
+"Что поставить рядом?" = "What goes next to it?";
+"Esc — оставить как есть" = "Esc — leave as is";
+"Верхняя половина" = "Top half";
+"Нижняя половина" = "Bottom half";
+"Левые три четверти" = "Left three quarters";
+"Правые три четверти" = "Right three quarters";
+"Левый верхний угол" = "Top left corner";
+"Правый верхний угол" = "Top right corner";
+"Левый нижний угол" = "Bottom left corner";
+"Правый нижний угол" = "Bottom right corner";
+"Левая четверть" = "Left quarter";
+"Правая четверть" = "Right quarter";
+"Отмена · Esc" = "Cancel · Esc";
+"%@ · %d из %d" = "%@ · %d of %d";
+
+/* Помощь при письме и заготовки команд */
+"Исправь орфографию, грамматику и пунктуацию. Сохрани язык, смысл, тон и форматирование. Верни только исправленный текст, без пояснений.\n\n{{selection}}" = "Fix spelling, grammar and punctuation. Keep the language, meaning, tone and formatting. Return only the corrected text, no explanations.\n\n{{selection}}";
+"Перевести" = "Translate";
+"Переведи на язык «{{language}}». Если текст уже на нём — переведи на английский. Сохрани форматирование. Верни только перевод.\n\n{{selection}}" = "Translate into {{language}}. If the text is already in it, translate into English. Keep the formatting. Return only the translation.\n\n{{selection}}";
+"Структурировать" = "Structure";
+"Улучши структуру и форматирование: разбей на абзацы, где уместно — списки и подзаголовки. Слова, смысл и язык не меняй. Верни только текст, без пояснений.\n\n{{selection}}" = "Improve the structure and formatting: split into paragraphs, use lists and subheadings where they fit. Do not change the words, meaning or language. Return only the text, no explanations.\n\n{{selection}}";
+"Перепиши понятнее и складнее, сохранив смысл, тон и язык. Верни только текст, без пояснений.\n\n{{selection}}" = "Rewrite it clearer and smoother, keeping the meaning, tone and language. Return only the text, no explanations.\n\n{{selection}}";
+"Сохранить в заметку" = "Save to note";
+"Помощь при письме" = "Writing help";
+"Выделили текст — под чёлкой первые шесть команд к нему." = "Select text — the first six commands appear under the notch.";

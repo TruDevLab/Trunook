@@ -88,6 +88,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.windowLeft", #selector(windowLeft)),
             ("com.trunook.debug.windowFill", #selector(windowFill)),
             ("com.trunook.debug.windowCycle", #selector(windowCycle)),
+            ("com.trunook.debug.windowBoardClick", #selector(windowBoardClick)),
+            ("com.trunook.debug.writingHelp", #selector(writingHelp)),
+            ("com.trunook.debug.writingHelpProbe", #selector(writingHelpProbe)),
+            ("com.trunook.debug.windowFillOffer", #selector(windowFillOffer)),
             ("com.trunook.debug.countdownNow", #selector(countdownNow)),
             ("com.trunook.debug.breakRest", #selector(breakRest)),
             ("com.trunook.debug.breakWater", #selector(breakWater)),
@@ -411,6 +415,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func windowLeft() { controller.debugApplyWindowSlot(.leftHalf) }
     @objc private func windowFill() { controller.debugApplyWindowSlot(.fill) }
     @objc private func windowCycle() { controller.debugCycleWindowSlots() }
+    @objc private func windowBoardClick() { controller.debugWindowBoardClick() }
+    @objc private func writingHelp() { controller.debugWritingHelp() }
+    @objc private func writingHelpProbe() { controller.debugWritingHelpProbe() }
+    @objc private func windowFillOffer() { controller.debugWindowFill() }
     /// Наступление события отсчёта: плашка и залп, не дожидаясь даты.
     @objc private func countdownNow() { controller.debugCountdownReached() }
     @objc private func breakRest() { controller.debugBreak(.rest) }

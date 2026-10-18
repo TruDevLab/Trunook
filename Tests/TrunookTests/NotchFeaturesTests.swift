@@ -181,30 +181,135 @@ struct WindowSnapTests {
         #expect(WindowSlot.center.edges == [.center])
     }
 
-    @Test("Плитка под курсором: колонки слева направо, ряды сверху вниз")
-    func попадание() {
-        let notch: CGFloat = 32
-        let top = notch + NotchStyle.topGap
-        let left = NotchStyle.bodyInset
-        let w = WindowSnapLayout.tileWidth, s = WindowSnapLayout.spacing
-        func at(_ x: CGFloat, _ y: CGFloat) -> WindowSlot {
-            WindowSnapLayout.slot(at: CGPoint(x: left + x, y: top + y), notchHeight: notch)
+    @Test("Четверти от краёв и половины по высоте")
+    func новыеРамки() {
+        let visible = CGRect(x: 0, y: 25, width: 1600, height: 900)
+        #expect(WindowSlot.firstQuarter.frame(in: visible) == CGRect(x: 0, y: 25, width: 400, height: 900))
+        #expect(WindowSlot.fourthQuarter.frame(in: visible) == CGRect(x: 1200, y: 25, width: 400, height: 900))
+        #expect(WindowSlot.rightThreeQuarters.frame(in: visible) == CGRect(x: 400, y: 25, width: 1200, height: 900))
+        // Трети и четверти — всегда от края экрана.
+        for slot in WindowSlot.allCases where slot.unit.height == 1 && slot.unit.width < 1 {
+            #expect(slot.unit.minX < 0.0001 || slot.unit.maxX > 0.9999, "\(slot) не у края")
         }
-        #expect(at(10, 5) == .leftHalf)
-        #expect(at(10, WindowSnapLayout.gridHeight - 5) == .leftHalf)
-        #expect(at(w + s + 10, 5) == .leftTwoThirds)
-        #expect(at(w + s + 10, WindowSnapLayout.gridHeight - 5) == .leftThird)
-        #expect(at(2 * (w + s) + 10, 5) == .leftTopQuarter)
-        #expect(at(3 * (w + s) + 10, 5) == .fill)
-        #expect(at(3 * (w + s) + 10, WindowSnapLayout.gridHeight - 5) == .center)
-        #expect(at(WindowSnapLayout.contentWidth - 10, 5) == .rightHalf)
-        #expect(at(WindowSnapLayout.contentWidth - w - s - 10, 5) == .rightTwoThirds)
-        #expect(at(WindowSnapLayout.contentWidth - 2 * (w + s) - 10, 70) == .rightBottomQuarter)
-        // Выше сетки и за полями — ближайшая плитка.
-        #expect(WindowSnapLayout.slot(at: CGPoint(x: -50, y: 0), notchHeight: notch) == .leftHalf)
-        #expect(WindowSnapLayout.slot(at: CGPoint(x: 9_999, y: 9_999), notchHeight: notch) == .rightHalf)
-        #expect(WindowSnapLayout.tileHeight(of: .leftHalf) == WindowSnapLayout.gridHeight)
-        #expect(WindowSnapLayout.tileHeight(of: .leftTwoThirds) == WindowSnapLayout.tileHeight)
+        #expect(WindowSlot.topHalf.frame(in: visible) == CGRect(x: 0, y: 475, width: 1600, height: 450))
+        #expect(WindowSlot.fourthQuarter.edges == [.right])
+        #expect(WindowSlot.bottomHalf.edges == [.bottom])
+    }
+
+    @Test("Следующие места дополняют раскладку до всего экрана")
+    func следующиеМеста() {
+        for slot in WindowSlot.allCases where !slot.followUps.isEmpty {
+            let area = ([slot] + slot.followUps).reduce(0.0) { $0 + $1.unit.width * $1.unit.height }
+            #expect(abs(area - 1) < 0.0001, "\(slot) с продолжением не покрывает экран")
+            for (index, a) in ([slot] + slot.followUps).enumerated() {
+                for b in ([slot] + slot.followUps)[(index + 1)...] {
+                    let overlap = a.unit.intersection(b.unit)
+                    #expect(overlap.isNull || overlap.width * overlap.height < 0.000001, "\(a) и \(b) налезают")
+                }
+            }
+        }
+        #expect(WindowSlot.topHalf.followUps == [.bottomHalf])
+        #expect(WindowSlot.rightBottomQuarter.followUps == [.leftTopQuarter, .rightTopQuarter, .leftBottomQuarter])
+        #expect(WindowSlot.fill.followUps.isEmpty)
+        #expect(WindowSlot.center.followUps.isEmpty)
+    }
+
+    @Test("Место отступает от настоящего края соседнего окна")
+    func местоПоОкну() {
+        let visible = CGRect(x: 0, y: 0, width: 1512, height: 949)
+        // Табличный редактор не уже 713 точек при трети в 504 — правые две трети сужаются.
+        let wide = CGRect(x: 0, y: 0, width: 713, height: 949)
+        #expect(WindowSlot.fit(WindowSlot.rightTwoThirds.frame(in: visible), avoiding: [wide])
+                == CGRect(x: 713, y: 0, width: 799, height: 949))
+        // Зеркально справа.
+        let right = CGRect(x: 799, y: 0, width: 713, height: 949)
+        #expect(WindowSlot.fit(WindowSlot.leftTwoThirds.frame(in: visible), avoiding: [right])
+                == CGRect(x: 0, y: 0, width: 799, height: 949))
+        // Верхняя половина вышла выше — нижняя ниже её края (y снизу, как в AppKit).
+        let top = CGRect(x: 0, y: 400, width: 1512, height: 549)
+        #expect(WindowSlot.fit(WindowSlot.bottomHalf.frame(in: visible), avoiding: [top])
+                == CGRect(x: 0, y: 0, width: 1512, height: 400))
+        // Угол, не давший себя сузить: сосед по ряду отступает по ширине,
+        // угол под ним — по высоте.
+        let corner = CGRect(x: 0, y: 475, width: 900, height: 474)
+        #expect(WindowSlot.fit(WindowSlot.rightTopQuarter.frame(in: visible), avoiding: [corner]).minX == 900)
+        #expect(WindowSlot.fit(WindowSlot.leftBottomQuarter.frame(in: visible), avoiding: [corner])
+                == WindowSlot.leftBottomQuarter.frame(in: visible))
+        // Встало как надо или уже — место по плану, не шире.
+        let narrow = CGRect(x: 0, y: 0, width: 600, height: 949)
+        #expect(WindowSlot.fit(WindowSlot.rightHalf.frame(in: visible), avoiding: [narrow]) == WindowSlot.rightHalf.frame(in: visible))
+    }
+
+    @Test("Разметка: каждая раскладка ровно раз, плитки не налезают")
+    func разметкаПолная() {
+        let slots = WindowSnapBoard.cells.map(\.slot)
+        #expect(slots.count == WindowSlot.allCases.count)
+        #expect(Set(slots) == Set(WindowSlot.allCases))
+        for cell in WindowSnapBoard.cells {
+            #expect(CGRect(x: 0, y: 0, width: 1, height: 1).insetBy(dx: -0.0001, dy: -0.0001).contains(cell.unit))
+        }
+        for (index, a) in WindowSnapBoard.cells.enumerated() {
+            for b in WindowSnapBoard.cells[(index + 1)...] {
+                let overlap = a.unit.intersection(b.unit)
+                #expect(overlap.isNull || overlap.width * overlap.height < 0.000001, "\(a.slot) и \(b.slot) налезают")
+            }
+        }
+    }
+
+    @Test("Разметка: плитка стоит там, где окажется окно")
+    func разметкаПоМестам() {
+        func unit(_ slot: WindowSlot) -> CGRect { WindowSnapBoard.cells.first { $0.slot == slot }!.unit }
+        // Углы — в углах (y плитки сверху вниз).
+        #expect(unit(.leftTopQuarter).minX == 0 && unit(.leftTopQuarter).minY == 0)
+        #expect(abs(unit(.rightTopQuarter).maxX - 1) < 0.0001 && unit(.rightTopQuarter).minY == 0)
+        #expect(unit(.leftBottomQuarter).minX == 0 && abs(unit(.leftBottomQuarter).maxY - 1) < 0.0001)
+        #expect(abs(unit(.rightBottomQuarter).maxX - 1) < 0.0001 && abs(unit(.rightBottomQuarter).maxY - 1) < 0.0001)
+        // Верх и низ — посередине сверху и снизу, середина — в середине.
+        #expect(abs(unit(.topHalf).midX - 0.5) < 0.0001 && unit(.topHalf).minY == 0)
+        #expect(abs(unit(.bottomHalf).midX - 0.5) < 0.0001 && abs(unit(.bottomHalf).maxY - 1) < 0.0001)
+        for slot in [WindowSlot.fill, .center] {
+            #expect(abs(unit(slot).midX - 0.5) < 0.0001)
+            #expect(unit(slot).minY > unit(.topHalf).maxY && unit(slot).maxY < unit(.bottomHalf).minY)
+        }
+        // Полосы во всю высоту — по порядку середины окна, каждая на своей стороне.
+        let strips = WindowSlot.allCases.filter { $0.unit.height == 1 && $0.unit.width < 1 }
+        let byTile = strips.sorted { unit($0).midX < unit($1).midX }
+        let byWindow = strips.sorted { $0.unit.midX < $1.unit.midX }
+        #expect(byTile == byWindow)
+        for slot in strips { #expect((unit(slot).midX < 0.5) == (slot.unit.midX < 0.5)) }
+    }
+
+    private var screenLayout: WindowSnapBoard.Layout {
+        WindowSnapBoard.layout(
+            screen: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            visible: CGRect(x: 0, y: 0, width: 1512, height: 944),
+            notch: CGRect(x: 663, y: 950, width: 185, height: 32)
+        )
+    }
+
+    @Test("Разметка: отмена под чёлкой, плитки ниже, внутри рабочей области")
+    func разметкаМеста() {
+        let layout = screenLayout
+        #expect(abs(layout.cancel.midX - 755.5) <= 1)
+        #expect(layout.cancel.minY >= 32)
+        #expect(layout.area.minY > layout.cancel.maxY)
+        #expect(layout.area.maxY <= 982)
+        #expect(layout.area.minX >= 0 && layout.area.maxX <= 1512)
+        for rect in layout.tiles.values { #expect(layout.area.insetBy(dx: -1, dy: -1).contains(rect)) }
+    }
+
+    @Test("Разметка: что под курсором")
+    func попадание() {
+        let layout = screenLayout
+        func at(_ point: CGPoint) -> WindowSnapBoard.Target? { WindowSnapBoard.target(at: point, in: layout) }
+        func center(_ slot: WindowSlot) -> CGPoint { CGPoint(x: layout.tiles[slot]!.midX, y: layout.tiles[slot]!.midY) }
+        for slot in WindowSlot.allCases { #expect(at(center(slot)) == .slot(slot)) }
+        #expect(at(CGPoint(x: layout.cancel.midX, y: layout.cancel.midY)) == .cancel)
+        // Стык двух плиток — одной из них, а не мимо.
+        let half = layout.tiles[.leftHalf]!
+        #expect(at(CGPoint(x: half.maxX, y: half.midY)) != nil)
+        // Сбоку от отмены, выше плиток — мимо.
+        #expect(at(CGPoint(x: 40, y: layout.cancel.midY)) == nil)
     }
 }
 

@@ -33,12 +33,26 @@ enum SelectionReader {
     /// по отрезку. Это не одно и то же свойство, и приложение, молчащее
     /// на первое, часто отвечает на второе.
     private static func readViaAccessibility() -> String? {
+        accessibilityText()
+    }
+
+    /// Выделение только через дерево доступности — ни ⌘C, ни буфера.
+    ///
+    /// Для слежки за выделением (`SelectionWatcher`): она спрашивает
+    /// на каждом отпускании мыши, и запасной путь с имитацией ⌘C там
+    /// недопустим — он нажимал бы клавиши в чужом приложении и трогал буфер
+    /// при каждом щелчке. `timeout` — сколько ждать чужое приложение:
+    /// слежка идёт на главном потоке, и зависшее приложение не должно его
+    /// держать. У общесистемного элемента срок — общий на всё приложение;
+    /// раскладка окон (`DraggedWindow`) ставит те же 0,2 с.
+    static func accessibilityText(timeout: Float? = nil) -> String? {
         guard AXIsProcessTrusted() else { return nil }
 
         var roots: [AXUIElement] = [AXUIElementCreateSystemWide()]
         if let app = NSWorkspace.shared.frontmostApplication {
             roots.append(AXUIElementCreateApplication(app.processIdentifier))
         }
+        if let timeout { roots.forEach { AXUIElementSetMessagingTimeout($0, timeout) } }
 
         for root in roots {
             var focused: CFTypeRef?

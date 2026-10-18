@@ -27,6 +27,42 @@ enum ClipboardThumbnails {
         return image
     }
 
+    private static let previews = NSCache<NSString, NSImage>()
+    private static let byteCounts = NSCache<NSNumber, NSNumber>()
+
+    /// Уменьшенная картинка записи для превью — разбирается один раз.
+    ///
+    /// Превью рисуется в теле панели, а тело пересчитывается на каждое
+    /// обновление выреза. Прежде на каждом пересчёте картинка заново читалась
+    /// из базы на главном потоке (снимок экрана — мегабайты) и разбиралась
+    /// в полном размере (энергоаудит 18 октября). `data` зовётся только
+    /// при промахе кэша.
+    static func preview(id: Int64, maxSide: CGFloat, data: () -> Data?) -> NSImage? {
+        let key = "entry#\(id)#\(Int(maxSide))" as NSString
+        if let cached = previews.object(forKey: key) { return cached }
+        guard let bytes = data(), let source = CGImageSourceCreateWithData(bytes as CFData, nil) else {
+            return nil
+        }
+        byteCounts.setObject(NSNumber(value: bytes.count), forKey: NSNumber(value: id))
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(maxSide),
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        let image = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        previews.setObject(image, forKey: key)
+        return image
+    }
+
+    /// Вес картинки записи — для строки сведений, без повторного чтения из базы.
+    static func byteCount(id: Int64, data: () -> Data?) -> Int? {
+        if let cached = byteCounts.object(forKey: NSNumber(value: id)) { return cached.intValue }
+        guard let count = data()?.count else { return nil }
+        byteCounts.setObject(NSNumber(value: count), forKey: NSNumber(value: id))
+        return count
+    }
+
     /// Размер картинки в точках файла — для строки сведений.
     static func pixelSize(at url: URL) -> CGSize? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),

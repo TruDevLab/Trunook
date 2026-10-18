@@ -68,6 +68,8 @@ struct Activity: Identifiable, Equatable {
         case incomingCall(CallInvite)
         /// Уведомление, присланное снаружи — скриптом, хуком, автоматикой.
         case external(ExternalNotice)
+        /// Выделили текст в чужом приложении — кнопки команд к нему.
+        case writingHelp(WritingHelpOffer)
     }
 
     /// Чем важнее событие, тем выше приоритет. Событие с приоритетом ниже
@@ -100,6 +102,9 @@ struct Activity: Identifiable, Equatable {
         // Отклик на ⌘C: человек только что нажал клавиши и связывает
         // плашку со своим действием — но пропущенная встреча дороже.
         case .clipboard: return 3
+        // Как буфер: предложение к только что сделанному, ничего не ждёт.
+        // Ниже звонка, встречи и напоминания — те важнее выделенного слова.
+        case .writingHelp: return 3
         // Вровень с копированием: плашка полки тоже отклик на действие руками.
         case .shelf: return 3
         case .lowBattery: return 3
@@ -147,6 +152,9 @@ struct Activity: Identifiable, Equatable {
         // Дольше прочих мелких: по плашке нужно успеть попасть курсором,
         // чтобы открыть историю.
         case .clipboard: return 4
+        // Дольше буфера: до кнопок надо довести курсор, а решение, что делать
+        // с выделенным, приходит не мгновенно. Под курсором плашка ждёт.
+        case .writingHelp: return 8
         // Без срока: висит, пока на полке что-то есть.
         case .shelf: return .infinity
         case .lowBattery: return 4
@@ -208,7 +216,7 @@ struct Activity: Identifiable, Equatable {
         // Напоминание и наступившее событие — из-за кнопок: не держись они
         // при наведении, до «готово» и крестика было бы не дотянуться.
         case .clipboard, .shelf, .update, .digestReady, .siteChanged, .breakReminder, .countdownReached,
-             .agentConfirm, .reminderDue, .incomingCall, .external: return true
+             .agentConfirm, .reminderDue, .incomingCall, .external, .writingHelp: return true
         // Плашка чашки открывает выбор срока — как полоска с отсчётом.
         case .caffeine: return true
         default: return false
@@ -245,6 +253,7 @@ extension Activity.Kind {
         switch self {
         case .command: return "команда"
         case .clipboard: return "копирование"
+        case .writingHelp: return "помощь при письме"
         case .shelf: return "полка"
         case .timer: return "таймер"
         case .weather: return "погода"

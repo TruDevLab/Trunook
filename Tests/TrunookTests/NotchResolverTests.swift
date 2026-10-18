@@ -26,7 +26,9 @@ struct NotchResolverTests {
 
     @Test("У каждой накладки своё состояние и ненулевой размер")
     func каждаяНакладкаИмеетРазмер() {
-        for overlay in NotchState.Overlay.allCases {
+        // Раскладки окна рисуются на самом экране: в вырезе накладка лишь
+        // держит его занятым, и чёлка остаётся свёрнутой нарочно.
+        for overlay in NotchState.Overlay.allCases where overlay != .windowSnap {
             var inputs = NotchInputs(overlay: overlay)
             inputs.clipboardRows = 3
             inputs.shelfCount = 4
@@ -39,6 +41,11 @@ struct NotchResolverTests {
             #expect(size.width > metrics.closed.width, "у накладки \(overlay) ширина как у свёрнутой")
             #expect(size.height > metrics.notchHeight, "у накладки \(overlay) высота как у чёлки")
         }
+    }
+
+    @Test("Раскладки окна не раскрывают вырез: плитки — на экране")
+    func раскладкиНаЭкране() {
+        #expect(NotchInputs(overlay: .windowSnap).resolve().presentation == .collapsed)
     }
 
     @Test("Нажатие важнее наведения, наведение важнее плашки")

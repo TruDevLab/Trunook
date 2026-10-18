@@ -35,6 +35,13 @@ extension SettingsView {
                     hint(t("Захватывает выделенное и открывает разговор с моделью."))
                 }
 
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(t("Помощь при письме"), isOn: settings.binding(\.writingHelpEnabled))
+                        .disabled(!settings.quickCommandsEnabled)
+                    hint(t("Выделили текст — под чёлкой первые шесть команд к нему."))
+                }
+                .accessibilityElement(children: .combine)
+
                 // Про подстановку сказано здесь, а не в разделе модели:
                 // `{{selection}}` — свойство самой команды, а не модели,
                 // и человек ищет его там, где пишет промт.

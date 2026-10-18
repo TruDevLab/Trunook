@@ -135,12 +135,23 @@ struct QuickCommand: Codable, Equatable, Identifiable {
         return URL(string: "https://" + trimmed)
     }
 
-    func prompt(with selection: String) -> String {
+    func prompt(with selection: String, language: String = QuickCommand.systemLanguage) -> String {
+        let payload = payload.replacingOccurrences(of: "{{language}}", with: language)
         let marker = "{{selection}}"
         guard payload.contains(marker) else {
             return selection.isEmpty ? payload : "\(payload)\n\n\(selection)"
         }
         return payload.replacingOccurrences(of: marker, with: selection)
+    }
+
+    /// Язык системы его же словом: «русский», «English», «中文».
+    ///
+    /// Для `{{language}}` — «перевести на язык системы». Своим словом,
+    /// а не по-английски: модель понимает и так, а в ленте и в журнале
+    /// промт читается без перевода.
+    static var systemLanguage: String {
+        let code = Locale.preferredLanguages.first.map { Locale(identifier: $0).language.languageCode?.identifier ?? $0 } ?? "en"
+        return Locale(identifier: code).localizedString(forLanguageCode: code) ?? code
     }
 }
 
@@ -310,43 +321,44 @@ enum QuickCommands {
         defaults.set(data, forKey: "quickCommands")
     }
 
-    /// Заготовки при первом запуске: показывают, что вообще умеет список.
+    /// Заготовки при первом запуске — те же шесть, что выходят кнопками
+    /// помощи при письме: выделил текст — исправить, перевести, разложить,
+    /// улучшить, напомнить, сохранить.
     ///
-    /// Три последние работают через помощника: своего вида у них нет,
-    /// это обычные запросы к модели, а дело делает инструмент. Промт
-    /// поэтому написан как просьба, а не как задание на текст: «заведи»,
-    /// а не «составь». С выключенным помощником они ответят словами —
-    /// это видно сразу и чинится одной настройкой.
-    private static var defaults0: [QuickCommand] {
+    /// Напоминание работает через помощника: своего вида у него нет, это
+    /// обычный запрос к модели, а дело делает инструмент. Промт поэтому
+    /// написан как просьба, а не как задание на текст: «заведи», а не
+    /// «составь». С выключенным помощником он ответит словами — это видно
+    /// сразу и чинится одной настройкой.
+    ///
+    /// Перевод — на язык системы подстановкой `{{language}}`: один промт
+    /// на все три языка интерфейса, а язык берётся у машины, не у окна.
+    static var defaults0: [QuickCommand] {
         [
             QuickCommand(
                 id: 0,
                 title: t("Исправить ошибки"),
                 kind: .ollama,
-                payload: t("Исправь орфографию и пунктуацию. Верни только исправленный текст, без пояснений.\n\n{{selection}}"),
+                payload: t("Исправь орфографию, грамматику и пунктуацию. Сохрани язык, смысл, тон и форматирование. Верни только исправленный текст, без пояснений.\n\n{{selection}}"),
                 symbol: "text.badge.checkmark",
                 isEnabled: true,
                 hotKey: HotKeySpec.slot(0)
             ),
-            // Язык подстановкой не задаётся: и название, и промт переводятся
-            // таблицей, и в английском окне здесь стоит «Translate to English».
-            // Назвать язык в промте одним словом нельзя — тогда он был бы
-            // один на все три языка интерфейса.
             QuickCommand(
                 id: 1,
-                title: t("Перевести на русский"),
+                title: t("Перевести"),
                 kind: .ollama,
-                payload: t("Переведи на русский. Верни только перевод.\n\n{{selection}}"),
+                payload: t("Переведи на язык «{{language}}». Если текст уже на нём — переведи на английский. Сохрани форматирование. Верни только перевод.\n\n{{selection}}"),
                 symbol: "character.book.closed",
                 isEnabled: true,
                 hotKey: HotKeySpec.slot(1)
             ),
             QuickCommand(
                 id: 2,
-                title: t("Кратко пересказать"),
+                title: t("Структурировать"),
                 kind: .ollama,
-                payload: t("Перескажи кратко, тремя пунктами.\n\n{{selection}}"),
-                symbol: "list.bullet.rectangle",
+                payload: t("Улучши структуру и форматирование: разбей на абзацы, где уместно — списки и подзаголовки. Слова, смысл и язык не меняй. Верни только текст, без пояснений.\n\n{{selection}}"),
+                symbol: "list.bullet.indent",
                 isEnabled: true,
                 hotKey: HotKeySpec.slot(2)
             ),
@@ -354,49 +366,31 @@ enum QuickCommands {
                 id: 3,
                 title: t("Улучшить текст"),
                 kind: .ollama,
-                payload: t("Перепиши понятнее и складнее, сохранив смысл и тон. Верни только текст, без пояснений.\n\n{{selection}}"),
+                payload: t("Перепиши понятнее и складнее, сохранив смысл, тон и язык. Верни только текст, без пояснений.\n\n{{selection}}"),
                 symbol: "wand.and.sparkles",
                 isEnabled: true,
                 hotKey: HotKeySpec.slot(3)
             ),
             QuickCommand(
                 id: 4,
-                title: t("Объяснить простыми словами"),
-                kind: .ollama,
-                payload: t("Объясни простыми словами, без терминов. Коротко.\n\n{{selection}}"),
-                symbol: "lightbulb",
-                isEnabled: true,
-                hotKey: HotKeySpec.slot(4)
-            ),
-            QuickCommand(
-                id: 5,
-                title: t("Добавить в напоминания"),
+                title: t("Создать напоминание"),
                 kind: .ollama,
                 payload: t("Заведи напоминание по этому тексту. Срок возьми из него; если срока нет — не указывай.\n\n{{selection}}"),
                 symbol: "checklist",
                 isEnabled: true,
-                hotKey: HotKeySpec.slot(5)
+                hotKey: HotKeySpec.slot(4)
             ),
-            // Записать захваченное, ничего не спрашивая у модели. Идёт
+            // Записать выделенное, ничего не спрашивая у модели. Идёт
             // из коробки, но ничем не особеннее прочих: её можно удалить,
             // переставить и переименовать.
             QuickCommand(
-                id: 6,
-                title: t("Сохранить в заметки"),
+                id: 5,
+                title: t("Сохранить в заметку"),
                 kind: .saveToNotes,
                 payload: "",
                 symbol: "tray.and.arrow.down",
                 isEnabled: true,
-                hotKey: HotKeySpec.slot(6)
-            ),
-            QuickCommand(
-                id: 7,
-                title: t("Создать встречу"),
-                kind: .ollama,
-                payload: t("Заведи встречу по этому тексту: возьми из него название, дату и время.\n\n{{selection}}"),
-                symbol: "calendar.badge.plus",
-                isEnabled: true,
-                hotKey: HotKeySpec.slot(7)
+                hotKey: HotKeySpec.slot(5)
             ),
         ]
     }

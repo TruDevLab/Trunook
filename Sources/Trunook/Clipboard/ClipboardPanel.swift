@@ -379,7 +379,9 @@ struct ClipboardPreview: View {
                     .padding(9)
             }
         case .image:
-            if let data = imageData(entry), let image = NSImage(data: data) {
+            // Вдвое больше места превью — на ретине без мыла, а не снимок
+            // экрана целиком на каждом пересчёте панели.
+            if let image = ClipboardThumbnails.preview(id: entry.id, maxSide: 800, data: { imageData(entry) }) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -432,8 +434,8 @@ struct ClipboardPreview: View {
             parts.append(tf("%d слов", words))
         case .image:
             parts.append(entry.text)
-            if let data = imageData(entry) {
-                parts.append(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))
+            if let count = ClipboardThumbnails.byteCount(id: entry.id, data: { imageData(entry) }) {
+                parts.append(ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file))
             }
         case .files:
             let images = entry.imageFiles

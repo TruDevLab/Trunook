@@ -43,8 +43,6 @@ enum NotchPresentation: Equatable {
     case eventEditor
     /// Сводки новостей и слежка за сайтами.
     case feeds
-    /// Раскладки окна, донесённого до чёлки.
-    case windowSnap
     /// Превью письма из плашки.
     case letter
     /// Голосовой заход: панель не раскрывается, светится сам остров.
@@ -89,7 +87,7 @@ enum NotchPresentation: Equatable {
         case .activity, .preview: return true
         case .collapsed, .chip, .swiping, .voice, .quickRing, .expanded,
              .clipboard, .assistant, .shelf, .timer, .monitor,
-             .teleprompter, .caffeine, .keyboardLock, .water, .notes, .calendar, .eventEditor, .feeds, .windowSnap, .letter:
+             .teleprompter, .caffeine, .keyboardLock, .water, .notes, .calendar, .eventEditor, .feeds, .letter:
             return false
         }
     }
@@ -237,7 +235,10 @@ enum NotchSizing {
                 metrics: metrics,
                 notesEnabled: content.notesEnabled
             )
-            return metrics.activity(width: layout.panelWidth)
+            let size = metrics.activity(width: layout.panelWidth)
+            // Помощь при письме — в два ряда: текст и кнопки под ним.
+            guard ActivityView.writingOffer(for: activity.kind) != nil else { return size }
+            return CGSize(width: size.width, height: size.height + WritingHelpButtons.extraHeight)
         case .preview:
             // Во время встречи наведение показывает её кнопки: это главное,
             // что нужно от выреза, пока идёт разговор.
@@ -325,11 +326,6 @@ enum NotchSizing {
                     notchHeight: metrics.notchHeight,
                     count: content.shelfCount
                 )
-            )
-        case .windowSnap:
-            return CGSize(
-                width: WindowSnapLayout.width,
-                height: WindowSnapLayout.height(notchHeight: metrics.notchHeight)
             )
         case .letter:
             return CGSize(

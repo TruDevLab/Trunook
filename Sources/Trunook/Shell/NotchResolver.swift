@@ -178,7 +178,9 @@ struct NotchInputs: Equatable {
         case .calendar: return .calendar
         case .eventEditor: return .eventEditor
         case .feeds: return .feeds
-        case .windowSnap: return .windowSnap
+        // Плитки раскладок рисуются на самом экране, не в вырезе: накладка
+        // лишь держит вырез занятым, чтобы мини-вид не раскрылся под доской.
+        case .windowSnap: return .collapsed
         case .letter: return .letter
         case nil: break
         }

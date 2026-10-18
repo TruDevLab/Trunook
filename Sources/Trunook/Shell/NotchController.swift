@@ -567,6 +567,7 @@ final class NotchController {
         commands.onSaveToNotes = { [weak self] text in
             self?.saveTextToNotes(text, origin: .selection, done: t("Записано в заметки"))
         }
+        installWritingHelp()
         installHotKeys()
         installVoice()
 
@@ -3959,6 +3960,88 @@ final class NotchController {
         }
     }
 
+    // MARK: - Помощь при письме
+
+    /// Выделение, к которому уже предложены кнопки. Повторное отпускание
+    /// мыши над тем же выделением плашку заново не зовёт; снятое выделение
+    /// сбрасывает запомненное — выделили то же снова, плашка выйдет снова.
+    private var offeredSelection: String?
+    private let selectionWatcher = SelectionWatcher()
+
+    private func installWritingHelp() {
+        selectionWatcher.onChange = { [weak self] text in self?.selectionChanged(text) }
+        selectionWatcher.isEnabled = { [weak self] in
+            guard let self else { return false }
+            return self.settings.writingHelpEnabled && self.settings.quickCommandsEnabled
+        }
+        selectionWatcher.start()
+        WritingHelp.shared.onRun = { [weak self] id in self?.runWritingHelp(id) }
+        WritingHelp.shared.onOpen = { [weak self] in self?.openWritingHelp() }
+    }
+
+    /// Выделение после отпускания мыши или клавиши.
+    private func selectionChanged(_ text: String?) {
+        let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard WritingHelpRules.offers(trimmed) else {
+            offeredSelection = nil
+            // Выделение сняли — кнопки к нему больше не к чему.
+            if case .writingHelp? = activities.current?.kind { activities.dismiss() }
+            return
+        }
+        guard settings.writingHelpEnabled, settings.quickCommandsEnabled, trimmed != offeredSelection else { return }
+        // Поверх открытой панели и рукой раскрытого выреза не предлагаем:
+        // человек уже работает с вырезом, плашка встала бы поперёк.
+        // Раскладку окна — тоже: отпускание после переноса окна не выделение.
+        guard state.overlay == nil, !state.isPinnedOpen, !snapScreen.isShown else { return }
+        let commands = WritingHelpRules.commands(from: settings.quickCommands, modelEnabled: settings.ollamaEnabled)
+        guard !commands.isEmpty else { return }
+        offeredSelection = trimmed
+        DebugLog.write("помощь при письме: выделено \(trimmed.count) симв., кнопок \(commands.count)")
+        activities.present(.writingHelp(WritingHelpRules.offer(text: trimmed, commands: commands)))
+    }
+
+    /// Кнопка команды на плашке: команда получает то выделение, к которому
+    /// плашка вышла. Чужое приложение по-прежнему переднее — вырез фокуса
+    /// не отбирает, — и вставка ответа уйдёт туда, откуда текст взят.
+    private func runWritingHelp(_ id: Int) {
+        guard case let .writingHelp(offer)? = activities.current?.kind,
+              let command = settings.quickCommands.first(where: { $0.id == id }) else { return }
+        activities.dismiss()
+        DebugLog.write("помощь при письме: «\(command.title)»")
+        commands.run(command, selection: offer.text)
+    }
+
+    /// Нажали саму плашку — панель команд с выделенным, как по ⌃⌥C.
+    private func openWritingHelp() {
+        guard case let .writingHelp(offer)? = activities.current?.kind else { return }
+        activities.dismiss()
+        armAgent()
+        assistant.ask(captured: offer.text, target: NSWorkspace.shared.frontmostApplication)
+        router.set(.assistant)
+        takeKeyboard()
+    }
+
+    /// Плашка помощи к выдуманному выделению — проверить вёрстку из сессии.
+    func debugWritingHelp() {
+        offeredSelection = nil
+        selectionChanged("Привет! Я хотел уточнить, успеваем ли мы к пятнице со сдачей отчёта.")
+    }
+
+    /// Сколько стоит один вопрос о выделении переднему приложению:
+    /// пятьдесят подряд, среднее и худшее время — в журнал.
+    func debugWritingHelpProbe() {
+        let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+        var times: [Double] = []
+        for _ in 0..<50 {
+            let start = CFAbsoluteTimeGetCurrent()
+            _ = SelectionReader.accessibilityText(timeout: 0.2)
+            times.append((CFAbsoluteTimeGetCurrent() - start) * 1000)
+        }
+        let average = times.reduce(0, +) / Double(times.count)
+        DebugLog.write(String(format: "помощь при письме: вопрос о выделении у «%@» — среднее %.2f мс, худшее %.2f мс",
+                              app, average, times.max() ?? 0))
+    }
+
     // MARK: - Раскладка окон
 
     /// Окно, которое потащили, пока кнопка зажата. `nil` — ничего не тащат
@@ -3967,10 +4050,31 @@ final class NotchController {
     /// Для этого нажатия окно уже искали: искать на каждом тике — дёргать
     /// чужое приложение десять раз в секунду.
     private var draggedWindowLooked = false
+    /// Окно, которое раскладываем: несомое или отпущенное над чёлкой.
+    private var snapWindow: AXUIElement?
+    /// Плитки раскладок по всему экрану и контур будущего окна — не в вырезе.
+    private lazy var snapScreen: WindowSnapScreen = {
+        let screen = WindowSnapScreen()
+        screen.onChoose = { [weak self] target in self?.chooseWindowSnap(target) }
+        screen.onCancel = { [weak self] in self?.closeWindowSnap() }
+        return screen
+    }()
+    /// Выбор второго окна на остаток экрана.
+    private let fillPicker = WindowFillPicker()
+    /// Разметку листают отладочным событием: плитку выбирает шаг, а не курсор.
+    private var snapSteppedByDebug = false
 
     /// На каждом тике: несут ли окно, не пора ли показать раскладки
     /// и не отпустили ли его над ними.
     private func updateWindowSnap() {
+        // Накладку закрыли снаружи — щелчком мимо, другой панелью: разметка
+        // уходит вместе с ней.
+        if snapScreen.isShown, state.overlay != .windowSnap { closeWindowSnap() }
+        // Окно отпустили над чёлкой — дальше ждём щелчка, нажатие ловит разметка.
+        if snapScreen.model.clickMode {
+            updateWindowSlot()
+            return
+        }
         let pressed = NSEvent.pressedMouseButtons & 1 != 0
         guard pressed else {
             finishWindowSnap()
@@ -3987,10 +4091,10 @@ final class NotchController {
         window.refresh()
         guard window.isMoving else { return }
 
-        if state.overlay != .windowSnap, isNearNotch(NSEvent.mouseLocation) {
+        if !snapScreen.isShown, isNearNotch(NSEvent.mouseLocation) {
             // Поверх того, с чем работают руками, раскладки не открываем.
             guard state.overlay == nil else { return }
-            router.set(.windowSnap)
+            openWindowSnap(for: window.element)
         }
         updateWindowSlot()
     }
@@ -4006,21 +4110,36 @@ final class NotchController {
         return zone.contains(point)
     }
 
-    /// Раскладка под курсором — по движению, а не только по тику: плитки
-    /// мелкие, и подсветка, отстающая на десятую долю секунды, промахивается.
-    private func updateWindowSlot() {
-        guard state.overlay == .windowSnap, let geometry = host.geometry, let metrics = host.metrics else { return }
-        let size = CGSize(width: WindowSnapLayout.width, height: WindowSnapLayout.height(notchHeight: metrics.notchHeight))
-        let frame = geometry.windowFrame(contentSize: size)
-        let cursor = NSEvent.mouseLocation
-        let point = CGPoint(x: cursor.x - frame.minX, y: frame.maxY - cursor.y)
-        let slot = WindowSnapLayout.slot(at: point, notchHeight: metrics.notchHeight)
-        guard slot != state.windowSlot else { return }
-        state.windowSlot = slot
-        Haptics.tap(.alignment)
+    private func openWindowSnap(for element: AXUIElement) {
+        guard let geometry = host.geometry else { return }
+        fillPicker.close()
+        snapWindow = element
+        // Накладка держит вырез занятым: мини-вид не раскроется под разметкой,
+        // пока курсор над чёлкой. Сама она в вырезе ничего не рисует.
+        router.set(.windowSnap)
+        snapScreen.show(on: geometry.screen, notch: geometry.notchRect)
     }
 
-    /// Кнопку отпустили. Над раскладками — окно ложится по выбранной.
+    /// Плитка под курсором — по движению, а не только по тику: плитки
+    /// мелкие, и подсветка, отстающая на десятую долю секунды, промахивается.
+    private func updateWindowSlot() {
+        guard snapScreen.isShown, !snapSteppedByDebug else { return }
+        let cursor = NSEvent.mouseLocation
+        if !snapScreen.model.clickMode, !snapScreen.contains(cursor) {
+            // Окно унесли на другой экран — раскладывать здесь передумали.
+            // Вернётся к чёлке — разметка откроется снова.
+            DebugLog.write("окна: окно унесли с экрана — разметка закрыта")
+            closeWindowSnap()
+            return
+        }
+        let target = snapScreen.target(at: cursor)
+        guard target != snapScreen.model.target else { return }
+        snapScreen.model.target = target
+        if target != nil { Haptics.tap(.alignment) }
+    }
+
+    /// Кнопку отпустили. Над плиткой — окно ложится по ней, над отменой —
+    /// остаётся где было, над чёлкой — разметка ждёт щелчка.
     private func finishWindowSnap() {
         // Нажатия не было — и заканчивать нечего. Иначе отпущенная кнопка
         // закрывала бы раскладки на каждом тике, кто бы их ни открыл.
@@ -4029,36 +4148,147 @@ final class NotchController {
             draggedWindow = nil
             draggedWindowLooked = false
         }
-        guard state.overlay == .windowSnap else { return }
-        let slot = state.windowSlot
-        let window = draggedWindow
-        state.windowSlot = nil
-        router.close()
-        guard let slot, let window, let screen = host.geometry?.screen else { return }
+        guard snapScreen.isShown else { return }
+        switch snapScreen.target(at: NSEvent.mouseLocation) {
+        case let .slot(slot)?:
+            applyWindowSnap(slot)
+        case .cancel?:
+            DebugLog.write("окна: отмена")
+            closeWindowSnap()
+        case nil:
+            snapScreen.model.target = nil
+            snapScreen.enterClickMode()
+        }
+    }
+
+    /// Щелчок в режиме щелчка: мимо плиток — та же отмена.
+    private func chooseWindowSnap(_ target: WindowSnapBoard.Target?) {
+        guard case let .slot(slot)? = target else {
+            DebugLog.write("окна: отмена щелчком")
+            closeWindowSnap()
+            return
+        }
+        applyWindowSnap(slot)
+    }
+
+    private func applyWindowSnap(_ slot: WindowSlot) {
+        guard let window = snapWindow, let screen = snapScreen.screen else {
+            closeWindowSnap()
+            return
+        }
         let frame = slot.frame(in: screen.visibleFrame)
+        closeWindowSnap()
         DebugLog.write("окна: раскладка \(slot.rawValue) → \(NSStringFromRect(frame))")
         // С задержкой: система заканчивает перенос окна по отпусканию сама
         // и поставила бы его на место отпускания поверх нашей раскладки.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            DraggedWindow.place(window.element, in: frame, edges: slot.edges)
+            DraggedWindow.place(window, in: frame, edges: slot.edges)
+        }
+        offerWindowFill(after: slot, placed: window, on: screen)
+    }
+
+    private func closeWindowSnap() {
+        snapScreen.close()
+        snapWindow = nil
+        snapSteppedByDebug = false
+        if state.overlay == .windowSnap { router.close() }
+    }
+
+    /// Окно легло на половину, треть, четверть или в угол — в свободных
+    /// местах по очереди предложить другие окна. У угла мест три: после
+    /// выбора на одно сразу спрашивается следующее. Esc или щелчок мимо
+    /// обрывают цепочку.
+    private func offerWindowFill(after slot: WindowSlot, placed: AXUIElement, on screen: NSScreen) {
+        guard settings.windowFillEnabled, !slot.followUps.isEmpty else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            self?.offerNextFill(slot.followUps, placed: [placed], visible: screen.visibleFrame)
         }
     }
 
-    /// Раскладки без перетаскивания: первый вызов открывает, каждый следующий
-    /// подсвечивает следующую, после последней — закрывает.
+    /// Следующее место цепочки.
+    ///
+    /// Место ужимается по настоящим рамкам уже поставленных окон, а не по
+    /// плану: приложение могло не дать окну ужаться. Читается дважды — при
+    /// показе и при выборе: показ идёт, пока окно ещё дотягивается до своего
+    /// минимума, а к щелчку оно уже стоит.
+    private func offerNextFill(_ queue: [WindowSlot], placed: [AXUIElement], visible: CGRect) {
+        guard let next = queue.first, !snapScreen.isShown else { return }
+        let rest = Array(queue.dropFirst())
+        let region = { WindowSlot.fit(next.frame(in: visible), avoiding: placed.compactMap(DraggedWindow.frame(of:))) }
+        let frame = region()
+        // Соседи не ужались и заняли место почти целиком — ставить некуда.
+        guard frame.width >= 200, frame.height >= 150 else {
+            DebugLog.write("окна: на \(next.rawValue) осталось \(Int(frame.width))×\(Int(frame.height)) — пропускаем")
+            offerNextFill(rest, placed: placed, visible: visible)
+            return
+        }
+        let candidates = WindowCandidates.list(excluding: placed)
+        guard !candidates.isEmpty else {
+            DebugLog.write("окна: на остаток ставить нечего")
+            return
+        }
+        let total = placed.count + queue.count - 1
+        let title = total > 1 ? tf("%@ · %d из %d", next.title, placed.count, total) : next.title
+        fillPicker.show(candidates, in: frame, title: title) { [weak self] candidate in
+            let target = region()
+            DebugLog.write("окна: на \(next.rawValue) — \(candidate.appName) → \(NSStringFromRect(target))")
+            DraggedWindow.place(candidate.element, in: target, edges: next.edges)
+            DraggedWindow.raise(candidate.element)
+            guard !rest.isEmpty else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                self?.offerNextFill(rest, placed: placed + [candidate.element], visible: visible)
+            }
+        }
+    }
+
+    /// Разметка без перетаскивания: первый вызов открывает её для переднего окна,
+    /// каждый следующий подсвечивает следующую плитку, после последней —
+    /// закрывает. На каждом шаге — снимок разметки.
     func debugStepWindowSlots() {
-        guard state.overlay == .windowSnap else {
-            router.set(.windowSnap)
-            state.windowSlot = WindowSlot.allCases.first
+        let targets: [WindowSnapBoard.Target] = [.cancel] + WindowSnapBoard.cells.map { .slot($0.slot) }
+        guard snapScreen.isShown else {
+            guard let window = DraggedWindow.frontmost() else {
+                DebugLog.write("окна: переднего окна нет")
+                return
+            }
+            openWindowSnap(for: window)
+            snapSteppedByDebug = true
+            snapScreen.model.target = targets.first
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.snapScreen.snapshot() }
             return
         }
-        let all = WindowSlot.allCases
-        guard let current = state.windowSlot, let index = all.firstIndex(of: current), index + 1 < all.count else {
-            state.windowSlot = nil
-            router.close()
+        guard let current = snapScreen.model.target, let index = targets.firstIndex(of: current),
+              index + 1 < targets.count else {
+            closeWindowSnap()
             return
         }
-        state.windowSlot = all[index + 1]
+        snapScreen.model.target = targets[index + 1]
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.snapScreen.snapshot() }
+    }
+
+    /// Разметка для переднего окна сразу в режиме щелчка — как будто окно
+    /// отпустили над чёлкой. Щёлкает человек.
+    func debugWindowBoardClick() {
+        guard let window = DraggedWindow.frontmost() else {
+            DebugLog.write("окна: переднего окна нет")
+            return
+        }
+        closeWindowSnap()
+        openWindowSnap(for: window)
+        snapScreen.enterClickMode()
+    }
+
+    /// Переднее окно — на левую половину, и предложение второго окна
+    /// со снимком.
+    func debugWindowFill() {
+        guard let window = DraggedWindow.frontmost(), let screen = host.geometry?.screen else {
+            DebugLog.write("окна: переднего окна нет")
+            return
+        }
+        let frame = WindowSlot.leftHalf.frame(in: screen.visibleFrame)
+        DraggedWindow.place(window, in: frame, edges: WindowSlot.leftHalf.edges)
+        offerWindowFill(after: .leftHalf, placed: window, on: screen)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.fillPicker.snapshot() }
     }
 
     /// Все раскладки по очереди на переднем окне — сверка в журнале,

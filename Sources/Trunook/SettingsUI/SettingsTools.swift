@@ -175,7 +175,13 @@ extension SettingsView {
         section(t("Раскладка окон"), icon: "rectangle.split.2x1") {
             VStack(alignment: .leading, spacing: 4) {
                 Toggle(t("Раскладка окон"), isOn: settings.binding(\.windowSnapEnabled))
-                hint(t("Тащите окно за заголовок к чёлке и отпустите на нужной раскладке."))
+                hint(t("Тащите окно к чёлке — раскладки появятся на экране."))
+            }
+            .accessibilityElement(children: .combine)
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Предлагать второе окно"), isOn: settings.binding(\.windowFillEnabled))
+                    .disabled(!settings.windowSnapEnabled)
+                hint(t("После половины, трети или четверти — окно на остаток экрана."))
             }
             .accessibilityElement(children: .combine)
         }

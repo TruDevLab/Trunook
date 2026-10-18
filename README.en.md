@@ -170,7 +170,13 @@ commands — one in the 1×1 size. Select text in another window, click
   only a request to the model: it can be an app, a folder, a link, an
   AppleScript, a macOS Shortcut, or saving the capture to notes. The first
   nine run straight from the keyboard, and the favourites can go onto the
-  home screen as a tile.
+  home screen as a tile. Six come out of the box: fix mistakes, translate
+  into the system language, structure, improve the text, create a reminder
+  and save to a note.
+- **Writing help.** Select text in any app and a pill with the first six
+  commands appears under the notch. A button runs the command, and the answer
+  can be pasted in place of the selection; clicking the pill itself opens
+  the conversation with the selection.
 
 ### What's going on around you
 
@@ -201,10 +207,15 @@ commands — one in the 1×1 size. Select text in another window, click
 
 ### Windows and screens
 
-- **Window layouts.** Drag a window by its title bar to the notch and it
-  shows layouts: full screen and centred at 85 per cent in the middle,
-  halves, two thirds, thirds and top and bottom quarters on the sides. Drop
-  the window on the one you want.
+- **Window layouts.** Drag a window by its title bar to the notch and the
+  whole screen is marked with tiles where the windows would go: corners in
+  the corners, top and bottom in the middle, full screen and centred at the
+  centre, halves, thirds and quarters from the edges along the sides. The tile
+  under the window lights up and shows the window's outline at real size;
+  drop it and the window snaps there. Dropped it on the notch? Click a tile;
+  changed your mind — Cancel or Esc. After a half, third or quarter, other
+  windows are offered for the rest of the screen; after a corner, for the
+  three remaining corners in turn.
 - **Several monitors.** The Screens setting: the island only on the screen
   with the notch, on the screen under the cursor, or on all of them at once.
   Screens without a notch draw nothing at rest, and in "All screens" mode

@@ -739,12 +739,26 @@ final class Settings: ObservableObject {
         set { store(newValue, "stretchReminderMinutes") }
     }
 
+    // MARK: - Помощь при письме
+
+    /// Выделили текст в чужом приложении — под чёлкой плашка с командами.
+    var writingHelpEnabled: Bool {
+        get { flag("writingHelpEnabled", default: true) }
+        set { store(newValue, "writingHelpEnabled") }
+    }
+
     // MARK: - Раскладка окон
 
     /// Окно, донесённое до чёлки, раскладывается по выбранному месту.
     var windowSnapEnabled: Bool {
         get { flag("windowSnapEnabled", default: true) }
         set { store(newValue, "windowSnapEnabled") }
+    }
+
+    /// После половины, трети или четверти — выбрать окно на остаток экрана.
+    var windowFillEnabled: Bool {
+        get { flag("windowFillEnabled", default: true) }
+        set { store(newValue, "windowFillEnabled") }
     }
 
     func resetHomeWidgets() {

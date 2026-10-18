@@ -68,9 +68,7 @@ final class NotchState: ObservableObject {
         /// в тот момент, ради которого она открыта.
         var closesOnCursorExit: Bool {
             switch self {
-            // Раскладки окна — по уходу: окно унесли от чёлки, значит
-            // раскладывать его передумали.
-            case .clipboard, .timer, .monitor, .caffeine, .windowSnap: return true
+            case .clipboard, .timer, .monitor, .caffeine: return true
             // Календарь и правка события — руками: по месяцу водят, в поля
             // печатают, время щёлкают стрелками. Курсор при этом заведомо
             // уходит за края.
@@ -84,6 +82,9 @@ final class NotchState: ObservableObject {
                  .calendar, .eventEditor, .feeds, .keyboardLock, .water: return false
             // Письмо читают: курсор уходит, пока глаза идут по строкам.
             case .letter: return false
+            // Раскладки окна закрывает контроллер: плитки — на экране под
+            // чёлкой, и курсор уходит к ним за края выреза.
+            case .windowSnap: return false
             }
         }
 
@@ -116,8 +117,6 @@ final class NotchState: ObservableObject {
     @Published var shelfDropZone: ShelfDropZone = .shelf
     /// Тащат одни архивы — раздел сжатия распаковывает.
     @Published var shelfDropUnpacks = false
-    /// Раскладка под курсором, пока окно держат над чёлкой.
-    @Published var windowSlot: WindowSlot?
 
     /// С полки тащат файл наружу. Пока это так, накладку закрывать нельзя:
     /// вытащить файл — это и значит увести курсор за её границы.
@@ -487,7 +486,7 @@ struct NotchView: View {
                 switch presentation {
                 case .expanded, .clipboard, .assistant, .shelf, .timer,
                      .monitor, .teleprompter, .caffeine, .keyboardLock, .water, .notes,
-                     .calendar, .eventEditor, .feeds, .windowSnap, .letter:
+                     .calendar, .eventEditor, .feeds, .letter:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
                 case .swiping: return 14
@@ -1054,6 +1053,8 @@ struct NotchView: View {
         // Тело плашки ничего не открывает: ответ — кнопками рядом.
         case .breakReminder, .countdownReached: break
         case .caffeine: onOpenAwake()
+        // Тело плашки — панель команд с выделенным, как по ⌃⌥C.
+        case .writingHelp: WritingHelp.shared.open()
         default: onOpenClipboard()
         }
     }
@@ -1239,8 +1240,6 @@ struct NotchView: View {
                 onOpenActivityMonitor: onOpenActivityMonitor,
                 onClose: onCloseOverlay
             )
-        case .windowSnap:
-            WindowSnapPanel(metrics: metrics, selected: state.windowSlot)
         case .shelf:
             ShelfPanel(
                 items: shelf.items,

@@ -44,6 +44,12 @@ struct ActivityLayout {
     /// Сколько остаётся тексту после значка и числа справа.
     let textWidth: CGFloat
 
+    /// Готовые размеры — для плашки со своей раскладкой (помощь при письме).
+    init(panelWidth: CGFloat, textWidth: CGFloat) {
+        self.panelWidth = panelWidth
+        self.textWidth = textWidth
+    }
+
     /// - Parameters:
     ///   - minimumWidth: ширина свёрнутой формы. Плашка не имеет права стать
     ///     уже неё — иначе остров получается меньше самого выреза.
@@ -168,7 +174,10 @@ struct ActivityView: View {
         metrics: NotchMetrics,
         notesEnabled: Bool
     ) -> ActivityLayout {
-        ActivityLayout(
+        if let offer = writingOffer(for: kind) {
+            return WritingHelpButtons.layout(for: offer, text: text(for: kind, track: track), metrics: metrics)
+        }
+        return ActivityLayout(
             text: text(for: kind, track: track),
             trailing: trailing(for: kind),
             minimumWidth: metrics.closed.width,
@@ -245,6 +254,50 @@ struct ActivityView: View {
     }
 
     var body: some View {
+        if let offer = Self.writingOffer(for: activity.kind) {
+            writingHelp(offer)
+        } else {
+            row
+        }
+    }
+
+    /// Помощь при письме — в два ряда: сверху выделенный текст бегущей
+    /// строкой, под ним кнопки команд. В одну строку тексту оставалось
+    /// полторы сотни точек, и он обрывался на полуслове.
+    ///
+    /// Нажатие по тексту — та же плашка целиком (`onOpen`), кнопки — рядом,
+    /// а не внутри: кнопка, вложенная в кнопку, нажатий не получает.
+    private func writingHelp(_ offer: WritingHelpOffer) -> some View {
+        VStack(alignment: .leading, spacing: WritingHelpButtons.rowGap) {
+            Button(action: onOpen) {
+                HStack(spacing: ActivityLayout.spacing) {
+                    icon
+                        .frame(width: ActivityLayout.iconSize, height: ActivityLayout.iconSize)
+                        .notchCascade(0, shown: revealed, scale: 0.4, lift: 0, pop: true)
+                    MarqueeText(
+                        text: Self.text(for: activity.kind, track: track),
+                        font: ActivityLayout.textFont,
+                        availableWidth: layout.textWidth,
+                        startDate: activity.createdAt,
+                        startDelay: 1,
+                        scrollsWhenSaving: true
+                    )
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+
+            WritingHelpButtons(offer: offer)
+                .frame(maxWidth: .infinity)
+                .notchCascade(3, shown: revealed, scale: 0.6, lift: 0, pop: true)
+        }
+        .padding(.horizontal, ActivityLayout.leadingPadding)
+        .padding(.top, metrics.notchHeight + 6)
+        .padding(.bottom, 12)
+        .foregroundStyle(.white)
+    }
+
+    private var row: some View {
         HStack(spacing: ActivityLayout.spacing) {
             // Нажатие живёт здесь, а не снаружи всей плашки: крестик обязан
             // быть отдельной кнопкой, а кнопка, вложенная в кнопку, нажатий
@@ -284,6 +337,7 @@ struct ActivityView: View {
                 answerButtons(answer)
                     .notchCascade(3, shown: revealed, scale: 0.6, lift: 0, pop: true)
             }
+
 
             if Self.isDismissable(activity.kind) {
                 sideButton(
@@ -372,6 +426,12 @@ struct ActivityView: View {
 
     /// Сколько кнопки ответа прибавляют к ширине: промежуток от текста,
     /// сами кнопки с промежутками и разница полей справа и слева.
+    /// Кнопки команд у плашки помощи при письме.
+    static func writingOffer(for kind: Activity.Kind) -> WritingHelpOffer? {
+        guard case let .writingHelp(offer) = kind, !offer.buttons.isEmpty else { return nil }
+        return offer
+    }
+
     /// Сердечко у плашки новой песни — лайк, не раскрывая выреза.
     static func likeRoom(for kind: Activity.Kind, track: NowPlaying?) -> CGFloat {
         guard case .trackChanged = kind, TrackLike.supports(track) else { return 0 }
@@ -572,6 +632,8 @@ struct ActivityView: View {
             iconTile("phone.arrow.down.left.fill")
         case let .external(notice):
             iconTile(notice.symbol)
+        case .writingHelp:
+            iconTile("character.cursor.ibeam")
         }
     }
 
@@ -639,6 +701,9 @@ struct ActivityView: View {
             return invite.text
         case let .external(notice):
             return "\(notice.source): \(notice.title)"
+        // Начало выделенного одной строкой — узнать, к чему кнопки.
+        case let .writingHelp(offer):
+            return offer.text.split(whereSeparator: \.isNewline).joined(separator: " ")
         }
     }
 
@@ -684,7 +749,7 @@ struct ActivityView: View {
             return nil
         // У ждущих плашек значения справа нет: место там занято кнопками
         // ответа, и слово рядом с ними спорило бы с ними за смысл.
-        case .agentConfirm, .reminderDue, .incomingCall, .external:
+        case .agentConfirm, .reminderDue, .incomingCall, .external, .writingHelp:
             return nil
         }
     }
@@ -739,6 +804,7 @@ struct ActivityView: View {
         // цветом звонок подписан везде, где его вообще рисуют.
         case .incomingCall: return Palette.positive
         case .external: return Palette.assistant
+        case .writingHelp: return Palette.assistant
         }
     }
 
