@@ -121,6 +121,7 @@ final class OverlayRouter {
         case .feeds: return "сводки"
         case .windowSnap: return "раскладка окна"
         case .letter: return "превью письма"
+        case .windowSwitcher: return "переключатель окон"
         }
     }
 }

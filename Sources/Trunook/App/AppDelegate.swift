@@ -89,9 +89,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("com.trunook.debug.windowFill", #selector(windowFill)),
             ("com.trunook.debug.windowCycle", #selector(windowCycle)),
             ("com.trunook.debug.windowBoardClick", #selector(windowBoardClick)),
+            ("com.trunook.debug.windowScreenNext", #selector(windowScreenNext)),
             ("com.trunook.debug.writingHelp", #selector(writingHelp)),
             ("com.trunook.debug.writingHelpProbe", #selector(writingHelpProbe)),
             ("com.trunook.debug.windowFillOffer", #selector(windowFillOffer)),
+            ("com.trunook.debug.switcher", #selector(switcherOpen)),
+            ("com.trunook.debug.switcherNext", #selector(switcherNext)),
+            ("com.trunook.debug.switcherDown", #selector(switcherDown)),
+            ("com.trunook.debug.switcherCommit", #selector(switcherCommit)),
+            ("com.trunook.debug.switcherCancel", #selector(switcherCancel)),
+            ("com.trunook.debug.switcherProbe", #selector(switcherProbe)),
+            ("com.trunook.debug.switcherDemoTabs", #selector(switcherDemoTabs)),
             ("com.trunook.debug.countdownNow", #selector(countdownNow)),
             ("com.trunook.debug.breakRest", #selector(breakRest)),
             ("com.trunook.debug.breakWater", #selector(breakWater)),
@@ -416,9 +424,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func windowFill() { controller.debugApplyWindowSlot(.fill) }
     @objc private func windowCycle() { controller.debugCycleWindowSlots() }
     @objc private func windowBoardClick() { controller.debugWindowBoardClick() }
+    @objc private func windowScreenNext() { controller.debugNextSnapScreen() }
     @objc private func writingHelp() { controller.debugWritingHelp() }
     @objc private func writingHelpProbe() { controller.debugWritingHelpProbe() }
     @objc private func windowFillOffer() { controller.debugWindowFill() }
+    /// Переключатель окон без ⌘: открыть, шаг, к вкладкам, выбрать, отменить.
+    @objc private func switcherOpen() { controller.debugSwitcher(.open(step: 1)) }
+    @objc private func switcherNext() { controller.debugSwitcher(.step(1)) }
+    @objc private func switcherDown() { controller.debugSwitcher(.tabs(true)) }
+    @objc private func switcherCommit() { controller.debugSwitcher(.commit) }
+    @objc private func switcherCancel() { controller.debugSwitcher(.cancel) }
+    @objc private func switcherProbe() { controller.debugSwitcherProbe() }
+    @objc private func switcherDemoTabs() { controller.debugSwitcherDemoTabs() }
     /// Наступление события отсчёта: плашка и залп, не дожидаясь даты.
     @objc private func countdownNow() { controller.debugCountdownReached() }
     @objc private func breakRest() { controller.debugBreak(.rest) }

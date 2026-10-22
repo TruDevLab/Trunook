@@ -187,6 +187,49 @@ extension SettingsView {
         }
     }
 
+    /// Подсказка под миниатюрами: включили, а разрешения нет — что делать.
+    static func thumbnailsHint(on: Bool, allowed: Bool) -> String {
+        guard on, !allowed else { return t("Снимки окон вместо значков. Нужна «Запись экрана».") }
+        return t("Разрешите «Запись экрана» и перезапустите Trunook.")
+    }
+
+    /// Переключатель окон: держат ⌘Tab — в вырезе окна и вкладки.
+    var windowSwitcherCard: some View {
+        section(t("Переключатель окон"), icon: "macwindow.on.rectangle") {
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Переключатель окон"), isOn: settings.binding(\.windowSwitcherEnabled))
+                hint(t("Держите сочетание — в вырезе окна, Tab листает, отпустите — перейти."))
+            }
+            .accessibilityElement(children: .combine)
+            Picker(t("Сочетание"), selection: settings.binding(\.windowSwitcherTrigger)) {
+                ForEach(SwitcherTrigger.allCases) { trigger in
+                    Text(trigger == .command ? t("⌘Tab — вместо системного") : t("⌥Tab — рядом с системным"))
+                        .tag(trigger)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(!settings.windowSwitcherEnabled)
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Вкладки браузера"), isOn: settings.binding(\.windowSwitcherTabs))
+                    .disabled(!settings.windowSwitcherEnabled)
+                hint(t("Safari, Arc и браузеры на Chromium: ↓ — к вкладкам окна."))
+            }
+            .accessibilityElement(children: .combine)
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(t("Миниатюры окон"), isOn: Binding(
+                    get: { settings.windowSwitcherThumbnails },
+                    set: { on in
+                        settings.windowSwitcherThumbnails = on
+                        if on { WindowThumbnails.requestAccess() }
+                    }
+                ))
+                .disabled(!settings.windowSwitcherEnabled)
+                hint(Self.thumbnailsHint(on: settings.windowSwitcherThumbnails, allowed: WindowThumbnails.isAllowed))
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
     var shelfSection: some View {
         Group {
             section(t("Полка"), icon: "tray.full") {
@@ -341,6 +384,7 @@ extension SettingsView {
             clipboardSection
             shelfSection
             windowSnapCard
+            windowSwitcherCard
             timerSection
             monitorSection
             teleprompterSection

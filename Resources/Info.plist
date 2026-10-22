@@ -35,7 +35,7 @@
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Чтобы записать разговор на встрече, приложению нужен звук системы. Запись остаётся на этом компьютере.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Trunook управляет воспроизведением музыки и читает задачи из Things 3.</string>
+	<string>Trunook управляет воспроизведением музыки, читает задачи из Things 3 и вкладки браузера для переключателя окон.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Trunook показывает ближайшие встречи в вырезе экрана и напоминает о них заранее.</string>
 	<key>NSHighResolutionCapable</key>

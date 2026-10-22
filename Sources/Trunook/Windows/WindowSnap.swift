@@ -157,7 +157,7 @@ enum WindowSlot: String, CaseIterable, Identifiable {
 /// по порядку середины окна: у края четверть, дальше треть, половина, две
 /// трети, три четверти — и зеркально справа. Между плитками остаются
 /// пустые места: точное положение важнее плотной сетки. Сверху под чёлкой —
-/// плитка «Отмена».
+/// плитка «Отмена», под ней — ряд экранов, если мониторов несколько.
 ///
 /// Координаты — от левого верхнего угла экрана, как у окна разметки.
 enum WindowSnapBoard {
@@ -165,6 +165,8 @@ enum WindowSnapBoard {
     enum Target: Equatable {
         case slot(WindowSlot)
         case cancel
+        /// Плашка экрана: номер в ряду экранов слева направо.
+        case screen(Int)
     }
 
     /// Ячейка в долях области плиток: `x` слева, `y` сверху.
@@ -220,11 +222,32 @@ enum WindowSnapBoard {
         let cancel: CGRect
         let area: CGRect
         let tiles: [WindowSlot: CGRect]
+        /// Плашки экранов под отменой — по одной на монитор, в порядке
+        /// слева направо. Пусто, если монитор один.
+        var screens: [CGRect] = []
+    }
+
+    static let screenChipSize = CGSize(width: 190, height: 36)
+    static let screenChipGap: CGFloat = 8
+
+    /// Ряд плашек экранов по центру под отменой. Плашки уже, если все
+    /// в обычную ширину не влезают.
+    static func screenChips(count: Int, centerX: CGFloat, top: CGFloat, width: CGFloat) -> [CGRect] {
+        guard count > 1 else { return [] }
+        let fit = (width - CGFloat(count - 1) * screenChipGap) / CGFloat(count)
+        let chip = min(screenChipSize.width, max(fit, 60))
+        let total = CGFloat(count) * chip + CGFloat(count - 1) * screenChipGap
+        let left = (centerX - total / 2).rounded()
+        return (0..<count).map { index in
+            CGRect(x: left + CGFloat(index) * (chip + screenChipGap), y: top,
+                   width: chip, height: screenChipSize.height)
+        }
     }
 
     /// Разметка экрана. Всё — в координатах AppKit: экран, рабочая область
     /// без полосы меню и Dock, чёлка. Результат — от левого верхнего угла экрана.
-    static func layout(screen: CGRect, visible: CGRect, notch: CGRect) -> Layout {
+    /// `screenCount` — сколько мониторов: больше одного — под отменой ряд экранов.
+    static func layout(screen: CGRect, visible: CGRect, notch: CGRect, screenCount: Int = 1) -> Layout {
         let local = { (rect: CGRect) in
             CGRect(x: rect.minX - screen.minX, y: screen.maxY - rect.maxY, width: rect.width, height: rect.height)
         }
@@ -236,7 +259,9 @@ enum WindowSnapBoard {
             width: cancelSize.width,
             height: cancelSize.height
         )
-        let top = cancel.maxY + gap
+        let screens = screenChips(count: screenCount, centerX: cancel.midX, top: cancel.maxY + gap,
+                                  width: visibleLocal.width - 2 * margin)
+        let top = (screens.first?.maxY ?? cancel.maxY) + gap
         let area = CGRect(
             x: visibleLocal.minX + margin,
             y: top,
@@ -252,7 +277,7 @@ enum WindowSnapBoard {
                 height: (area.height * cell.unit.height).rounded()
             )
         }
-        return Layout(cancel: cancel, area: area, tiles: tiles)
+        return Layout(cancel: cancel, area: area, tiles: tiles, screens: screens)
     }
 
     /// Что под точкой. Точка — от левого верхнего угла экрана.
@@ -261,6 +286,11 @@ enum WindowSnapBoard {
     /// на стыке. Широкие пустые места — ничьи: отпустили там — выбор щелчком.
     static func target(at point: CGPoint, in layout: Layout) -> Target? {
         if layout.cancel.insetBy(dx: -spacing, dy: -spacing).contains(point) { return .cancel }
+        if let index = layout.screens.firstIndex(where: {
+            $0.insetBy(dx: -screenChipGap / 2, dy: -screenChipGap / 2).contains(point)
+        }) {
+            return .screen(index)
+        }
         var best: (slot: WindowSlot, distance: CGFloat)?
         for cell in cells {
             guard let rect = layout.tiles[cell.slot] else { continue }

@@ -57,6 +57,8 @@ final class NotchState: ObservableObject {
         case windowSnap
         /// Превью письма из плашки Trudaybook — кнопкой «Показать превью».
         case letter
+        /// Переключатель окон и вкладок — пока держат ⌘Tab.
+        case windowSwitcher
 
         /// Закрывается ли накладка тем, что курсор ушёл за её границы.
         ///
@@ -85,6 +87,9 @@ final class NotchState: ObservableObject {
             // Раскладки окна закрывает контроллер: плитки — на экране под
             // чёлкой, и курсор уходит к ним за края выреза.
             case .windowSnap: return false
+            // Переключатель зовут клавишей, курсор в это время где угодно,
+            // а закрывает его отпущенный ⌘.
+            case .windowSwitcher: return false
             }
         }
 
@@ -486,7 +491,7 @@ struct NotchView: View {
                 switch presentation {
                 case .expanded, .clipboard, .assistant, .shelf, .timer,
                      .monitor, .teleprompter, .caffeine, .keyboardLock, .water, .notes,
-                     .calendar, .eventEditor, .feeds, .letter:
+                     .calendar, .eventEditor, .feeds, .letter, .windowSwitcher:
                     return NotchStyle.panelRadius
                 case .preview, .activity: return 20
                 case .swiping: return 14
@@ -1197,6 +1202,12 @@ struct NotchView: View {
                 onChoose: onLockKeyboard,
                 onUnlock: onUnlockKeyboard,
                 onClose: onCloseOverlay
+            )
+        case .windowSwitcher:
+            WindowSwitcherPanel(
+                switcher: .shared,
+                metrics: metrics,
+                onClose: { WindowSwitcher.shared.cancel() }
             )
         case .letter:
             LetterPreviewPanel(

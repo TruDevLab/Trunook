@@ -45,6 +45,8 @@ enum NotchPresentation: Equatable {
     case feeds
     /// Превью письма из плашки.
     case letter
+    /// Переключатель окон и вкладок.
+    case windowSwitcher
     /// Голосовой заход: панель не раскрывается, светится сам остров.
     case voice
     /// Кольцо быстрого доступа: кружки веером под чёлкой, пока держат кнопку.
@@ -87,7 +89,8 @@ enum NotchPresentation: Equatable {
         case .activity, .preview: return true
         case .collapsed, .chip, .swiping, .voice, .quickRing, .expanded,
              .clipboard, .assistant, .shelf, .timer, .monitor,
-             .teleprompter, .caffeine, .keyboardLock, .water, .notes, .calendar, .eventEditor, .feeds, .letter:
+             .teleprompter, .caffeine, .keyboardLock, .water, .notes, .calendar, .eventEditor, .feeds, .letter,
+             .windowSwitcher:
             return false
         }
     }
@@ -356,6 +359,11 @@ enum NotchSizing {
             return CGSize(
                 width: CaffeinePanel.width,
                 height: CaffeinePanel.height(notchHeight: metrics.notchHeight)
+            )
+        case .windowSwitcher:
+            return CGSize(
+                width: WindowSwitcherPanel.width,
+                height: WindowSwitcherPanel.height(notchHeight: metrics.notchHeight)
             )
         case .keyboardLock:
             return CGSize(

@@ -761,6 +761,33 @@ final class Settings: ObservableObject {
         set { store(newValue, "windowFillEnabled") }
     }
 
+    // MARK: - Переключатель окон
+
+    /// ⌘Tab (или ⌥Tab) открывает в вырезе переключатель окон и вкладок.
+    var windowSwitcherEnabled: Bool {
+        get { flag("windowSwitcherEnabled", default: true) }
+        set { store(newValue, "windowSwitcherEnabled") }
+    }
+
+    /// Каким модификатором держат переключатель.
+    var windowSwitcherTrigger: SwitcherTrigger {
+        get { SwitcherTrigger(rawValue: defaults.string(forKey: "windowSwitcherTrigger") ?? "") ?? .command }
+        set { store(newValue.rawValue, "windowSwitcherTrigger") }
+    }
+
+    /// Показывать вкладки окон браузера.
+    var windowSwitcherTabs: Bool {
+        get { flag("windowSwitcherTabs", default: true) }
+        set { store(newValue, "windowSwitcherTabs") }
+    }
+
+    /// Миниатюры окон в переключателе. Выключены: им нужна «Запись экрана»,
+    /// и спрашивать её у каждого, кто миниатюр не просил, незачем.
+    var windowSwitcherThumbnails: Bool {
+        get { flag("windowSwitcherThumbnails", default: false) }
+        set { store(newValue, "windowSwitcherThumbnails") }
+    }
+
     func resetHomeWidgets() {
         objectWillChange.send()
         defaults.removeObject(forKey: HomeWidgets.key)

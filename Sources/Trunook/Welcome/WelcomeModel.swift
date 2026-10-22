@@ -87,10 +87,10 @@ final class WelcomeModel: ObservableObject {
     enum Feature: String, CaseIterable, Identifiable {
         // Главный экран — первым: остальное на нём и живёт плитками.
         case home
-        case music, calendar, meetings, capture, assistant, agent, voice
+        case music, calendar, meetings, capture, writingHelp, assistant, agent, voice
         case news, sites
-        case notes, record, clipboard, shelf, windows, timer, breaks, countdown, monitor
-        case teleprompter, weather, battery, caffeine
+        case notes, record, clipboard, shelf, windows, switcher, timer, breaks, countdown, monitor
+        case teleprompter, weather, battery, caffeine, keyboardLock
 
         var id: String { rawValue }
 
@@ -101,6 +101,7 @@ final class WelcomeModel: ObservableObject {
             case .calendar: return t("Календарь и задачи")
             case .meetings: return t("Встречи")
             case .capture: return t("Захват текста")
+            case .writingHelp: return t("Помощь при письме")
             case .assistant: return t("Помощник")
             // Коротко, потому что список узкий: «Помощник с действиями»
             // обрезался в нём многоточием, а обрезанное название перестаёт
@@ -115,6 +116,8 @@ final class WelcomeModel: ObservableObject {
             case .clipboard: return t("Буфер обмена")
             case .shelf: return t("Полка")
             case .windows: return t("Окна")
+            // Коротко: полное «Переключатель окон» в столбец списка не влезает.
+            case .switcher: return t("Окна по ⌘Tab")
             case .timer: return t("Таймер")
             case .breaks: return t("Перерывы")
             case .countdown: return t("Обратный отсчёт")
@@ -123,6 +126,7 @@ final class WelcomeModel: ObservableObject {
             case .weather: return t("Погода")
             case .battery: return t("Батарея")
             case .caffeine: return t("Чашка кофе")
+            case .keyboardLock: return t("Чистка клавиатуры")
             }
         }
 
@@ -133,6 +137,7 @@ final class WelcomeModel: ObservableObject {
             case .calendar: return "calendar"
             case .meetings: return "video.fill"
             case .capture: return "text.viewfinder"
+            case .writingHelp: return "pencil.and.outline"
             case .assistant: return "sparkles"
             case .agent: return "wand.and.stars"
             case .voice: return "waveform"
@@ -143,6 +148,7 @@ final class WelcomeModel: ObservableObject {
             case .clipboard: return "doc.on.clipboard.fill"
             case .shelf: return "tray.full.fill"
             case .windows: return "rectangle.split.2x1.fill"
+            case .switcher: return "macwindow.on.rectangle"
             case .timer: return "timer"
             case .breaks: return "figure.cooldown"
             case .countdown: return "hourglass"
@@ -151,6 +157,7 @@ final class WelcomeModel: ObservableObject {
             case .weather: return "cloud.sun.fill"
             case .battery: return "bolt.fill"
             case .caffeine: return "cup.and.saucer.fill"
+            case .keyboardLock: return "keyboard"
             }
         }
 
@@ -162,6 +169,7 @@ final class WelcomeModel: ObservableObject {
             case .calendar: return t("Месяц, дела дня и правка события в вырезе")
             case .meetings: return t("Управление звонком, не переключаясь на вкладку")
             case .capture: return t("Выделенный текст — сразу в работу")
+            case .writingHelp: return t("Выделили — под чёлкой кнопки команд")
             case .assistant: return t("Вопрос модели без единого окна")
             case .agent: return t("Не только отвечает, но и делает")
             case .voice: return t("Спросить вслух и услышать ответ")
@@ -172,6 +180,7 @@ final class WelcomeModel: ObservableObject {
             case .clipboard: return t("История копирований под рукой")
             case .shelf: return t("Файлы на чёлке: отложить, сжать, поделиться")
             case .windows: return t("Окно к чёлке — и оно разложено")
+            case .switcher: return t("⌘Tab по окнам и вкладкам браузера")
             case .timer: return t("Отсчёт виден, не занимая экрана")
             case .breaks: return t("Перерыв, вода и разминка — вовремя")
             case .countdown: return t("Сколько осталось до вашего события")
@@ -180,6 +189,7 @@ final class WelcomeModel: ObservableObject {
             case .weather: return t("Предупреждает о дожде заранее")
             case .battery: return t("Заряд и питание без строки меню")
             case .caffeine: return t("Экран не гаснет, пока горит чашка")
+            case .keyboardLock: return t("Протереть клавиши, ничего не нажав")
             }
         }
 
@@ -197,6 +207,8 @@ final class WelcomeModel: ObservableObject {
                 return t("Пока идёт встреча в браузере, наведение на вырез показывает кнопки: микрофон, камера, демонстрация, поднять руку, выйти. Там же переключение динамиков и микрофона и кнопка записи. Работает с Телемостом, Google Meet, Zoom и Teams.")
             case .capture:
                 return t("⌃⌥C забирает выделенное в любом окне и открывает панель с ним. Ниже — список команд: перевести, исправить ошибки, пересказать. Команды свои, у каждой может быть своя модель и своя клавиша.")
+            case .writingHelp:
+                return t("Выделите текст в любом приложении — под чёлкой выйдет плашка: выделенное бегущей строкой и до шести кнопок команд — исправить ошибки, перевести, структурировать, улучшить, создать напоминание, сохранить в заметку. Ответ открывается в панели, и «Вставить» кладёт его на место выделенного. Кнопки — первые команды из списка в настройках, раздел «Команды».")
             case .agent:
                 return t("Помощнику можно давать поручения, а не только вопросы: «поставь таймер на двадцать минут», «что у меня завтра», «заведи встречу в пятницу в три», «напомни забрать посылку», «запиши, что нужно продлить страховку», «что я записывал про отпуск». Он сам выберет, чем это сделать, — календарём, напоминаниями, таймером, погодой или поиском по вашим записям. Всё, что он собирается записать, сперва показывается карточкой: «Создать» или «Отмена», — так что ошибку видно до того, как она попадёт в календарь. Включается в настройках, в разделе «Модель»; нужна модель, умеющая вызывать инструменты.")
             case .assistant:
@@ -216,7 +228,9 @@ final class WelcomeModel: ObservableObject {
             case .shelf:
                 return t("Ведите файлы на чёлку — вырез раскроется разделами. «На полку» откладывает файлы, чтобы вытащить их в другом окне. «Сжать в ZIP» собирает архив рядом, а над архивами раздел распаковывает. «Ссылка iCloud» кладёт копию в iCloud Drive и копирует ссылку на неё. «В Корзину» — без открытия Finder.")
             case .windows:
-                return t("Потащите окно за заголовок к чёлке — она покажет раскладки. Посередине весь экран и окно по центру на 85%, по бокам зеркально половина, две трети, треть и четверти. Отпустите окно на нужной — оно встанет по месту. Работает с окнами любых приложений; нужен Универсальный доступ.")
+                return t("Потащите окно за заголовок к чёлке — весь экран разметится плитками там, где окажутся окна: углы, половины, трети и четверти от краёв, весь экран и по центру. Отпустите окно над нужной — оно встанет по месту. Мониторов несколько — наведите окно на плашку нужного экрана под «Отменой», и раскладка встанет там, перетаскивать окно через мониторы не нужно. После половины, трети или четверти в остатке экрана сразу предлагаются другие окна. Работает с окнами любых приложений; нужен Универсальный доступ.")
+            case .switcher:
+                return t("Держите ⌘Tab — в вырезе ряд окон всех приложений: Tab листает, отпущенная ⌘ переводит в выбранное окно, Esc отменяет. У окна Safari, Arc или браузера на Chromium стрелка вниз открывает его вкладки. Миниатюры окон вместо значков включаются в настройках — для них нужна «Запись экрана». Сочетание можно сменить на ⌥Tab — тогда системный переключатель останется на месте.")
             case .breaks:
                 return t("Задайте, как часто напоминать сделать перерыв, попить воды и размяться. Считается только время за компьютером: ушли на обед — счёт не идёт. Вместе с напоминанием из чёлки выходит котик и показывает, что делать; напоминание ждёт, пока вы не нажмёте «Готово» или «Пропустить». Промежутки — в настройках, в разделе «Инструменты».")
             case .countdown:
@@ -233,6 +247,8 @@ final class WelcomeModel: ObservableObject {
                 return t("Подключение и отключение питания видно плашкой, низкий заряд — предупреждением. Порог настраивается.")
             case .caffeine:
                 return t("Чашка не даёт экрану гаснуть заданный срок. Пока она горит, вырез раздвинут полоской с остатком времени.")
+            case .keyboardLock:
+                return t("Кнопка с клавиатурой в левом крыле главного экрана глушит клавиши на 30, 60 или 90 секунд. Мышь и трекпад при этом работают — ими блокировку можно снять раньше срока.")
             }
         }
         /// Случай из жизни — по одному на функцию.
@@ -253,6 +269,8 @@ final class WelcomeModel: ObservableObject {
                 return t("Забыли выключить микрофон, уходя за чаем: кнопка микрофона в вырезе — не нужно искать окно встречи среди десятка других.")
             case .capture:
                 return t("Пришло письмо на английском: выделили абзац, ⌃⌥C, «Перевести» — перевод рядом, а вставить его можно прямо в ответ.")
+            case .writingHelp:
+                return t("Набросали ответ коллеге второпях: выделили его, «Исправить ошибки» — и исправленный текст встал на место набранного.")
             case .agent:
                 return t("Договорились о встрече в переписке: выделили сообщение и сказали «заведи встречу» — карточка покажет день и время, вам остаётся нажать «Создать».")
             case .assistant:
@@ -273,6 +291,8 @@ final class WelcomeModel: ObservableObject {
                 return t("Нужно отправить папку с макетами: перетащили на чёлку в «Ссылку iCloud» — ссылка уже в буфере, остаётся вставить её в письмо.")
             case .windows:
                 return t("Сравниваете два документа: первый к чёлке на левую половину, второй — на правую, и оба перед глазами без возни с краями окон.")
+            case .switcher:
+                return t("Открыто три окна браузера и два документа: ⌘Tab, стрелка вниз — и вы сразу на нужной вкладке, а не перебираете окна по одному.")
             case .breaks:
                 return t("Засиделись над задачей три часа подряд: вырез напомнит размяться, котик покажет зарядку, а отложить можно одной кнопкой.")
             case .countdown:
@@ -289,6 +309,8 @@ final class WelcomeModel: ObservableObject {
                 return t("Работаете от батареи: вырез предупредит о низком заряде сам, а не тихой плашкой в углу, которую легко пропустить.")
             case .caffeine:
                 return t("Показываете презентацию: нажали чашку на час — экран не погаснет посреди слайда, и выключать заставку насовсем не придётся.")
+            case .keyboardLock:
+                return t("Пролили кофе на клавиатуру: заблокировали её на минуту и протёрли — в открытом письме не появилось ни одной лишней буквы.")
             }
         }
     }

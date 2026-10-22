@@ -216,6 +216,15 @@ commands — one in the 1×1 size. Select text in another window, click
   changed your mind — Cancel or Esc. After a half, third or quarter, other
   windows are offered for the rest of the screen; after a corner, for the
   three remaining corners in turn.
+  With several monitors, pills for each screen sit under Cancel, with an
+  arrow showing where it stands: hover the window over the screen you want,
+  then over a tile — the window goes there without dragging it across
+  monitors. The chosen screen lights up with a frame and the window outline.
+- **Window switcher.** Hold ⌘Tab and the notch shows a row of every app's
+  windows: Tab moves, releasing ⌘ switches to the chosen window, Esc cancels.
+  For a Safari, Arc or Chromium browser window, the down arrow opens its tabs.
+  Window thumbnails instead of icons are optional and need Screen Recording.
+  The shortcut can be changed to ⌥Tab, leaving the system switcher in place.
 - **Several monitors.** The Screens setting: the island only on the screen
   with the notch, on the screen under the cursor, or on all of them at once.
   Screens without a notch draw nothing at rest, and in "All screens" mode

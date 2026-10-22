@@ -568,6 +568,7 @@ final class NotchController {
             self?.saveTextToNotes(text, origin: .selection, done: t("Записано в заметки"))
         }
         installWritingHelp()
+        installWindowSwitcher()
         installHotKeys()
         installVoice()
 
@@ -1085,6 +1086,9 @@ final class NotchController {
     /// Побочные действия смены накладки. Само решение приняли в `OverlayRouter`,
     /// здесь — только то, что требует служб.
     private func applyOverlay(_ overlay: NotchState.Overlay?) {
+        // Переключатель закрыли снаружи — щелчком мимо, другой панелью:
+        // ⌘ ещё держат, но выбирать уже не из чего.
+        if overlay != .windowSwitcher, WindowSwitcher.shared.isShown { WindowSwitcher.shared.cancel() }
         if overlay != nil {
             Haptics.tap()
             activities.dismiss()
@@ -4042,6 +4046,124 @@ final class NotchController {
                               app, average, times.max() ?? 0))
     }
 
+    // MARK: - Переключатель окон
+
+    private let switcherTap = SwitcherKeyTap()
+    private var switcherSettingsObservation: AnyCancellable?
+    private var switcherLockObservation: AnyCancellable?
+    /// Перехватчик не встал — Универсального доступа ещё нет. Пробуем позже.
+    private var switcherRetry: Timer?
+
+    private func installWindowSwitcher() {
+        let switcher = WindowSwitcher.shared
+        switcherTap.onKey = { [weak self] action in self?.switcherKey(action) }
+        switcher.onShow = { [weak self] in
+            guard let self else { return }
+            // Телесуфлер держат открытым, пока работают в чужих окнах:
+            // переключатель его не сгоняет и работает без панели.
+            guard self.state.overlay != .teleprompter else { return }
+            self.router.set(.windowSwitcher)
+        }
+        switcher.onHide = { [weak self] in
+            guard let self, self.state.overlay == .windowSwitcher else { return }
+            self.router.close()
+        }
+        switcher.onEnd = { [weak self] in self?.switcherTap.isOpen = false }
+        switcher.tabsEnabled = { [weak self] in self?.settings.windowSwitcherTabs ?? false }
+        switcher.thumbnailsEnabled = { [weak self] in self?.settings.windowSwitcherThumbnails ?? false }
+        // `objectWillChange` приходит до записи — читаем на следующем витке.
+        switcherSettingsObservation = settings.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.updateSwitcherTap() }
+        }
+        // Пока клавиатуру чистят, ⌘Tab не значит ничего: перехватчик снят.
+        switcherLockObservation = keyboardLock.$endsAt.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.updateSwitcherTap() }
+        }
+        updateSwitcherTap()
+    }
+
+    /// Перехватчик стоит, только пока переключатель включён и клавиатуру
+    /// не чистят: на пути каждого нажатия в системе ему без дела не место.
+    private func updateSwitcherTap() {
+        switcherTap.trigger = settings.windowSwitcherTrigger
+        let wanted = settings.windowSwitcherEnabled && !keyboardLock.isOn
+        guard wanted else {
+            switcherRetry?.invalidate()
+            switcherRetry = nil
+            if switcherTap.isRunning { switcherTap.stop() }
+            WindowSwitcher.shared.cancel()
+            return
+        }
+        guard !switcherTap.isRunning else { return }
+        if switcherTap.start() {
+            switcherRetry?.invalidate()
+            switcherRetry = nil
+        } else if switcherRetry == nil {
+            // Доступ выдают руками в Системных настройках, сообщения об этом
+            // нет — пробуем раз в десять секунд, пока не встанет.
+            let timer = Timer(timeInterval: 10, repeats: true) { [weak self] _ in
+                guard let self, AccessibilityAccess.isTrusted else { return }
+                self.switcherRetry?.invalidate()
+                self.switcherRetry = nil
+                self.updateSwitcherTap()
+            }
+            timer.tolerance = 2
+            RunLoop.main.add(timer, forMode: .common)
+            switcherRetry = timer
+        }
+    }
+
+    private func switcherKey(_ action: SwitcherKey) {
+        let switcher = WindowSwitcher.shared
+        switch action {
+        case let .open(step):
+            // Экран блокировки — не место списку окон: его видит любой.
+            guard !lockScreenShown else {
+                switcherTap.isOpen = false
+                return
+            }
+            switcher.begin(step: step)
+        case let .step(step): switcher.move(step)
+        case let .tabs(down): switcher.enterTabs(down)
+        case .commit: switcher.commit()
+        case .cancel: switcher.cancel()
+        case .swallow, .lost, .pass: break
+        }
+    }
+
+    /// Переключатель без ⌘: открыть, листать и выбрать отладочными событиями.
+    func debugSwitcher(_ action: SwitcherKey) {
+        switcherKey(action)
+    }
+
+    /// Образцы вкладок у подсвеченного окна — для снимка ряда вкладок.
+    func debugSwitcherDemoTabs() { WindowSwitcher.shared.debugDemoTabs() }
+
+    /// Сколько стоит открытие: сбор окон и вкладки каждого браузера — в журнал.
+    func debugSwitcherProbe() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let start = CFAbsoluteTimeGetCurrent()
+            let items = SwitcherWindows.collect()
+            let ms = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            let kinds = Dictionary(grouping: items, by: \.kind).mapValues(\.count)
+            DebugLog.write("переключатель: «Запись экрана» \(WindowThumbnails.isAllowed ? "есть" : "нет") — миниатюры \(WindowThumbnails.isAllowed ? "снимаются" : "заменены значками")")
+            DebugLog.write(String(format: "переключатель: сбор %.0f мс — окон %d, свёрнутых %d, приложений %d", ms,
+                                  kinds[.window] ?? 0, kinds[.minimized] ?? 0, kinds[.app] ?? 0))
+            // Кто из приложений отвечает Универсальному доступу дольше всех.
+            for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+                let start = CFAbsoluteTimeGetCurrent()
+                let count = DraggedWindow.windows(ofApp: app.processIdentifier).count
+                DebugLog.write(String(format: "переключатель:   %@ — окон %d за %.1f мс", app.localizedName ?? "?",
+                                      count, (CFAbsoluteTimeGetCurrent() - start) * 1000))
+            }
+            for bundleID in Set(items.compactMap(\.bundleID)) where BrowserTabs.family(of: bundleID) != nil {
+                BrowserTabs.load(bundleID: bundleID) { result in
+                    DebugLog.write("переключатель: \(bundleID) — \(result.summary)")
+                }
+            }
+        }
+    }
+
     // MARK: - Раскладка окон
 
     /// Окно, которое потащили, пока кнопка зажата. `nil` — ничего не тащат
@@ -4135,7 +4257,17 @@ final class NotchController {
         let target = snapScreen.target(at: cursor)
         guard target != snapScreen.model.target else { return }
         snapScreen.model.target = target
+        // Наведение на плашку экрана и есть выбор: дальше окно ведут к плитке,
+        // и экран должен остаться выбранным, когда курсор с плашки ушёл.
+        if case let .screen(index)? = target { chooseSnapScreen(index) }
         if target != nil { Haptics.tap(.alignment) }
+    }
+
+    private func chooseSnapScreen(_ index: Int) {
+        guard snapScreen.model.screenIndex != index else { return }
+        snapScreen.model.screenIndex = index
+        let name = snapScreen.targetScreen?.localizedName ?? "?"
+        DebugLog.write("окна: окно встанет на экран \(index) — \(name)")
     }
 
     /// Кнопку отпустили. Над плиткой — окно ложится по ней, над отменой —
@@ -4155,6 +4287,11 @@ final class NotchController {
         case .cancel?:
             DebugLog.write("окна: отмена")
             closeWindowSnap()
+        case let .screen(index)?:
+            // Отпустили на плашке экрана — экран выбран, раскладку выбирают щелчком.
+            chooseSnapScreen(index)
+            snapScreen.model.target = nil
+            snapScreen.enterClickMode()
         case nil:
             snapScreen.model.target = nil
             snapScreen.enterClickMode()
@@ -4163,6 +4300,12 @@ final class NotchController {
 
     /// Щелчок в режиме щелчка: мимо плиток — та же отмена.
     private func chooseWindowSnap(_ target: WindowSnapBoard.Target?) {
+        // Щелчок по плашке экрана меняет экран и ждёт щелчка по плитке.
+        if case let .screen(index)? = target {
+            chooseSnapScreen(index)
+            Haptics.tap(.alignment)
+            return
+        }
         guard case let .slot(slot)? = target else {
             DebugLog.write("окна: отмена щелчком")
             closeWindowSnap()
@@ -4172,7 +4315,8 @@ final class NotchController {
     }
 
     private func applyWindowSnap(_ slot: WindowSlot) {
-        guard let window = snapWindow, let screen = snapScreen.screen else {
+        // Экран — выбранный плашкой: окно уезжает туда сразу по месту.
+        guard let window = snapWindow, let screen = snapScreen.targetScreen else {
             closeWindowSnap()
             return
         }
@@ -4264,6 +4408,13 @@ final class NotchController {
         }
         snapScreen.model.target = targets[index + 1]
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.snapScreen.snapshot() }
+    }
+
+    /// Следующий экран в открытой разметке — проверить подсветку монитора
+    /// без перетаскивания.
+    func debugNextSnapScreen() {
+        guard snapScreen.isShown, !snapScreen.screens.isEmpty else { return }
+        chooseSnapScreen((snapScreen.model.screenIndex + 1) % snapScreen.screens.count)
     }
 
     /// Разметка для переднего окна сразу в режиме щелчка — как будто окно

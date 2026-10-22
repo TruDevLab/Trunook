@@ -8,6 +8,14 @@ final class WindowSnapModel: ObservableObject {
     @Published var target: WindowSnapBoard.Target?
     /// Окно отпустили над чёлкой — раскладку выбирают щелчком.
     @Published var clickMode = false
+    /// На какой экран встанет окно — номер в ряду экранов слева направо.
+    /// Выбор держится: навели на плашку экрана, повели к плитке — экран
+    /// остался выбранным.
+    @Published var screenIndex = 0
+    /// Экран, на котором открыта разметка, — «этот».
+    @Published var homeIndex = 0
+    /// Подписи плашек экранов.
+    @Published var screenNames: [String] = []
 
     var slot: WindowSlot? {
         if case let .slot(slot) = target { return slot }
@@ -32,9 +40,18 @@ final class WindowSnapScreen {
     var onCancel: (() -> Void)?
 
     private var panel: NSPanel?
+    /// Подсветка на других мониторах: рамка выбранного экрана и контур окна.
+    private var targetPanels: [NSPanel] = []
     private var monitors: [Any] = []
     private(set) var layout: WindowSnapBoard.Layout?
     private(set) var screen: NSScreen?
+    /// Мониторы слева направо — в том же порядке, что плашки.
+    private(set) var screens: [NSScreen] = []
+
+    /// Экран, на который встанет окно: выбранный плашкой или этот.
+    var targetScreen: NSScreen? {
+        screens.indices.contains(model.screenIndex) ? screens[model.screenIndex] : screen
+    }
 
     var isShown: Bool { panel != nil }
 
@@ -45,32 +62,24 @@ final class WindowSnapScreen {
         self.screen = screen
         model.target = nil
         model.clickMode = false
+        // Порядок — как мониторы стоят на столе: слева направо, при равенстве
+        // сверху вниз. Плашки читаются картой, а не списком.
+        let ordered = NSScreen.screens.sorted {
+            $0.frame.minX != $1.frame.minX ? $0.frame.minX < $1.frame.minX : $0.frame.maxY > $1.frame.maxY
+        }
+        screens = ordered
+        let home = ordered.firstIndex { $0 == screen } ?? 0
+        model.homeIndex = home
+        model.screenIndex = home
+        model.screenNames = Self.names(ordered, home: home)
         let full = screen.frame
-        let layout = WindowSnapBoard.layout(screen: full, visible: screen.visibleFrame, notch: notch)
+        let layout = WindowSnapBoard.layout(screen: full, visible: screen.visibleFrame, notch: notch,
+                                            screenCount: ordered.count)
         self.layout = layout
 
-        // Рамки окон — в координатах окна разметки, от левого верхнего угла.
-        var frames: [WindowSlot: CGRect] = [:]
-        for slot in WindowSlot.allCases {
-            let rect = slot.frame(in: screen.visibleFrame)
-            frames[slot] = CGRect(x: rect.minX - full.minX, y: full.maxY - rect.maxY, width: rect.width, height: rect.height)
-        }
-
-        let panel = KeyPanel(contentRect: full, styleMask: [.borderless, .nonactivatingPanel],
-                             backing: .buffered, defer: false)
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.isMovable = false
-        panel.ignoresMouseEvents = true
-        panel.hidesOnDeactivate = false
-        // Сеттер `isFloatingPanel` сам ставит уровень — свой строго после него.
-        panel.isFloatingPanel = true
-        panel.level = Self.level
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.animationBehavior = .none
-        panel.isReleasedWhenClosed = false
-        let hosting = NSHostingView(rootView: WindowSnapScreenView(model: model, layout: layout, frames: frames)
+        let panel = Self.makePanel(frame: full)
+        let hosting = NSHostingView(rootView: WindowSnapScreenView(model: model, layout: layout,
+                                                                   frames: Self.frames(on: screen))
             .environment(\.colorScheme, .dark))
         hosting.sizingOptions = []
         panel.contentView = hosting
@@ -82,7 +91,64 @@ final class WindowSnapScreen {
             panel.animator().alphaValue = 1
         }
         self.panel = panel
-        DebugLog.write("окна: разметка экрана \(NSStringFromRect(full))")
+
+        // На остальных мониторах — прозрачные окна, которые оживают, только
+        // когда их экран выбран: рамка и контур окна там, где оно встанет.
+        for (index, other) in ordered.enumerated() where index != home {
+            let target = Self.makePanel(frame: other.frame)
+            let view = WindowSnapTargetView(
+                model: model, index: index,
+                visible: Self.local(other.visibleFrame, in: other.frame),
+                frames: Self.frames(on: other)
+            )
+            let host = NSHostingView(rootView: view.environment(\.colorScheme, .dark))
+            host.sizingOptions = []
+            target.contentView = host
+            target.setFrame(other.frame, display: false)
+            target.orderFrontRegardless()
+            targetPanels.append(target)
+        }
+        DebugLog.write("окна: разметка экрана \(NSStringFromRect(full)), мониторов \(ordered.count)")
+    }
+
+    private static func makePanel(frame: CGRect) -> KeyPanel {
+        let panel = KeyPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
+                             backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.isMovable = false
+        panel.ignoresMouseEvents = true
+        panel.hidesOnDeactivate = false
+        // Сеттер `isFloatingPanel` сам ставит уровень — свой строго после него.
+        panel.isFloatingPanel = true
+        panel.level = level
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.animationBehavior = .none
+        panel.isReleasedWhenClosed = false
+        return panel
+    }
+
+    /// Рамка в координатах окна на экране — от его левого верхнего угла.
+    private static func local(_ rect: CGRect, in full: CGRect) -> CGRect {
+        CGRect(x: rect.minX - full.minX, y: full.maxY - rect.maxY, width: rect.width, height: rect.height)
+    }
+
+    /// Рамки окон по всем раскладкам — в координатах окна на этом экране.
+    private static func frames(on screen: NSScreen) -> [WindowSlot: CGRect] {
+        var frames: [WindowSlot: CGRect] = [:]
+        for slot in WindowSlot.allCases {
+            frames[slot] = local(slot.frame(in: screen.visibleFrame), in: screen.frame)
+        }
+        return frames
+    }
+
+    /// Подписи плашек: «Этот экран», у остальных — имя монитора со стрелкой,
+    /// где он стоит относительно этого. Два одинаковых монитора различает
+    /// стрелка, а одинаковые и по стрелке — номер.
+    static func names(_ screens: [NSScreen], home: Int) -> [String] {
+        let frames = screens.map(\.frame)
+        return SnapScreenNames.names(frames: frames, titles: screens.map(\.localizedName), home: home)
     }
 
     /// Окно отпустили над чёлкой: разметка остаётся, выбор — щелчком.
@@ -131,6 +197,9 @@ final class WindowSnapScreen {
     func close() {
         monitors.forEach(NSEvent.removeMonitor)
         monitors.removeAll()
+        targetPanels.forEach { $0.orderOut(nil); $0.contentView = nil }
+        targetPanels.removeAll()
+        screens = []
         guard let panel else { return }
         panel.orderOut(nil)
         panel.contentView = nil
@@ -172,10 +241,15 @@ struct WindowSnapScreenView: View {
                 }
             }
 
-            contour(slot)
+            contour(model.screenIndex == model.homeIndex ? slot : nil)
 
             cancel
                 .place(layout.cancel)
+
+            ForEach(Array(layout.screens.enumerated()), id: \.offset) { index, rect in
+                screenChip(index)
+                    .place(rect)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .ignoresSafeArea()
@@ -240,6 +314,32 @@ struct WindowSnapScreenView: View {
         }
     }
 
+    /// Плашка экрана. Выбранная — залита: туда встанет окно. Под курсором —
+    /// обведена ярче.
+    private func screenChip(_ index: Int) -> some View {
+        let chosen = model.screenIndex == index
+        let hovered = model.target == .screen(index)
+        let name = model.screenNames.indices.contains(index) ? model.screenNames[index] : ""
+        return HStack(spacing: 6) {
+            Image(systemName: index == model.homeIndex ? "laptopcomputer" : "display")
+                .font(.system(size: 12, weight: .semibold))
+            Text(name)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .padding(.horizontal, 10)
+        .foregroundStyle(chosen ? .white : .white.opacity(0.85))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Capsule().fill(chosen ? Palette.cyan.opacity(0.35) : .black.opacity(0.82)))
+        .overlay(Capsule().strokeBorder(chosen || hovered ? Palette.cyan : .white.opacity(0.35),
+                                        lineWidth: chosen || hovered ? 2 : 1))
+        .animation(.easeOut(duration: 0.12), value: chosen)
+        .animation(.easeOut(duration: 0.12), value: hovered)
+        .accessibilityLabel(name)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
+    }
+
     /// Отмена — первой под чёлкой: случайно донёс окно до выреза — отпусти
     /// здесь или щёлкни, и ничего не случится.
     private var cancel: some View {
@@ -256,6 +356,87 @@ struct WindowSnapScreenView: View {
         .overlay(Capsule().strokeBorder(active ? Palette.rose : .white.opacity(0.35), lineWidth: active ? 2 : 1))
         .animation(.easeOut(duration: 0.1), value: active)
         .accessibilityLabel(t("Отмена"))
+    }
+}
+
+/// Выбранный монитор: рамка по рабочей области, имя сверху и контур окна
+/// в настоящем размере. Пока выбран другой экран — ничего не рисует.
+struct WindowSnapTargetView: View {
+    @ObservedObject var model: WindowSnapModel
+    let index: Int
+    let visible: CGRect
+    let frames: [WindowSlot: CGRect]
+
+    var body: some View {
+        let chosen = model.screenIndex == index
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        ZStack(alignment: .topLeading) {
+            if chosen {
+                shape
+                    .strokeBorder(Palette.cyan.opacity(0.8), lineWidth: 4)
+                    .place(visible.insetBy(dx: 6, dy: 6))
+                if let slot = model.slot, let rect = frames[slot] {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Palette.cyan.opacity(0.12))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Palette.cyan, lineWidth: 3))
+                        .place(rect.insetBy(dx: 3, dy: 3))
+                }
+                Text(model.slot.map { tf("Окно встанет сюда: %@", $0.title) } ?? t("Окно встанет на этот экран"))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .background(Capsule().fill(.black.opacity(0.82)))
+                    .overlay(Capsule().strokeBorder(Palette.cyan, lineWidth: 1.5))
+                    .frame(width: visible.width)
+                    .offset(x: visible.minX, y: visible.minY + 24)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .ignoresSafeArea()
+        .animation(NotchMotion.reduced ? nil : .easeOut(duration: 0.15), value: chosen)
+        .animation(NotchMotion.reduced ? nil : .spring(duration: 0.3, bounce: 0.12), value: model.slot)
+        .allowsHitTesting(false)
+    }
+}
+
+/// Подписи плашек экранов — чистая функция под тестом.
+enum SnapScreenNames {
+    /// Куда сдвинут монитор: прямо или по диагонали. Диагональ — когда меньший
+    /// сдвиг больше двух пятых большего: два монитора над ноутбуком, левее
+    /// и правее, иначе оба читались бы «↑» или один «↑», другой «→».
+    /// `dy` — вверх, как в AppKit.
+    static func arrow(dx: CGFloat, dy: CGFloat) -> String {
+        let big = max(abs(dx), abs(dy)), small = min(abs(dx), abs(dy))
+        if big > 0, small / big > 0.4 {
+            switch (dx < 0, dy > 0) {
+            case (true, true): return "↖"
+            case (false, true): return "↗"
+            case (true, false): return "↙"
+            case (false, false): return "↘"
+            }
+        }
+        return abs(dx) >= abs(dy) ? (dx < 0 ? "←" : "→") : (dy > 0 ? "↑" : "↓")
+    }
+
+    /// `frames` — рамки мониторов в порядке плашек, `titles` — их имена,
+    /// `home` — номер экрана с разметкой.
+    static func names(frames: [CGRect], titles: [String], home: Int) -> [String] {
+        guard frames.indices.contains(home) else { return titles }
+        let center = CGPoint(x: frames[home].midX, y: frames[home].midY)
+        var labels = frames.enumerated().map { index, frame -> String in
+            guard index != home else { return t("Этот экран") }
+            return "\(arrow(dx: frame.midX - center.x, dy: frame.midY - center.y)) \(titles[index])"
+        }
+        // Одинаковые подписи — с номером по порядку.
+        let original = labels
+        var seen: [String: Int] = [:]
+        for (index, label) in original.enumerated() where original.filter({ $0 == label }).count > 1 {
+            seen[label, default: 0] += 1
+            labels[index] = "\(label) \(seen[label]!)"
+        }
+        return labels
     }
 }
 

@@ -51,7 +51,7 @@ final class PermissionCenter: ObservableObject {
             case .reminders:
                 return t("Напоминания со сроком — вырез предупредит заранее.")
             case .accessibility:
-                return t("Выделенный текст для запросов к модели, кнопки онлайн-встречи и вызов голосового ассистента двойным нажатием.")
+                return t("Выделенный текст для команд, кнопки онлайн-встречи, голосовой вызов, раскладка окон и переключатель по ⌘Tab.")
             case .microphone:
                 return t("Голосовому ассистенту — чтобы услышать вопрос.")
             case .speech:
@@ -256,12 +256,14 @@ final class PermissionCenter: ObservableObject {
         case .reminders: return settings.remindersEnabled
         // Голос сюда добавился не для полноты: вызов идёт глобальным
         // монитором событий, а тот без Универсального доступа нажатий
-        // не получает вовсе. Раскладка окон двигает чужие окна им же.
+        // не получает вовсе. Раскладка окон двигает чужие окна им же,
+        // переключатель окон им же ловит ⌘Tab и поднимает окна.
         case .accessibility:
             return settings.quickCommandsEnabled
                 || settings.meetingControlsEnabled
                 || settings.voiceEnabled
                 || settings.windowSnapEnabled
+                || settings.windowSwitcherEnabled
         case .microphone, .speech: return settings.voiceEnabled
         case .files: return settings.shelfEnabled
         case .location: return settings.weatherEnabled && settings.weatherSource == .location

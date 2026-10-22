@@ -333,7 +333,16 @@ extension WelcomeView {
                         gesture("arrow.left.arrow.right", t("Свайп двумя пальцами"),
                                 t("Предыдущий и следующий трек"))
                     }
+                    if settings.windowSnapEnabled {
+                        gesture("rectangle.split.2x1.fill", t("Потащите окно к чёлке"),
+                                t("Экран разметится раскладками — отпустите окно на нужной"))
+                    }
+                    if settings.writingHelpEnabled, settings.quickCommandsEnabled {
+                        gesture("pencil.and.outline", t("Выделите текст в любом окне"),
+                                t("Под чёлкой выйдут кнопки команд к нему"))
+                    }
                     sectionLabel(t("Сочетания клавиш"))
+                    switcherRow
                     if uses.contains(.assistant) { assistantHotKeyRow }
                     if uses.contains(.clipboard) { clipboardHotKeyRow }
                     if uses.contains(.calendar) { calendarHotKeyRow }

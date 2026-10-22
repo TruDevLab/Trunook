@@ -106,6 +106,7 @@ struct NotchMetrics: Equatable {
         let water = WaterPanel.height(notchHeight: notchHeight)
         let feeds = FeedsPanel.height(notchHeight: notchHeight)
         let letter = LetterPreviewPanel.height(notchHeight: notchHeight)
+        let switcher = WindowSwitcherPanel.height(notchHeight: notchHeight)
         // Кольцо в окне не панель, но обрезает его так же. Веер расходится
         // с ростом списка, и рано или поздно он перерос бы самую высокую
         // панель молча — а окно режет без предупреждения. Меряется полный
@@ -134,6 +135,7 @@ struct NotchMetrics: Equatable {
                 CalendarPanel.width,
                 EventEditorPanel.width,
                 LetterPreviewPanel.width(notchWidth: notchWidth),
+                WindowSwitcherPanel.width,
                 ringSize.width,
                 MeetingControlsView.width(actionCount: MeetingAction.allCases.count, metrics: self)
             ),
@@ -143,7 +145,7 @@ struct NotchMetrics: Equatable {
             // оформления.
             height: max(
                 panel.height, clipboard, assistant, shelf,
-                teleprompter, caffeine, keyboardLock, water, notes, calendar, editor, feeds, letter,
+                teleprompter, caffeine, keyboardLock, water, notes, calendar, editor, feeds, letter, switcher,
                 notchHeight + ringSize.height
             ) + NotchHintLayout.reserved
         )

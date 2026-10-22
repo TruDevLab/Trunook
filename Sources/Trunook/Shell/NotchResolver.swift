@@ -182,6 +182,7 @@ struct NotchInputs: Equatable {
         // лишь держит вырез занятым, чтобы мини-вид не раскрылся под доской.
         case .windowSnap: return .collapsed
         case .letter: return .letter
+        case .windowSwitcher: return .windowSwitcher
         case nil: break
         }
         // Кольцо выше всего, кроме накладок: его держат рукой прямо сейчас,

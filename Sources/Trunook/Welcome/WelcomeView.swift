@@ -511,6 +511,47 @@ struct WelcomeView: View {
 
     /// Таймер: своё сочетание и подсказка про полоску в чёлке — иначе о ней
     /// узнают случайно.
+    /// Переключатель окон: сочетание у него не записывается, а выбирается —
+    /// ⌘Tab вместо системного, ⌥Tab рядом с ним или выключен.
+    var switcherRow: some View {
+        WelcomeCard {
+            HStack(spacing: 13) {
+                WelcomeGlyph(symbol: "macwindow.on.rectangle", size: WelcomeStyle.tile)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Переключатель окон"))
+                        .font(.system(size: WelcomeStyle.title, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(t("Окна и вкладки браузера в вырезе — держите и листайте Tab"))
+                        .font(.system(size: WelcomeStyle.detail, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Picker(t("Переключатель окон"), selection: Binding(
+                    get: { settings.windowSwitcherEnabled ? settings.windowSwitcherTrigger.rawValue : "off" },
+                    set: { value in
+                        if let trigger = SwitcherTrigger(rawValue: value) {
+                            settings.windowSwitcherTrigger = trigger
+                            settings.windowSwitcherEnabled = true
+                        } else {
+                            settings.windowSwitcherEnabled = false
+                        }
+                    }
+                )) {
+                    ForEach(SwitcherTrigger.allCases) { trigger in
+                        Text(trigger.title).tag(trigger.rawValue)
+                    }
+                    Text(t("Выключен")).tag("off")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: WelcomeStyle.shortcutField.width)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+    }
+
     var timerHotKeyRow: some View {
         WelcomeCard {
             HStack(spacing: 13) {
